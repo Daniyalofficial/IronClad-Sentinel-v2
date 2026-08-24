@@ -1,0 +1,134 @@
+rules:
+  - id: JS-EVAL-USE
+    title: Use of eval() with dynamic content
+    languages: [javascript, typescript]
+    severity: high
+    category: injection
+    cwe: CWE-95
+    owasp: "A03:2021-Injection"
+    pattern: 'eval\s*\('
+    message: >
+      eval() executes arbitrary JavaScript. If any part of the evaluated
+      string is influenced by user input, this is a direct remote code
+      execution vector.
+    remediation: >
+      Avoid eval() entirely. Use JSON.parse for data, or a proper
+      expression parser for dynamic logic.
+    confidence: medium
+
+  - id: JS-INNERHTML-XSS
+    title: Potential DOM XSS via innerHTML assignment
+    languages: [javascript, typescript]
+    severity: medium
+    category: xss
+    cwe: CWE-79
+    owasp: "A03:2021-Injection"
+    pattern: '\.innerHTML\s*='
+    message: >
+      Assigning to innerHTML with unsanitized data allows attacker-controlled
+      HTML/JS to execute in the victim's browser (DOM-based XSS).
+    remediation: >
+      Use textContent for plain text, or sanitize HTML with a library like
+      DOMPurify before assigning to innerHTML.
+    confidence: low
+
+  - id: JS-DOCUMENT-WRITE
+    title: Use of document.write()
+    languages: [javascript, typescript]
+    severity: low
+    category: xss
+    cwe: CWE-79
+    pattern: 'document\.write\s*\('
+    message: >
+      document.write() with dynamic content is a classic XSS sink and also
+      blocks streaming page parsing.
+    remediation: Use safer DOM APIs (createElement/textContent) instead.
+    confidence: low
+
+  - id: JS-HARDCODED-SECRET-ASSIGN
+    title: Hardcoded credential/secret assignment
+    languages: [javascript, typescript]
+    severity: high
+    category: secrets
+    cwe: CWE-798
+    owasp: "A07:2021-Identification and Authentication Failures"
+    pattern: '(?i)(api[_-]?key|secret|token|password|passwd)\s*[:=]\s*["\x27][A-Za-z0-9_\-]{12,}["\x27]'
+    exclude_if_matches: 'process\.env|import\.meta\.env|os\.environ'
+    message: >
+      A credential-looking value is hardcoded directly in source rather
+      than loaded from configuration/secret storage.
+    remediation: >
+      Move the value to an environment variable or a secrets manager and
+      reference it via process.env / a config loader.
+    confidence: medium
+
+  - id: JS-JWT-NONE-ALG
+    title: JWT verification allows 'none' algorithm
+    languages: [javascript, typescript]
+    severity: critical
+    category: authentication
+    cwe: CWE-347
+    owasp: "A02:2021-Cryptographic Failures"
+    pattern: 'algorithms\s*:\s*\[\s*["\x27]none["\x27]'
+    message: >
+      Accepting the "none" JWT algorithm allows an attacker to forge
+      arbitrary tokens with no signature at all.
+    remediation: Explicitly allowlist strong algorithms only (e.g. RS256, HS256) and never include "none".
+    confidence: high
+
+  - id: JS-INSECURE-RANDOM-SECURITY
+    title: Math.random() used in a security-sensitive context
+    languages: [javascript, typescript]
+    severity: medium
+    category: crypto
+    cwe: CWE-338
+    pattern: '(?i)(token|session|password|reset|otp|nonce|csrf)[A-Za-z0-9_]*\s*=\s*.*Math\.random\('
+    message: >
+      Math.random() is not cryptographically secure and is predictable.
+      Using it to generate tokens/session IDs/reset codes allows attackers
+      to guess or brute-force valid values.
+    remediation: Use crypto.randomBytes() (Node) or crypto.getRandomValues() (browser) instead.
+    confidence: medium
+
+  - id: JS-DISABLE-TLS-REJECT-UNAUTHORIZED
+    title: Node.js TLS certificate validation disabled
+    languages: [javascript, typescript]
+    severity: critical
+    category: crypto
+    cwe: CWE-295
+    owasp: "A02:2021-Cryptographic Failures"
+    pattern: 'NODE_TLS_REJECT_UNAUTHORIZED\s*=\s*["\x27]?0'
+    message: >
+      Disabling NODE_TLS_REJECT_UNAUTHORIZED turns off TLS certificate
+      validation process-wide, enabling trivial man-in-the-middle attacks.
+    remediation: Remove this setting; fix the underlying certificate issue instead (e.g. trust the correct CA).
+    confidence: high
+
+  - id: JS-CHILD-PROCESS-EXEC
+    title: child_process.exec with concatenated input
+    languages: [javascript, typescript]
+    severity: high
+    category: injection
+    cwe: CWE-78
+    owasp: "A03:2021-Injection"
+    pattern: 'child_process\.exec\s*\(\s*[`"\x27].*\$\{'
+    message: >
+      Shell command built via string interpolation and passed to exec().
+      If any interpolated value is attacker-influenced this is command
+      injection.
+    remediation: Use execFile()/spawn() with an argument array instead of exec() with a shell string.
+    confidence: medium
+
+  - id: JS-REGEX-DOS
+    title: Potential ReDoS via nested-quantifier regular expression
+    languages: [javascript, typescript]
+    severity: low
+    category: denial-of-service
+    cwe: CWE-1333
+    pattern: '\([^()]*[+*]\)[+*]'
+    message: >
+      A regular expression with nested quantifiers (e.g. (a+)+) can exhibit
+      catastrophic backtracking on certain crafted inputs, causing a denial
+      of service.
+    remediation: Simplify the regex to avoid ambiguous nested repetition, or use a regex engine with linear-time guarantees (e.g. RE2).
+    confidence: low

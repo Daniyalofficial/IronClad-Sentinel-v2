@@ -1,0 +1,57 @@
+# Example IronClad Sentinel project configuration.
+# Copy to `.ironclad.yml` at the root of the repository you want to scan.
+# Every field is optional -- omit anything you want left at its default.
+
+# Which engines to run. Remove entries to disable an engine entirely.
+enabled_engines:
+  - ast-python
+  - rule-engine
+  - secrets
+  - dependency
+  - iac
+  - license-compliance
+
+# Suppress findings below this severity from ALL output (not just CI gating).
+min_severity: info
+
+# Extra directories to exclude from scanning, on top of the built-in defaults
+# (.git, node_modules, venv, dist, build, etc).
+exclude_dirs:
+  - fixtures
+  - generated
+
+# Glob patterns (relative to repo root) to fully ignore.
+ignore_paths:
+  - "tests/**/fixtures/**"
+  - "legacy/**"
+
+# Specific rule IDs to permanently silence project-wide (prefer this over
+# scattering inline suppressions -- keeps an auditable list in one place).
+ignore_rule_ids:
+  - PY-AST-SHELL-TRUE
+
+# Path to a baseline file. Findings whose fingerprint is already in the
+# baseline are suppressed from CI-gating decisions (but still counted in
+# full reports as "known/accepted"). Generate with:
+#   ironclad scan . --update-baseline --baseline .ironclad/baseline.json
+baseline_file: .ironclad/baseline.json
+
+# Additional directories containing your own custom YAML rule packs
+# (see ironclad/rules/packs/*.yml for the format/schema to follow).
+custom_rules_dirs:
+  - .ironclad/custom-rules
+
+# Files larger than this are skipped (avoids wasting time on generated/
+# vendored blobs that slipped past exclude_dirs).
+max_file_size_kb: 2048
+
+# Shannon-entropy threshold (bits/char) for the generic secrets detector.
+# Lower = more sensitive (more false positives). 4.3 is a good default.
+entropy_threshold: 4.3
+
+# Default report formats written by `ironclad scan` if --format isn't passed.
+report_formats:
+  - json
+  - html
+
+output_dir: .ironclad/reports

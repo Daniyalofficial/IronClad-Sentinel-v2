@@ -1,0 +1,63 @@
+# Drop this file at .github/workflows/ironclad-scan.yml in the repository
+# you want scanned. IronClad Sentinel runs entirely inside YOUR GitHub
+# Actions runner (self-hosted or GitHub-hosted) -- no code or scan data
+# is ever sent to a third-party service. The SARIF output uploads
+# straight into GitHub's native "Security > Code scanning alerts" tab.
+name: IronClad Sentinel Security Scan
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+  schedule:
+    - cron: "0 6 * * 1"  # weekly Monday 06:00 UTC full scan
+
+permissions:
+  contents: read
+  security-events: write   # required to upload SARIF to Code Scanning
+
+jobs:
+  ironclad-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install IronClad Sentinel
+        run: |
+          python -m pip install --upgrade pip
+          # Option A: installed from your internal package index / artifact store
+          pip install ironclad-sentinel
+          # Option B: vendored directly into the repo under tools/ironclad-sentinel
+          # pip install ./tools/ironclad-sentinel
+
+      - name: Install commercial license (from repository secret)
+        run: |
+          mkdir -p "$HOME/.ironclad"
+          printf '%s' "${{ secrets.IRONCLAD_LICENSE_JSON }}" > "$HOME/.ironclad/license.json"
+
+      - name: Run scan
+        run: |
+          ironclad scan . \
+            --format sarif,json,markdown \
+            --output-dir .ironclad/reports \
+            --baseline .ironclad/baseline.json \
+            --fail-on high
+
+      - name: Upload SARIF to GitHub Code Scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: .ironclad/reports/ironclad-report.sarif.json
+
+      - name: Upload full reports as build artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ironclad-security-reports
+          path: .ironclad/reports/

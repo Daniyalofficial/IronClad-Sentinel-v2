@@ -1,0 +1,45 @@
+{
+  "python": {
+    "django": "BSD-3-Clause",
+    "flask": "BSD-3-Clause",
+    "requests": "Apache-2.0",
+    "pyyaml": "MIT",
+    "pillow": "MIT-CMU",
+    "urllib3": "MIT",
+    "jinja2": "BSD-3-Clause",
+    "cryptography": "Apache-2.0",
+    "pyjwt": "MIT",
+    "paramiko": "LGPL-2.1",
+    "numpy": "BSD-3-Clause",
+    "pandas": "BSD-3-Clause",
+    "gpl-licensed-example": "GPL-3.0"
+  },
+  "javascript": {
+    "lodash": "MIT",
+    "express": "MIT",
+    "axios": "MIT",
+    "minimist": "MIT",
+    "jsonwebtoken": "MIT",
+    "moment": "MIT",
+    "node-fetch": "MIT",
+    "semver": "ISC",
+    "react": "MIT",
+    "vue": "MIT",
+    "gpl-example-pkg": "GPL-3.0"
+  },
+  "go": {
+    "github.com/gin-gonic/gin": "MIT",
+    "golang.org/x/crypto": "BSD-3-Clause"
+  },
+  "ruby": {
+    "rails": "MIT",
+    "nokogiri": "MIT"
+  },
+  "php": {
+    "guzzlehttp/guzzle": "MIT"
+  },
+  "java": {
+    "org.apache.logging.log4j:log4j-core": "Apache-2.0",
+    "com.fasterxml.jackson.core:jackson-databind": "Apache-2.0"
+  }
+}

@@ -1,0 +1,158 @@
+rules:
+  - id: JAVA-WEAK-CIPHER-ECB
+    title: Use of ECB cipher mode
+    languages: [java]
+    severity: high
+    category: crypto
+    cwe: CWE-327
+    owasp: "A02:2021-Cryptographic Failures"
+    pattern: 'Cipher\.getInstance\s*\(\s*"[^"]*\/ECB\/'
+    message: >
+      ECB mode encrypts identical plaintext blocks into identical
+      ciphertext blocks, leaking structural information about the
+      plaintext (the classic "ECB penguin" problem).
+    remediation: Use an authenticated mode such as AES/GCM/NoPadding instead of ECB.
+    confidence: high
+
+  - id: JAVA-TRUST-ALL-CERTS
+    title: X509TrustManager that trusts all certificates
+    languages: [java]
+    severity: critical
+    category: crypto
+    cwe: CWE-295
+    pattern: 'checkServerTrusted\s*\([^)]*\)\s*\{\s*\}'
+    multiline: true
+    message: >
+      An empty checkServerTrusted implementation accepts every server
+      certificate, defeating TLS certificate validation entirely.
+    remediation: Implement proper certificate chain validation, or use the platform default TrustManager.
+    confidence: high
+
+  - id: GO-INSECURE-SKIP-VERIFY
+    title: TLS certificate verification disabled (InsecureSkipVerify)
+    languages: [go]
+    severity: critical
+    category: crypto
+    cwe: CWE-295
+    owasp: "A02:2021-Cryptographic Failures"
+    pattern: 'InsecureSkipVerify\s*:\s*true'
+    message: >
+      InsecureSkipVerify disables TLS certificate validation, allowing
+      man-in-the-middle attacks against any HTTPS connection made with
+      this configuration.
+    remediation: Remove InsecureSkipVerify; supply a proper RootCAs pool if a custom CA is required.
+    confidence: high
+
+  - id: GO-COMMAND-INJECTION
+    title: Potential command injection via exec.Command with variable
+    languages: [go]
+    severity: high
+    category: injection
+    cwe: CWE-78
+    pattern: 'exec\.Command\s*\(\s*[a-zA-Z_][a-zA-Z0-9_]*\s*[,)]'
+    message: >
+      exec.Command is invoked with a variable (rather than a hardcoded
+      literal) as the command name. Verify this value cannot be
+      influenced by user input.
+    remediation: Validate/allowlist the command name and pass arguments separately (already true of exec.Command's variadic args), never build a full shell string.
+    confidence: low
+
+  - id: RUBY-MASS-ASSIGNMENT
+    title: Potential mass assignment vulnerability
+    languages: [ruby]
+    severity: medium
+    category: broken-access-control
+    cwe: CWE-915
+    pattern: '\.new\(params\[:[a-zA-Z_]+\]\)|\.update_attributes\(params\)|\.update\(params\)'
+    message: >
+      Model attributes are being assigned directly from raw request
+      params. Without strong parameter filtering, an attacker can set
+      unintended fields (e.g. is_admin=true).
+    remediation: Use ActionController::Parameters#permit to allowlist only expected attributes.
+    confidence: low
+
+  - id: RUBY-YAML-LOAD
+    title: Unsafe YAML.load on untrusted data
+    languages: [ruby]
+    severity: high
+    category: deserialization
+    cwe: CWE-502
+    pattern: 'YAML\.load\s*\('
+    exclude_if_matches: 'YAML\.safe_load'
+    message: >
+      YAML.load can instantiate arbitrary Ruby objects from the input
+      stream, leading to remote code execution if the input is
+      attacker-controlled.
+    remediation: Use YAML.safe_load instead, with an explicit allowlist of permitted classes.
+    confidence: medium
+
+  - id: PHP-EVAL-USE
+    title: Use of eval() in PHP
+    languages: [php]
+    severity: critical
+    category: injection
+    cwe: CWE-95
+    pattern: 'eval\s*\(\s*\$'
+    message: >
+      eval() with a variable argument executes arbitrary PHP code. If the
+      variable is influenced by user input this is remote code execution.
+    remediation: Remove eval() entirely; use a safe parser/allowlisted dispatch table instead.
+    confidence: medium
+
+  - id: PHP-SQL-CONCAT
+    title: SQL query built via string concatenation
+    languages: [php]
+    severity: high
+    category: injection
+    cwe: CWE-89
+    owasp: "A03:2021-Injection"
+    pattern: '(mysqli?_query|->query)\s*\(\s*[^)]*\.\s*\$'
+    message: >
+      A SQL query string is concatenated with a variable rather than
+      using parameterized/prepared statements.
+    remediation: Use PDO prepared statements with bound parameters instead of string concatenation.
+    confidence: medium
+
+  - id: PHP-UNSERIALIZE-USE
+    title: Unsafe unserialize() on possibly untrusted data
+    languages: [php]
+    severity: high
+    category: deserialization
+    cwe: CWE-502
+    pattern: 'unserialize\s*\(\s*\$_(GET|POST|REQUEST|COOKIE)'
+    message: >
+      unserialize() is called directly on user-supplied request data,
+      which is a well-known PHP object-injection / RCE vector.
+    remediation: Use JSON (json_decode) for data interchange instead of PHP's native serialization format.
+    confidence: high
+
+  - id: CSHARP-XML-EXTERNAL-ENTITY
+    title: XML parser vulnerable to XXE
+    languages: [csharp]
+    severity: high
+    category: injection
+    cwe: CWE-611
+    owasp: "A05:2021-Security Misconfiguration"
+    pattern: 'XmlDocument\s*\(\s*\)\s*;(?!.*XmlResolver\s*=\s*null)'
+    multiline: true
+    message: >
+      An XmlDocument is created without disabling external entity
+      resolution, potentially allowing XML External Entity (XXE) attacks
+      that can read local files or perform SSRF.
+    remediation: Set XmlResolver = null (or use XmlReaderSettings with DtdProcessing.Prohibit) before parsing untrusted XML.
+    confidence: low
+
+  - id: TERRAFORM-HARDCODED-SECRET
+    title: Hardcoded secret in Terraform configuration
+    languages: [terraform]
+    severity: high
+    category: secrets
+    cwe: CWE-798
+    pattern: '(?i)(password|secret|api_key)\s*=\s*"[^"$]{8,}"'
+    exclude_if_matches: 'var\.|data\.|local\.'
+    message: >
+      A credential-looking literal value is hardcoded in a Terraform
+      resource/variable definition rather than sourced from a variable or
+      secrets backend.
+    remediation: Use a `variable` block marked `sensitive = true` and populate it from a secrets manager or CI secret store, never a literal in .tf files.
+    confidence: medium
