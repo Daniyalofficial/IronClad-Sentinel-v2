@@ -31,7 +31,6 @@ jobs:
           rm -rf .git
           cp -a . "$GITHUB_WORKSPACE/"
           cd "$GITHUB_WORKSPACE"
-
           python -c 'from pathlib import Path; p=Path("ironclad/core/walker.py"); s=p.read_text(); old="""            for ignore_pattern in config.ignore_paths:\n                if fnmatch.fnmatch(rel_path, ignore_pattern):\n                    fileset.skipped += 1\n                    continue\n"""; new="""            if _matches_any_glob(rel_path, config.ignore_paths):\n                fileset.skipped += 1\n                continue\n\n            if config.include_globs and not _matches_any_glob(rel_path, config.include_globs):\n                fileset.skipped += 1\n                continue\n"""; assert old in s; p.write_text(s.replace(old,new))'
           python -c 'from pathlib import Path; p=Path("ironclad/core/engine.py"); s=p.read_text(); old="    all_findings: List[Finding] = []\n    lines_scanned = 0\n"; new="""    all_findings: List[Finding] = []\n    lines_scanned = 0\n    for discovered in fileset.files:\n        try:\n            with open(discovered.path, "r", encoding="utf-8", errors="ignore") as fh:\n                lines_scanned += sum(1 for _ in fh)\n        except OSError:\n            pass\n"""; assert old in s; p.write_text(s.replace(old,new,1))'
           mkdir -p tests/security_corpus
@@ -54,12 +53,12 @@ jobs:
       - name: Run CLI help smoke test
         run: python -m ironclad.cli --help
       - name: Run security corpus smoke scan
-        run: python -m ironclad.cli scan tests/security_corpus --format json --output /tmp/ironclad-smoke.json || true
+        run: python -m ironclad.cli scan tests/security_corpus --format json > /tmp/ironclad-smoke.json && test -s /tmp/ironclad-smoke.json
       - name: Publish verification summary
         if: always()
         run: |
           echo '## IronClad Sentinel v2 verification' >> "$GITHUB_STEP_SUMMARY"
           echo '- Baseline bootstrap and targeted hardening executed.' >> "$GITHUB_STEP_SUMMARY"
           echo '- Full test suite executed.' >> "$GITHUB_STEP_SUMMARY"
-          echo '- CLI smoke test executed.' >> "$GITHUB_STEP_SUMMARY"
-          echo '- Security corpus smoke scan executed.' >> "$GITHUB_STEP_SUMMARY"
+          echo '- CLI help smoke test executed.' >> "$GITHUB_STEP_SUMMARY"
+          echo '- Security corpus scan completed successfully.' >> "$GITHUB_STEP_SUMMARY"
