@@ -1,0 +1,1 @@
+IronClad Sentinel v2 bootstrap completed from audited commit 9974a339. Verification workflow is authoritative for test status.
