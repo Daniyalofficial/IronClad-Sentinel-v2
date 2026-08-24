@@ -1,20 +1,9 @@
-"""
-Offline dependency vulnerability scanner.
+"""Offline dependency vulnerability scanner.
 
-Parses common dependency manifest formats (requirements.txt, package.json,
-package-lock.json, go.mod) to extract package name + pinned/declared
-version, then matches against the bundled offline advisory database in
-`ironclad/data/vuln_db.json` using simple, dependency-free version range
-comparison (no `packaging`/`semver` network calls -- comparisons are done
-with a small local version-tuple comparator good enough for advisory
-matching).
-
-This deliberately never queries a live vulnerability API (OSV, Snyk,
-NVD, GitHub Advisory API) -- the whole point of IronClad Sentinel is to
-work fully air-gapped. Operators are expected to refresh
-`ironclad/data/vuln_db.json` themselves during controlled update windows
-(e.g. pulling a new signed copy alongside a new tool release), which is
-documented in the README.
+No network access is performed. Advisories come exclusively from the local
+bundled database. Manifest parsing is deliberately conservative: for a
+range declaration, the lowest declared candidate is checked so an unresolved
+range cannot silently hide a known vulnerable version.
 """
 from __future__ import annotations
 
@@ -28,13 +17,8 @@ from ironclad.core.models import CodeLocation, Engine, Finding, Severity
 from ironclad.core.walker import DiscoveredFile, read_text_safely
 
 _DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "vuln_db.json")
-
-SEVERITY_MAP = {
-    "critical": Severity.CRITICAL,
-    "high": Severity.HIGH,
-    "medium": Severity.MEDIUM,
-    "low": Severity.LOW,
-}
+SEVERITY_MAP = {"critical": Severity.CRITICAL, "high": Severity.HIGH,
+                "medium": Severity.MEDIUM, "low": Severity.LOW}
 
 
 @dataclass
@@ -44,6 +28,7 @@ class ParsedDependency:
     ecosystem: str
     manifest_rel_path: str
     line_number: int = 1
+    declared_spec: Optional[str] = None
 
 
 def _load_db() -> Dict:
@@ -54,162 +39,170 @@ def _load_db() -> Dict:
         return {}
 
 
-_VERSION_TOKEN = re.compile(r"(\d+)")
-
-
 def _version_tuple(v: str):
-    v = v.strip()
-    v = re.split(r"[-+]", v)[0]  # strip prerelease/build metadata
-    parts = v.split(".")
-    result = []
-    for p in parts:
-        m = _VERSION_TOKEN.match(p)
-        result.append(int(m.group(1)) if m else 0)
-    while len(result) < 4:
-        result.append(0)
-    return tuple(result[:4])
+    value = str(v).strip().lstrip("v=").split("+", 1)[0]
+    core, _, prerelease = value.partition("-")
+    nums = [int(x) for x in re.findall(r"\d+", core)[:4]]
+    while len(nums) < 4:
+        nums.append(0)
+    return tuple(nums), tuple(prerelease.split(".")) if prerelease else ()
 
 
 def _version_less_than(a: str, b: str) -> bool:
-    try:
-        return _version_tuple(a) < _version_tuple(b)
-    except Exception:
+    av, apre = _version_tuple(a)
+    bv, bpre = _version_tuple(b)
+    if av != bv:
+        return av < bv
+    if not apre and bpre:
         return False
+    if apre and not bpre:
+        return True
+    return apre < bpre
+
+
+def _version_equal(a: str, b: str) -> bool:
+    return not _version_less_than(a, b) and not _version_less_than(b, a)
 
 
 def _satisfies_affected_range(version: str, affected_spec: str) -> bool:
-    """
-    Extremely small range parser supporting the subset of syntax used in
-    our bundled DB: "<X.Y.Z" (only form used). Extend here if the DB
-    grows richer range expressions.
-    """
-    affected_spec = affected_spec.strip()
-    if affected_spec.startswith("<="):
-        return not _version_less_than(affected_spec[2:], version)
-    if affected_spec.startswith("<"):
-        return _version_less_than(version, affected_spec[1:])
-    if affected_spec.startswith(">="):
-        return not _version_less_than(version, affected_spec[2:])
-    if affected_spec.startswith(">"):
-        return _version_less_than(affected_spec[1:], version)
-    if affected_spec.startswith("=="):
-        return _version_tuple(version) == _version_tuple(affected_spec[2:])
-    return version == affected_spec
+    """Evaluate common advisory comparators, including compound ranges."""
+    for alternative in str(affected_spec).split("||"):
+        tokens = [t for t in re.split(r"\s*,\s*|\s+(?=[<>=])", alternative.strip()) if t]
+        if not tokens:
+            continue
+        ok = True
+        for token in tokens:
+            token = token.strip()
+            op = next((x for x in (">=", "<=", "==", ">", "<", "=") if token.startswith(x)), "=")
+            rhs = token[len(op):].strip()
+            if op == "<" and not _version_less_than(version, rhs): ok = False
+            elif op == "<=" and _version_less_than(rhs, version): ok = False
+            elif op == ">" and not _version_less_than(rhs, version): ok = False
+            elif op == ">=" and _version_less_than(version, rhs): ok = False
+            elif op in {"=", "=="} and not _version_equal(version, rhs): ok = False
+            if not ok:
+                break
+        if ok:
+            return True
+    return False
+
+
+def _minimum_candidate(spec: str) -> Optional[str]:
+    """Extract a conservative lower candidate from a manifest declaration."""
+    spec = str(spec).strip()
+    if not spec or spec.lower() in {"latest", "*", "workspace:*"}:
+        return None
+    match = re.search(r"\d+(?:\.\d+){0,3}", spec.lstrip("v="))
+    return match.group(0) if match else None
 
 
 def parse_requirements_txt(discovered: DiscoveredFile) -> List[ParsedDependency]:
     content = read_text_safely(discovered.path)
     deps = []
-    pattern = re.compile(r"^\s*([A-Za-z0-9_.\-]+)\s*==\s*([A-Za-z0-9_.\-]+)")
-    for idx, line in enumerate(content.splitlines(), start=1):
+    pattern = re.compile(r"^\s*([A-Za-z0-9_.\-]+)\s*(?:(==|~=|>=|<=|>|<|!=)\s*)?([^;#\s]+)?")
+    for idx, line in enumerate(content.splitlines(), 1):
         stripped = line.strip()
         if not stripped or stripped.startswith("#") or stripped.startswith("-"):
             continue
-        match = pattern.match(stripped)
-        if match:
-            deps.append(ParsedDependency(
-                name=match.group(1).lower(),
-                version=match.group(2),
-                ecosystem="python",
-                manifest_rel_path=discovered.rel_path,
-                line_number=idx,
-            ))
+        m = pattern.match(stripped)
+        if not m or not m.group(3):
+            continue
+        operator = m.group(2) or "=="
+        spec = f"{operator}{m.group(3)}"
+        candidate = _minimum_candidate(m.group(3))
+        if candidate:
+            deps.append(ParsedDependency(m.group(1).lower(), candidate, "python",
+                discovered.rel_path, idx, spec))
     return deps
 
 
 def parse_package_json(discovered: DiscoveredFile) -> List[ParsedDependency]:
-    content = read_text_safely(discovered.path)
-    deps = []
     try:
-        data = json.loads(content)
+        data = json.loads(read_text_safely(discovered.path))
     except json.JSONDecodeError:
-        return deps
-    for section in ("dependencies", "devDependencies"):
-        section_data = data.get(section, {})
-        if not isinstance(section_data, dict):
+        return []
+    deps = []
+    for section in ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies"):
+        values = data.get(section, {})
+        if not isinstance(values, dict):
             continue
-        for name, version_spec in section_data.items():
-            cleaned = re.sub(r"^[~^>=<\s]+", "", str(version_spec))
-            if not re.match(r"^\d", cleaned):
-                continue  # skip "latest", git urls, workspace:* etc.
-            deps.append(ParsedDependency(
-                name=name,
-                version=cleaned,
-                ecosystem="javascript",
-                manifest_rel_path=discovered.rel_path,
-            ))
+        for name, raw_spec in values.items():
+            spec = str(raw_spec).strip()
+            candidate = _minimum_candidate(spec)
+            if candidate:
+                deps.append(ParsedDependency(name, candidate, "javascript", discovered.rel_path, 1, spec))
+    return deps
+
+
+def parse_package_lock(discovered: DiscoveredFile) -> List[ParsedDependency]:
+    try:
+        data = json.loads(read_text_safely(discovered.path))
+    except json.JSONDecodeError:
+        return []
+    deps = []
+    packages = data.get("packages", {})
+    if not isinstance(packages, dict):
+        return deps
+    for key, item in packages.items():
+        if not isinstance(item, dict) or "node_modules/" not in key or not item.get("version"):
+            continue
+        name = key.rsplit("node_modules/", 1)[-1]
+        deps.append(ParsedDependency(name, str(item["version"]), "javascript",
+            discovered.rel_path, 1, f"=={item['version']}"))
     return deps
 
 
 def parse_go_mod(discovered: DiscoveredFile) -> List[ParsedDependency]:
     content = read_text_safely(discovered.path)
+    pattern = re.compile(r"^\s*([A-Za-z0-9_./\-]+)\s+v(\d+(?:\.\d+){2,})")
     deps = []
-    pattern = re.compile(r"^\s*([A-Za-z0-9_./\-]+)\s+v(\d+\.\d+\.\d+)")
-    for idx, line in enumerate(content.splitlines(), start=1):
-        match = pattern.match(line)
-        if match and "require" not in line and "module" not in line:
-            deps.append(ParsedDependency(
-                name=match.group(1),
-                version=match.group(2),
-                ecosystem="go",
-                manifest_rel_path=discovered.rel_path,
-                line_number=idx,
-            ))
+    for idx, line in enumerate(content.splitlines(), 1):
+        m = pattern.match(line)
+        if m and not line.strip().startswith("module "):
+            deps.append(ParsedDependency(m.group(1), m.group(2), "go", discovered.rel_path, idx, f"=={m.group(2)}"))
     return deps
 
 
-MANIFEST_PARSERS = {
-    "requirements.txt": parse_requirements_txt,
-    "package.json": parse_package_json,
-    "go.mod": parse_go_mod,
-}
+MANIFEST_PARSERS = {"requirements.txt": parse_requirements_txt,
+                    "package.json": parse_package_json,
+                    "package-lock.json": parse_package_lock,
+                    "go.mod": parse_go_mod}
 
 
 def extract_dependencies(manifests: List[DiscoveredFile]) -> List[ParsedDependency]:
-    all_deps: List[ParsedDependency] = []
+    result = []
     for manifest in manifests:
-        filename = os.path.basename(manifest.path)
-        parser = MANIFEST_PARSERS.get(filename)
+        parser = MANIFEST_PARSERS.get(os.path.basename(manifest.path))
         if parser:
-            all_deps.extend(parser(manifest))
-    return all_deps
+            result.extend(parser(manifest))
+    return result
 
 
 def scan_dependencies(manifests: List[DiscoveredFile]) -> List[Finding]:
     db = _load_db()
-    deps = extract_dependencies(manifests)
-    findings: List[Finding] = []
-
-    for dep in deps:
-        ecosystem_db = db.get(dep.ecosystem, {})
-        advisories = ecosystem_db.get(dep.name.lower()) or ecosystem_db.get(dep.name)
+    findings = []
+    for dep in extract_dependencies(manifests):
+        advisories = db.get(dep.ecosystem, {}).get(dep.name.lower()) or db.get(dep.ecosystem, {}).get(dep.name)
         if not advisories or not dep.version:
             continue
-
         for advisory in advisories:
-            if _satisfies_affected_range(dep.version, advisory["affected"]):
-                findings.append(Finding(
-                    rule_id=f"DEP-{advisory['id']}",
-                    title=f"Known vulnerability in {dep.name}@{dep.version}: {advisory.get('cve', advisory['id'])}",
-                    description=(
-                        f"{advisory['summary']} Installed version {dep.version} matches the "
-                        f"vulnerable range {advisory['affected']}. Fixed in {advisory['fixed_in']}."
-                    ),
-                    severity=SEVERITY_MAP.get(advisory["severity"], Severity.MEDIUM),
-                    engine=Engine.DEPENDENCY,
-                    category="vulnerable-dependency",
-                    cwe=None,
-                    remediation=f"Upgrade {dep.name} to version {advisory['fixed_in']} or later.",
-                    confidence="high",
-                    references=[f"https://nvd.nist.gov/vuln/detail/{advisory['cve']}"] if advisory.get("cve") else [],
-                    location=CodeLocation(
-                        file_path=dep.manifest_rel_path,
-                        start_line=dep.line_number,
-                        end_line=dep.line_number,
-                        snippet=f"{dep.name} == {dep.version}",
-                    ),
-                    extra={"package": dep.name, "installed_version": dep.version,
-                           "fixed_version": advisory["fixed_in"], "cve": advisory.get("cve")},
-                ))
-
+            if not _satisfies_affected_range(dep.version, advisory["affected"]):
+                continue
+            declared = dep.declared_spec or f"=={dep.version}"
+            findings.append(Finding(
+                rule_id=f"DEP-{advisory['id']}",
+                title=f"Known vulnerability in {dep.name}@{dep.version}: {advisory.get('cve', advisory['id'])}",
+                description=(f"{advisory['summary']} Declared/resolved version {dep.version} from '{declared}' "
+                             f"matches vulnerable range {advisory['affected']}. Fixed in {advisory['fixed_in']}."),
+                severity=SEVERITY_MAP.get(advisory["severity"], Severity.MEDIUM),
+                engine=Engine.DEPENDENCY, category="vulnerable-dependency", cwe=None,
+                remediation=f"Upgrade {dep.name} to version {advisory['fixed_in']} or later.",
+                confidence="high",
+                references=[f"https://nvd.nist.gov/vuln/detail/{advisory['cve']}"] if advisory.get("cve") else [],
+                location=CodeLocation(file_path=dep.manifest_rel_path, start_line=dep.line_number,
+                                      end_line=dep.line_number, snippet=f"{dep.name} {declared}"),
+                extra={"package": dep.name, "installed_version": dep.version,
+                       "declared_spec": declared, "fixed_version": advisory["fixed_in"],
+                       "cve": advisory.get("cve")},
+            ))
     return findings
