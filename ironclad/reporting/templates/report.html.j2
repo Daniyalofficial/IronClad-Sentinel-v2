@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>IronClad Sentinel Report -- {{ result.target }}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  :root {
+    --bg: #0b0f1a;
+    --panel: #111827;
+    --panel-2: #161f30;
+    --border: #232c3f;
+    --text: #e5e9f0;
+    --muted: #94a3b8;
+    --indigo: #6366f1;
+    --indigo-light: #818cf8;
+    --critical: #ef4444;
+    --high: #f97316;
+    --medium: #eab308;
+    --low: #38bdf8;
+    --info: #64748b;
+    --green: #22c55e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.5;
+  }
+  header {
+    background: linear-gradient(135deg, #1e1b4b, #0b0f1a);
+    padding: 40px 48px;
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 {
+    margin: 0 0 6px 0;
+    font-size: 28px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  header .subtitle { color: var(--muted); font-size: 14px; }
+  .container { max-width: 1180px; margin: 0 auto; padding: 32px 48px 80px; }
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .card .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .card .value { font-size: 32px; font-weight: 700; margin-top: 4px; }
+  .grade-A { color: var(--green); }
+  .grade-B { color: #a3e635; }
+  .grade-C { color: var(--medium); }
+  .grade-D { color: var(--high); }
+  .grade-F { color: var(--critical); }
+  .sev-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .sev-critical { background: rgba(239,68,68,0.15); color: var(--critical); border: 1px solid var(--critical); }
+  .sev-high { background: rgba(249,115,22,0.15); color: var(--high); border: 1px solid var(--high); }
+  .sev-medium { background: rgba(234,179,8,0.15); color: var(--medium); border: 1px solid var(--medium); }
+  .sev-low { background: rgba(56,189,248,0.15); color: var(--low); border: 1px solid var(--low); }
+  .sev-info { background: rgba(100,116,139,0.15); color: var(--info); border: 1px solid var(--info); }
+  h2.section-title {
+    font-size: 18px;
+    margin: 40px 0 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .finding {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--indigo);
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin-bottom: 14px;
+  }
+  .finding.crit { border-left-color: var(--critical); }
+  .finding.high { border-left-color: var(--high); }
+  .finding.medium { border-left-color: var(--medium); }
+  .finding.low { border-left-color: var(--low); }
+  .finding.info { border-left-color: var(--info); }
+  .finding-header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  .finding-title { font-weight: 600; font-size: 15px; }
+  .finding-meta { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+  .finding-desc { font-size: 14px; margin-bottom: 10px; }
+  .finding-remediation {
+    background: var(--panel-2);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 13px;
+    color: #c7d2fe;
+    border: 1px solid #312e81;
+  }
+  pre.snippet {
+    background: #05070c;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    overflow-x: auto;
+    font-size: 12.5px;
+    color: #a5f3fc;
+    margin: 10px 0;
+  }
+  code.rule-id { color: var(--indigo-light); font-size: 12px; background: rgba(99,102,241,0.12); padding: 2px 8px; border-radius: 6px; }
+  .no-findings { text-align: center; padding: 60px 20px; color: var(--muted); }
+  footer { text-align: center; color: var(--muted); font-size: 12px; padding: 30px; border-top: 1px solid var(--border); }
+</style>
+</head>
+<body>
+<header>
+  <h1>&#128737;&#65039; IronClad Sentinel</h1>
+  <div class="subtitle">Offline Application Security Scan Report &middot; Target: {{ result.target }} &middot; Generated {{ generated_at_str }}</div>
+</header>
+<div class="container">
+  <div class="summary-grid">
+    <div class="card"><div class="label">Grade</div><div class="value grade-{{ result.grade()[0] }}">{{ result.grade() }}</div></div>
+    <div class="card"><div class="label">Risk Score</div><div class="value">{{ result.risk_score() }}</div></div>
+    <div class="card"><div class="label">Total Findings</div><div class="value">{{ result.findings|length }}</div></div>
+    <div class="card"><div class="label">Files Scanned</div><div class="value">{{ result.stats.files_scanned }}</div></div>
+    <div class="card"><div class="label">Scan Duration</div><div class="value">{{ "%.2f"|format(result.stats.duration_seconds) }}s</div></div>
+  </div>
+
+  <div class="summary-grid">
+    {% for sev, count in severity_counts.items() %}
+    <div class="card">
+      <div class="label">{{ sev }}</div>
+      <div class="value"><span class="sev-badge sev-{{ sev }}">{{ count }}</span></div>
+    </div>
+    {% endfor %}
+  </div>
+
+  {% if result.baseline_suppressed %}
+  <p style="color: var(--muted); font-size: 13px;">{{ result.baseline_suppressed }} previously-baselined finding(s) suppressed from this view.</p>
+  {% endif %}
+
+  <h2 class="section-title">Findings ({{ result.findings|length }})</h2>
+
+  {% if not result.findings %}
+  <div class="no-findings">&#9989; No findings detected. Clean scan.</div>
+  {% endif %}
+
+  {% for f in findings %}
+  <div class="finding {{ f.severity.value|replace('critical','crit') }}">
+    <div class="finding-header">
+      <span class="sev-badge sev-{{ f.severity.value }}">{{ f.severity.value }}</span>
+      <span class="finding-title">{{ f.title }}</span>
+      <code class="rule-id">{{ f.rule_id }}</code>
+    </div>
+    <div class="finding-meta">
+      {{ f.location.file_path }}:{{ f.location.start_line }}
+      {% if f.cwe %} &middot; {{ f.cwe }}{% endif %}
+      {% if f.owasp %} &middot; {{ f.owasp }}{% endif %}
+      &middot; confidence: {{ f.confidence }} &middot; engine: {{ f.engine.value }}
+    </div>
+    <div class="finding-desc">{{ f.description }}</div>
+    {% if f.location.snippet %}
+    <pre class="snippet">{{ f.location.snippet }}</pre>
+    {% endif %}
+    {% if f.remediation %}
+    <div class="finding-remediation"><strong>Remediation:</strong> {{ f.remediation }}</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+<footer>Generated entirely offline by IronClad Sentinel v{{ result.tool_version }} &mdash; no source code or scan data ever left this machine.</footer>
+</body>
+</html>

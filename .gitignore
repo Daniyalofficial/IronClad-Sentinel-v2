@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+*.whl
+
+# Virtual environments
+.venv/
+venv/
+
+# CRITICAL: never commit the vendor private signing key.
+# This is the key that lets anyone mint valid commercial licenses.
+.vendor_keys/
+vendor_private_key.pem
+*private_key*.pem
+
+# Scan output / reports (regenerated on every run, not source)
+.ironclad/reports/
+/reports/
+
+# Local license files (customer-specific, shouldn't be in version control)
+license.json
+demo_license/
+
+# Generated demo fixture (contains intentionally realistic-looking
+# secret patterns for testing detection rules -- generated at runtime by
+# demo/generate_vulnerable_app.py rather than committed, so no
+# secret-shaped string ever lives in git history / trips push protection).
+demo/vulnerable_app/
+
+# OS/editor cruft
+.DS_Store
+.idea/
+.vscode/

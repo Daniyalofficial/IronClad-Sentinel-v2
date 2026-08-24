@@ -1,0 +1,2 @@
+API_KEY = "AKIA1234567890EXAMPLE"
+PASSWORD = "super-secret-password-123"

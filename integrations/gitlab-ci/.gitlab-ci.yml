@@ -1,0 +1,20 @@
+# Merge this job into your project's .gitlab-ci.yml. Runs entirely on
+# your own GitLab Runner (shared or self-hosted) -- IronClad Sentinel
+# makes no external network calls at any point during the scan.
+ironclad_security_scan:
+  stage: test
+  image: python:3.11-slim
+  before_script:
+    - pip install --quiet ironclad-sentinel
+    - mkdir -p "$HOME/.ironclad"
+    - echo "$IRONCLAD_LICENSE_JSON" > "$HOME/.ironclad/license.json"   # set as a masked/protected CI variable
+  script:
+    - ironclad scan . --format json,junit,markdown --output-dir .ironclad/reports --fail-on high
+  artifacts:
+    when: always
+    reports:
+      junit: .ironclad/reports/ironclad-report.junit.xml
+    paths:
+      - .ironclad/reports/
+    expire_in: 30 days
+  allow_failure: false

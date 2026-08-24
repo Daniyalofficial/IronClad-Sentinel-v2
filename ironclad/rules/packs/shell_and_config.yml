@@ -1,0 +1,133 @@
+rules:
+  - id: SHELL-CURL-PIPE-SH
+    title: Piping a remote download directly into a shell
+    languages: [shell]
+    severity: high
+    category: supply-chain
+    cwe: CWE-494
+    pattern: 'curl\s+[^\|]*\|\s*(sudo\s+)?(sh|bash)'
+    message: >
+      Downloading a script over the network and piping it directly into a
+      shell executes unreviewed remote code with no integrity check. If
+      the download source is compromised or the connection is tampered
+      with, this is instant remote code execution.
+    remediation: Download the script to disk, verify its checksum/signature, review it, then execute it explicitly.
+    confidence: high
+
+  - id: SHELL-WGET-PIPE-SH
+    title: Piping a wget download directly into a shell
+    languages: [shell]
+    severity: high
+    category: supply-chain
+    cwe: CWE-494
+    pattern: 'wget\s+[^\|]*-O\s*-\s*[^\|]*\|\s*(sudo\s+)?(sh|bash)'
+    message: Same risk as curl|sh -- executing an unverified remote script directly.
+    remediation: Download, verify, review, then execute.
+    confidence: high
+
+  - id: SHELL-CHMOD-777
+    title: Overly permissive chmod 777
+    languages: [shell]
+    severity: medium
+    category: misconfiguration
+    cwe: CWE-732
+    pattern: 'chmod\s+(-R\s+)?777\b'
+    message: >
+      chmod 777 grants read/write/execute to every user on the system,
+      including unrelated local accounts.
+    remediation: Grant the minimum permissions required, e.g. 750 or 640.
+    confidence: high
+
+  - id: SHELL-UNQUOTED-VARIABLE
+    title: Unquoted shell variable expansion
+    languages: [shell]
+    severity: low
+    category: injection
+    cwe: CWE-78
+    pattern: '\brm\s+-rf\s+\$[A-Za-z_][A-Za-z0-9_]*\s*$'
+    message: >
+      An unquoted variable used with `rm -rf` can undergo word-splitting
+      and globbing; if the variable is empty or attacker-influenced this
+      can delete unintended files (or the whole filesystem if empty).
+    remediation: Quote the variable ("$VAR") and validate it is non-empty before destructive operations.
+    confidence: medium
+
+  - id: DOCKERFILE-ADD-REMOTE-URL
+    title: Dockerfile ADD used to fetch a remote URL
+    languages: [other]
+    severity: medium
+    category: supply-chain
+    cwe: CWE-494
+    pattern: '^ADD\s+https?:\/\/'
+    message: >
+      ADD with a remote URL downloads content at build time with no
+      integrity verification and defeats build cache/reproducibility.
+    remediation: Use a pinned, checksum-verified `curl`/`wget` + `RUN` step, or a package manager, instead of ADD with a URL.
+    confidence: medium
+
+  - id: YAML-K8S-PRIVILEGED-CONTAINER
+    title: Kubernetes container running in privileged mode
+    languages: [yaml]
+    severity: critical
+    category: iac-misconfiguration
+    cwe: CWE-250
+    pattern: 'privileged:\s*true'
+    message: >
+      A container is configured to run in privileged mode, granting it
+      full access to the host's devices and kernel capabilities --
+      effectively equivalent to root on the host.
+    remediation: Remove privileged:true. Grant only the specific Linux capabilities required via securityContext.capabilities.add.
+    confidence: high
+
+  - id: YAML-K8S-HOST-NETWORK
+    title: Kubernetes pod using hostNetwork
+    languages: [yaml]
+    severity: high
+    category: iac-misconfiguration
+    cwe: CWE-668
+    pattern: 'hostNetwork:\s*true'
+    message: >
+      hostNetwork:true removes network namespace isolation, exposing the
+      pod directly on the host's network interfaces and allowing it to
+      sniff/spoof traffic on the host.
+    remediation: Remove hostNetwork:true unless absolutely required; use a Service/Ingress for external exposure instead.
+    confidence: high
+
+  - id: YAML-K8S-RUN-AS-ROOT
+    title: Kubernetes container explicitly allowed to run as root
+    languages: [yaml]
+    severity: medium
+    category: iac-misconfiguration
+    cwe: CWE-250
+    pattern: 'runAsNonRoot:\s*false'
+    message: A container's securityContext explicitly permits running as root, widening the blast radius of a container escape.
+    remediation: Set runAsNonRoot true and specify a non-root runAsUser.
+    confidence: high
+
+  - id: SQL-GRANT-ALL-PRIVILEGES
+    title: Overly broad database grant statement
+    languages: [sql]
+    severity: medium
+    category: misconfiguration
+    cwe: CWE-250
+    pattern: '(?i)GRANT\s+ALL\s+PRIVILEGES\s+ON\s+\*\.\*'
+    message: >
+      Granting ALL PRIVILEGES on *.* gives a database user unrestricted
+      power over every database and table on the server.
+    remediation: Grant only the specific privileges and schemas/tables the application actually needs.
+    confidence: high
+
+  - id: DOTENV-COMMITTED-SECRET
+    title: Populated .env file with real-looking secret values committed
+    languages: [dotenv]
+    severity: high
+    category: secrets
+    cwe: CWE-798
+    pattern: '(?i)^(SECRET|PASSWORD|API_KEY|TOKEN|PRIVATE_KEY)[A-Z_]*\s*=\s*[^\s#]{8,}'
+    exclude_if_matches: '(?i)example|changeme|xxxx|your_|<|placeholder'
+    message: >
+      A .env file appears to contain real credential values rather than
+      placeholders. If this file is committed to version control, every
+      collaborator (and anyone with repo access) has these credentials.
+    remediation: Add .env to .gitignore, commit only a .env.example with placeholder values, and rotate any credential that was ever committed.
+    confidence: medium
