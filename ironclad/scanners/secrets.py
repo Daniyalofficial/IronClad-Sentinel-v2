@@ -2,16 +2,14 @@
 Standalone secrets & credential detector.
 
 Runs independently of the YAML rule packs (which already cover known
-provider token formats) and specifically hunts for *generic* high-entropy
-strings assigned to suspiciously-named variables -- the kind of secret
-that doesn't match any known vendor prefix (internal API keys, custom
-auth tokens, freshly-rotated credentials, etc.).
+provider token formats) and specifically hunts for generic high-entropy
+strings assigned to suspiciously-named variables. It also detects
+high-confidence PEM private-key material, which should never be committed
+regardless of entropy.
 
-Uses Shannon entropy over the candidate string's character distribution:
-random secrets have high entropy (close to log2(alphabet size) bits per
-character), while English words, boilerplate, and typical code identifiers
-have much lower entropy. This mirrors the detection technique used by
-GitHub's secret scanning and TruffleHog, implemented here fully offline.
+The scanner is intentionally offline and conservative: deterministic secret
+formats are high-confidence, while generic entropy-based assignments remain
+medium-confidence and require a suspicious variable name.
 """
 from __future__ import annotations
 
@@ -29,10 +27,15 @@ SENSITIVE_VAR_HINTS = re.compile(
 )
 
 ASSIGNMENT_PATTERN = re.compile(
-    r"""(?P<var>[A-Za-z_][A-Za-z0-9_.\-]{2,40})\s*[:=]\s*['"](?P<value>[A-Za-z0-9+/_\-=]{16,100})['"]"""
+    r"""(?P<var>[A-Za-z_][A-Za-z0-9_.\-]{2,40})\s*[:=]\s*['\"](?P<value>[A-Za-z0-9+/_\-=]{16,100})['\"]"""
 )
 
-# Common false-positive substrings we never want to flag even if entropy is high.
+# High-confidence private-key material. We only report the PEM header rather
+# than trying to parse the entire key; this keeps the scanner dependency-free.
+PEM_PRIVATE_KEY_PATTERN = re.compile(
+    r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----"
+)
+
 PLACEHOLDER_HINTS = re.compile(
     r"(?i)(example|changeme|xxxx|dummy|placeholder|your[_-]?key|test[_-]?value|"
     r"0000000|1111111|abcdefg|lorem|sample|fixme|todo)"
@@ -41,7 +44,7 @@ PLACEHOLDER_HINTS = re.compile(
 BASE64_LIKE = re.compile(r"^[A-Za-z0-9+/=_\-]+$")
 
 EXCLUDED_LANGUAGES = {"other"}
-BINARY_LOOKING_EXT = {".png", ".jpg", ".gif", ".woff", ".ttf"}
+BINARY_LOOKING_EXT = {".png", ".jpg", ".gif", ".woff", ".ttf", ".ico", ".pdf"}
 
 
 def shannon_entropy(data: str) -> float:
@@ -59,21 +62,64 @@ def shannon_entropy(data: str) -> float:
 
 
 def _looks_like_hash_or_uuid(value: str) -> bool:
-    """Skip common non-secret high-entropy patterns: hex hashes, UUIDs, git SHAs."""
+    """Skip common non-secret high-entropy patterns: hashes and UUIDs."""
     if re.fullmatch(r"[0-9a-fA-F]{32}", value):
-        return True  # md5-length hex
+        return True
     if re.fullmatch(r"[0-9a-fA-F]{40}", value):
-        return True  # sha1-length hex / git commit sha
+        return True
+    if re.fullmatch(r"[0-9a-fA-F]{64}", value):
+        return True
     if re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", value):
-        return True  # UUID
+        return True
     return False
 
 
+def _finding(
+    discovered: DiscoveredFile,
+    line_number: int,
+    line: str,
+    *,
+    rule_id: str,
+    title: str,
+    description: str,
+    confidence: str,
+    cwe: str = "CWE-798",
+    extra: dict | None = None,
+) -> Finding:
+    return Finding(
+        rule_id=rule_id,
+        title=title,
+        description=description,
+        severity=Severity.HIGH,
+        engine=Engine.SECRETS,
+        category="secrets",
+        cwe=cwe,
+        owasp="A07:2021-Identification and Authentication Failures",
+        confidence=confidence,
+        remediation=(
+            "Remove the credential from source control, rotate it if it was exposed, "
+            "and load it from an environment variable, encrypted secret store, or vault."
+        ),
+        references=["https://cwe.mitre.org/data/definitions/798.html"],
+        location=CodeLocation(
+            file_path=discovered.rel_path,
+            start_line=line_number,
+            end_line=line_number,
+            snippet=line.strip()[:300],
+        ),
+        extra=extra or {},
+    )
+
+
 def scan_file_for_secrets(discovered: DiscoveredFile, entropy_threshold: float = 4.3) -> List[Finding]:
-    if discovered.language in EXCLUDED_LANGUAGES:
-        pass  # still worth scanning generic text files
     content = read_text_safely(discovered.path)
     if not content:
+        return []
+
+    # Avoid decoding obviously binary assets. Source-like text files remain
+    # eligible even when their language is unknown.
+    suffix = discovered.path.lower()
+    if any(suffix.endswith(ext) for ext in BINARY_LOOKING_EXT):
         return []
 
     findings: List[Finding] = []
@@ -81,7 +127,21 @@ def scan_file_for_secrets(discovered: DiscoveredFile, entropy_threshold: float =
 
     for idx, line in enumerate(lines, start=1):
         if len(line) > 2000:
-            continue  # skip minified/huge lines, handled elsewhere
+            continue
+
+        if PEM_PRIVATE_KEY_PATTERN.search(line):
+            findings.append(_finding(
+                discovered,
+                idx,
+                line,
+                rule_id="SECRETS-PEM-PRIVATE-KEY",
+                title="Private key material embedded in source",
+                description="A PEM private-key header was found in a source-controlled file. Private keys are credentials and should not be committed.",
+                confidence="high",
+                cwe="CWE-321",
+            ))
+            continue
+
         for match in ASSIGNMENT_PATTERN.finditer(line):
             var_name = match.group("var")
             value = match.group("value")
@@ -99,32 +159,18 @@ def scan_file_for_secrets(discovered: DiscoveredFile, entropy_threshold: float =
             if entropy < entropy_threshold:
                 continue
 
-            findings.append(Finding(
+            findings.append(_finding(
+                discovered,
+                idx,
+                line,
                 rule_id="SECRETS-HIGH-ENTROPY-ASSIGNMENT",
                 title=f"High-entropy secret assigned to `{var_name}`",
                 description=(
                     f"The variable `{var_name}` is assigned a string with Shannon entropy "
                     f"{entropy:.2f} bits/char (threshold {entropy_threshold}), consistent with "
-                    f"a randomly generated secret/token/key hardcoded in source rather than "
-                    f"loaded from secure configuration."
+                    "a randomly generated secret/token/key hardcoded in source."
                 ),
-                severity=Severity.HIGH,
-                engine=Engine.SECRETS,
-                category="secrets",
-                cwe="CWE-798",
-                owasp="A07:2021-Identification and Authentication Failures",
                 confidence="medium",
-                remediation=(
-                    "Move this value out of source code into an environment variable, "
-                    "encrypted secret store, or vault, and rotate the exposed credential."
-                ),
-                references=["https://cwe.mitre.org/data/definitions/798.html"],
-                location=CodeLocation(
-                    file_path=discovered.rel_path,
-                    start_line=idx,
-                    end_line=idx,
-                    snippet=line.strip()[:300],
-                ),
                 extra={"entropy": round(entropy, 3), "variable": var_name},
             ))
 
