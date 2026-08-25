@@ -35,6 +35,21 @@ jobs:
       - name: CLI smoke test
         run: python -m ironclad.cli --help
 
+      - name: SBOM smoke test
+        run: |
+          python -m ironclad.cli sbom tests/security_corpus/sbom_license --out /tmp/ironclad-sbom.json --project-name ironclad-ci
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          doc = json.loads(Path('/tmp/ironclad-sbom.json').read_text())
+          assert doc['bomFormat'] == 'CycloneDX'
+          assert doc['specVersion'] == '1.5'
+          assert isinstance(doc['components'], list)
+          assert len(doc['components']) >= 1
+          assert len({(c['name'], c['version']) for c in doc['components']}) == len(doc['components'])
+          print(f"SBOM verified: {len(doc['components'])} unique components")
+          PY
+
       - name: Offline corpus scan
         run: |
           python -m ironclad.cli scan tests/security_corpus --format json > /tmp/ironclad-corpus.json
