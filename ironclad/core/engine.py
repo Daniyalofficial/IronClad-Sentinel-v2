@@ -1,10 +1,4 @@
-"""
-Scan orchestration engine.
-
-Discovers files once, then dispatches to each enabled scanning engine,
-collects results into a single normalized `ScanResult`, applies
-ignore-rules/baseline filtering, and computes summary statistics.
-"""
+"""Scan orchestration engine."""
 from __future__ import annotations
 
 import os
@@ -88,14 +82,8 @@ def run_scan(config: IronCladConfig, progress_callback=None) -> ScanResult:
         engines_run.append("iac")
         iac_files = fileset.iac_files()
         all_findings.extend(scan_iac_files(iac_files))
-        all_findings.extend(scan_extended_iac(f) for f in iac_files)
-        # Flatten the generator-based extension results.
-        extended = []
-        for item in all_findings[-len(iac_files):] if iac_files else []:
-            if isinstance(item, list):
-                extended.extend(item)
-        if extended:
-            all_findings = all_findings[:-len(iac_files)] + extended
+        for f in iac_files:
+            all_findings.extend(scan_extended_iac(f))
 
     if "license-compliance" in config.enabled_engines:
         report_progress("Checking open-source license compliance...")
