@@ -9,3 +9,5 @@ Current cases:
 - unsafe deserialization
 
 The fixtures are intentionally small and deterministic so they can be reused in CI and future scanner improvements.
+
+The path-traversal case is also covered by `test_python_security_supplement.py` to ensure the supplemental AST sink remains regression-tested.
