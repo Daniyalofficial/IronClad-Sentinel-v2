@@ -24,3 +24,17 @@ def safe(base, user_path):
     target.write_text(source, encoding="utf-8")
     findings = scan_python_path_traversal(str(target), "safe.py")
     assert findings == []
+
+
+def test_secure_filename_is_not_tainted_into_open(tmp_path):
+    source = """
+from werkzeug.utils import secure_filename
+
+def safe_upload(uploaded_name, root):
+    filename = secure_filename(uploaded_name)
+    return open(root + '/' + filename, 'rb')
+"""
+    target = tmp_path / "sanitized.py"
+    target.write_text(source, encoding="utf-8")
+    findings = scan_python_path_traversal(str(target), "sanitized.py")
+    assert findings == []
