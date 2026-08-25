@@ -11,14 +11,14 @@ import time
 from pathlib import Path
 
 from ironclad.core.config import IronCladConfig
-from ironclad.core.engine import scan
+from ironclad.core.engine import run_scan
 
 
 def main() -> int:
-    target = Path(sys.argv[1] if len(sys.argv) > 1 else "tests/security_corpus")
-    config = IronCladConfig(root_path=str(target))
+    target = Path(sys.argv[1] if len(sys.argv) > 1 else "tests/security_corpus").resolve()
+    config = IronCladConfig(target=str(target))
     started = time.perf_counter()
-    result = scan(config)
+    result = run_scan(config)
     elapsed = time.perf_counter() - started
     files = result.stats.files_scanned
     rate = files / elapsed if elapsed > 0 else 0.0
