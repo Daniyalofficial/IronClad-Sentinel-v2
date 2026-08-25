@@ -21,6 +21,7 @@ from ironclad.rules.schema import load_rule_packs
 from ironclad.scanners.ast_python import scan_python_file
 from ironclad.scanners.dependency import scan_dependencies
 from ironclad.scanners.iac import scan_iac_files
+from ironclad.scanners.python_security_supplement import scan_python_path_traversal
 from ironclad.scanners.rule_engine import scan_file_with_rules
 from ironclad.scanners.sbom import scan_license_compliance
 from ironclad.scanners.secrets import scan_file_for_secrets
@@ -66,6 +67,10 @@ def run_scan(config: IronCladConfig, progress_callback=None) -> ScanResult:
         engines_run.append("ast-python")
         for f in fileset.by_language("python"):
             all_findings.extend(scan_python_file(f.path, f.rel_path))
+            # Narrow supplemental path-traversal analysis. It shares the
+            # AST-Python engine identity so reports and CI configuration do
+            # not need a new engine switch.
+            all_findings.extend(scan_python_path_traversal(f.path, f.rel_path))
 
     if "rule-engine" in config.enabled_engines:
         report_progress(f"Running multi-language rule engine ({len(rules)} rules loaded)...")
