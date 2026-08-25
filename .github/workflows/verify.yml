@@ -2,7 +2,7 @@ name: IronClad verification
 
 on:
   push:
-    branches: [main, hardening-v2]
+    branches: [main, hardening-v2, 'hardening-pass-*']
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -54,3 +54,9 @@ jobs:
         run: |
           python -m ironclad.cli scan tests/security_corpus --format json > /tmp/ironclad-corpus.json
           test -s /tmp/ironclad-corpus.json
+
+      - name: Throughput benchmark smoke test
+        run: |
+          python benchmarks/scan_benchmark.py tests/security_corpus | tee /tmp/ironclad-benchmark.txt
+          grep -q '^files_scanned=' /tmp/ironclad-benchmark.txt
+          grep -q '^files_per_second=' /tmp/ironclad-benchmark.txt
