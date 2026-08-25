@@ -2,7 +2,10 @@ name: IronClad verification
 
 on:
   push:
-    branches: [main, hardening-v2]
+    branches:
+      - main
+      - hardening-v2
+      - 'hardening-pass-*'
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -53,7 +56,7 @@ jobs:
       - name: SARIF smoke test
         run: |
           rm -rf /tmp/ironclad-sarif
-          python -m ironclad.cli scan tests/security_corpus --format sarif --output-dir /tmp/ironclad-sarif --quiet || test $? -eq 0
+          python -m ironclad.cli scan tests/security_corpus --format sarif --output-dir /tmp/ironclad-sarif --quiet
           python - <<'PY'
           import json
           from pathlib import Path
