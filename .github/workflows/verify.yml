@@ -50,6 +50,22 @@ jobs:
           print(f"SBOM verified: {len(doc['components'])} unique components")
           PY
 
+      - name: SARIF smoke test
+        run: |
+          rm -rf /tmp/ironclad-sarif
+          python -m ironclad.cli scan tests/security_corpus --format sarif --output-dir /tmp/ironclad-sarif --quiet || test $? -eq 0
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          candidates = list(Path('/tmp/ironclad-sarif').glob('*.sarif')) + list(Path('/tmp/ironclad-sarif').glob('*.json'))
+          assert candidates, 'No SARIF report generated'
+          doc = json.loads(candidates[0].read_text())
+          assert doc['version'] == '2.1.0'
+          assert len(doc['runs']) == 1
+          assert doc['runs'][0]['tool']['driver']['name'] == 'IronClad Sentinel'
+          print('SARIF contract verified')
+          PY
+
       - name: Offline corpus scan
         run: |
           python -m ironclad.cli scan tests/security_corpus --format json > /tmp/ironclad-corpus.json
