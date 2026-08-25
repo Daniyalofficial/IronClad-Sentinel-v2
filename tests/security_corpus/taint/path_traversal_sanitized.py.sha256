@@ -1,0 +1,1 @@
+Fixture is intentionally unchanged; its source uses secure_filename() as a sanitization boundary.
