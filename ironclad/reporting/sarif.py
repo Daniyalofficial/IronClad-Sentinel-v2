@@ -4,10 +4,7 @@ SARIF 2.1.0 report generator.
 SARIF (Static Analysis Results Interchange Format) is the format GitHub
 Code Scanning, Azure DevOps, and most enterprise security dashboards
 natively ingest. Producing valid SARIF means IronClad Sentinel plugs
-straight into a customer's existing "Security" tab / dashboard tooling
-with zero custom integration work on their end -- a significant reason
-enterprises will pick this over a tool that only speaks a bespoke JSON
-format.
+straight into a customer's existing security tooling.
 """
 from __future__ import annotations
 
@@ -15,6 +12,9 @@ import json
 from typing import Dict
 
 from ironclad.core.models import ScanResult
+
+TOOL_URI = "https://github.com/Daniyalofficial/IronClad-Sentinel-v2"
+SCHEMA_URI = "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json"
 
 SARIF_LEVEL_MAP = {
     "critical": "error",
@@ -36,7 +36,7 @@ def build_sarif(result: ScanResult) -> Dict:
                 "name": finding.rule_id,
                 "shortDescription": {"text": finding.title},
                 "fullDescription": {"text": finding.description},
-                "helpUri": finding.references[0] if finding.references else "https://example.invalid/ironclad-sentinel/rules",
+                "helpUri": finding.references[0] if finding.references else f"{TOOL_URI}/rules",
                 "properties": {
                     "category": finding.category,
                     "cwe": finding.cwe,
@@ -63,13 +63,14 @@ def build_sarif(result: ScanResult) -> Dict:
         })
 
     return {
-        "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+        "$schema": SCHEMA_URI,
         "version": "2.1.0",
         "runs": [{
             "tool": {
                 "driver": {
                     "name": "IronClad Sentinel",
-                    "informationUri": "https://example.invalid/ironclad-sentinel",
+                    "organization": "Daniyalofficial",
+                    "informationUri": TOOL_URI,
                     "version": result.tool_version,
                     "rules": list(rules_seen.values()),
                 }
