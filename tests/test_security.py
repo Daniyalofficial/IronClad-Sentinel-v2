@@ -2,11 +2,15 @@
 
 These cover the cryptographic and authorization primitives directly, so a
 regression shows up as a unit failure rather than as a breach.
+
+Requires the `server` extra (SQLAlchemy, via the audit/models imports);
+core-only installs skip this module and still run `tests/test_self_scan.py`.
 """
-import os
 import time
 
 import pytest
+
+pytest.importorskip("sqlalchemy", reason="requires the server extra: pip install -e '.[server]'")
 
 from ironclad.platform.audit import REDACTED, redact_secrets
 from ironclad.platform.rbac import (
@@ -304,83 +308,3 @@ def test_redaction_handles_empty_input():
 # --------------------------------------------------------------------------- #
 # Self-scan and scan-root confinement
 # --------------------------------------------------------------------------- #
-def test_self_scan_is_clean():
-    """IronClad scanning itself must stay at zero findings.
-
-    This is the regression guard for the two precision bugs found by
-    self-scanning (rule packs matching their own definitions).
-    """
-    from ironclad.core.config import IronCladConfig
-    from ironclad.core.engine import run_scan
-
-    root = os.path.join(os.path.dirname(__file__), "..", "ironclad")
-    result = run_scan(IronCladConfig(target=root))
-    assert result.stats.files_scanned > 50
-    assert result.findings == [], [(f.rule_id, f.location.file_path, f.location.start_line)
-                                   for f in result.findings]
-
-
-def test_scan_root_confines_targets(tmp_path):
-    from ironclad.platform.scanning import TargetError, resolve_target
-
-    root = tmp_path / "allowed"
-    root.mkdir()
-    outside = tmp_path / "outside"
-    outside.mkdir()
-
-    assert resolve_target(str(root), root=str(root)) == str(root)
-    with pytest.raises(TargetError):
-        resolve_target(str(outside), root=str(root))
-    with pytest.raises(TargetError):
-        resolve_target("../outside", root=str(root))
-
-
-def test_scan_root_rejects_a_symlink_that_escapes(tmp_path):
-    from ironclad.platform.scanning import TargetError, resolve_target
-
-    root = tmp_path / "allowed"
-    root.mkdir()
-    outside = tmp_path / "outside"
-    outside.mkdir()
-    link = root / "escape"
-    os.symlink(str(outside), str(link))
-    with pytest.raises(TargetError):
-        resolve_target("escape", root=str(root))
-
-
-def test_permission_constants_are_not_reported_as_credentials(tmp_path):
-    """Regression: `TOKEN_MANAGE = "token.manage"` is a permission, not a secret."""
-    from ironclad.core.walker import DiscoveredFile
-    from ironclad.scanners.secrets import scan_file_for_secrets
-
-    path = tmp_path / "perms.py"
-    path.write_text(
-        'TOKEN_MANAGE = "token.manage"\n'
-        'SCAN_READ = "scan.read"\n'
-        'PROJECT_MANAGE = "project.manage"\n',
-        encoding="utf-8")
-    discovered = DiscoveredFile(path=str(path), rel_path="perms.py", language="python",
-                                size_bytes=path.stat().st_size)
-    assert scan_file_for_secrets(discovered) == []
-
-
-def test_real_credential_is_still_reported_alongside_constants(tmp_path):
-    from ironclad.core.walker import DiscoveredFile
-    from ironclad.scanners.secrets import scan_file_for_secrets
-
-    path = tmp_path / "mixed.py"
-    path.write_text(
-        'SCAN_READ = "scan.read"\n'
-        'api_token = "Zk9pQ2xR7vN4mT8sW1yB6dF3hJ0aL5e"\n',
-        encoding="utf-8")
-    discovered = DiscoveredFile(path=str(path), rel_path="mixed.py", language="python",
-                                size_bytes=path.stat().st_size)
-    findings = scan_file_for_secrets(discovered)
-    assert {f.rule_id for f in findings} == {"SECRETS-HIGH-ENTROPY-ASSIGNMENT"}
-
-
-def test_scan_root_rejects_a_missing_directory(tmp_path):
-    from ironclad.platform.scanning import TargetError, resolve_target
-
-    with pytest.raises(TargetError):
-        resolve_target("does-not-exist", root=str(tmp_path))

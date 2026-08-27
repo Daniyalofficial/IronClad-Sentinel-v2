@@ -11,6 +11,8 @@ import os
 import tempfile
 
 import pytest
+
+pytest.importorskip("sqlalchemy", reason="requires the server extra: pip install -e '.[server]'")
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 

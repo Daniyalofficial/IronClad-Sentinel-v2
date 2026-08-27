@@ -52,33 +52,14 @@ from ironclad.platform.observability import (
 from ironclad.platform.security import hash_password
 from ironclad.scanners.sbom import build_sbom
 
-SCAN_ROOT_ENV = "IRONCLAD_SCAN_ROOT"
+# Path confinement lives in `ironclad.core.paths` so the CLI can use it
+# without the database stack. Re-exported here because the API and worker
+# already import these names from this module.
+from ironclad.core.paths import SCAN_ROOT_ENV, TargetError, resolve_target, scan_root
 
-
-class TargetError(ValueError):
-    """Raised when a requested scan target is outside the permitted root."""
-
-
-def scan_root() -> str:
-    return os.path.realpath(os.environ.get(SCAN_ROOT_ENV) or os.getcwd())
-
-
-def resolve_target(target: str, root: Optional[str] = None) -> str:
-    """Resolve and confine a scan target inside the scan root.
-
-    Rejects absolute paths outside the root, ``..`` traversal that escapes
-    it, and symlinks that resolve outside it.
-    """
-    allowed_root = os.path.realpath(root or scan_root())
-    candidate = target if os.path.isabs(target) else os.path.join(allowed_root, target)
-    resolved = os.path.realpath(candidate)
-    if resolved != allowed_root and not resolved.startswith(allowed_root + os.sep):
-        raise TargetError(
-            f"scan target {target!r} resolves outside the permitted scan root {allowed_root!r}"
-        )
-    if not os.path.isdir(resolved):
-        raise TargetError(f"scan target is not a directory: {target!r}")
-    return resolved
+__all__ = ["SCAN_ROOT_ENV", "TargetError", "resolve_target", "scan_root",
+           "ScanOutcome", "bootstrap_organization", "perform_scan", "resolve_policy",
+           "latest_sbom", "license_summary", "finding_trend", "dashboard_summary"]
 
 
 # --------------------------------------------------------------------------- #
