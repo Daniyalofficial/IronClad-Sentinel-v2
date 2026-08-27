@@ -57,6 +57,27 @@ NON_SECRET_LITERALS = {
     "unset", "undefined", "redacted", "masked", "n/a", "-", "changeme",
 }
 
+#: A dotted lowercase identifier such as "token.manage" or "project.read".
+#: Permission and enum constants are routinely assigned to credential-named
+#: variables (TOKEN_MANAGE = "token.manage"); they are not secrets, and
+#: reporting them is noise that trains people to ignore the rule.
+DOTTED_IDENTIFIER = re.compile(r"^[a-z0-9_]+(?:\.[a-z0-9_]+)+$")
+
+
+def _is_self_describing_constant(var_name: str, value: str) -> bool:
+    """True when the literal simply restates the variable name.
+
+    ``TOKEN_MANAGE = "token.manage"`` and ``SCAN_READ = "scan.read"`` are
+    permission catalogues, not credentials. Comparing the normalised
+    variable name against the value removes the whole class without
+    weakening detection of real literals.
+    """
+    if not DOTTED_IDENTIFIER.match(value):
+        return False
+    normalized = var_name.strip().lower().split(".")[-1].replace("_", ".").replace("-", ".")
+    return normalized == value
+
+
 #: Patterns that mean "this value comes from configuration", not from source.
 ENV_LOOKUP_HINTS = re.compile(
     r"(?i)(os\.environ|getenv|process\.env|System\.getenv|ENV\[|vault|keyring|"
@@ -118,6 +139,8 @@ def _scan_credential_assignments(discovered: DiscoveredFile, lines: List[str],
             if value.strip().lower() in NON_SECRET_LITERALS:
                 continue
             if value.strip().lower() == var_name.strip().lower().split(".")[-1]:
+                continue
+            if _is_self_describing_constant(var_name, value.strip()):
                 continue
             if PLACEHOLDER_HINTS.search(value):
                 continue
