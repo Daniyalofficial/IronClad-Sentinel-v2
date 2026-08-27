@@ -1,0 +1,13 @@
+# Repositories to scan are mounted read-only into both the API and the worker.
+# Replace with your own StorageClass, or swap for a git-sync sidecar /
+# CSI driver that pulls the repositories you want scanned.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ironclad-scan-targets
+  namespace: ironclad
+spec:
+  accessModes: [ReadOnlyMany]
+  resources:
+    requests:
+      storage: 20Gi
