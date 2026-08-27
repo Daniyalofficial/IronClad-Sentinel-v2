@@ -2,12 +2,12 @@
   "crashes": 0,
   "false_negatives": 0,
   "false_positives": 0,
-  "files_scanned": 24,
+  "files_scanned": 26,
   "missed": [],
   "precision": 1.0,
   "recall": 1.0,
   "rules_never_fired": [],
   "spurious": [],
-  "total_findings": 16,
-  "true_positives": 11
+  "total_findings": 17,
+  "true_positives": 12
 }

@@ -52,6 +52,7 @@ EXPECTED_RULES: Dict[str, List[str]] = {
     "vuln_template_injection": ["PY-AST-TEMPLATE-INJECTION"],
     "vuln_yaml_loader": ["PY-AST-UNSAFE-YAML-LOADER"],
     "hardcoded_secret": ["SECRET-AWS-ACCESS-KEY-ID", "SECRETS-HARDCODED-CREDENTIAL"],
+    "vuln_private_key": ["SECRET-PRIVATE-KEY-BLOCK"],
 }
 
 #: fixture stem -> rule ids that must NOT fire on it
@@ -68,6 +69,7 @@ SAFE_FIXTURES: Dict[str, List[str]] = {
     "safe_weak_tls": ["PY-AST-WEAK-TLS-PROTOCOL"],
     "safe_template_injection": ["PY-AST-TEMPLATE-INJECTION"],
     "safe_yaml_loader": ["PY-AST-UNSAFE-YAML-LOADER"],
+    "safe_private_key": ["SECRET-PRIVATE-KEY-BLOCK", "SECRETS-HARDCODED-CREDENTIAL"],
 }
 
 
