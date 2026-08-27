@@ -2,7 +2,7 @@
 {% block title %}Audit log &middot; IronClad Sentinel{% endblock %}
 {% block content %}
 <h1>Audit log</h1>
-<form class="filters" method="get" action="/audit">
+<form class="filters" method="get" action="/ui/audit">
   <label>Action <input name="action" value="{{ action_filter }}" placeholder="scan.created"></label>
   <button type="submit" class="primary">Filter</button>
 </form>

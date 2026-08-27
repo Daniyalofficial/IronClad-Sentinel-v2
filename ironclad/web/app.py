@@ -72,7 +72,7 @@ def _require_web(request: Request, session: DbSession):
     principal = _web_principal(request, session)
     if principal is None:
         raise HTTPException(status.HTTP_307_TEMPORARY_REDIRECT,
-                            headers={"Location": "/login"}, detail="login required")
+                            headers={"Location": "/ui/login"}, detail="login required")
     return principal
 
 
@@ -105,7 +105,10 @@ def mount_dashboard(app) -> None:
 
 
 def _build_router() -> APIRouter:
-    router = APIRouter(tags=["dashboard"], include_in_schema=False)
+    # Mounted under /ui so the JSON API can own the spec paths
+    # (/projects, /findings, /policies, ...) without a collision. A page and
+    # an endpoint sharing a path is how a dashboard ends up returning JSON.
+    router = APIRouter(prefix="/ui", tags=["dashboard"], include_in_schema=False)
 
     # ------------------------------------------------------------------ auth
     @router.get("/login", response_class=HTMLResponse)
@@ -119,19 +122,19 @@ def _build_router() -> APIRouter:
                      session: DbSession = Depends(get_db)):
         user = session.execute(select(User).where(User.email == email.strip().lower())).scalars().first()
         if user is None:
-            return RedirectResponse("/login?error=invalid", status_code=status.HTTP_303_SEE_OTHER)
+            return RedirectResponse("/ui/login?error=invalid", status_code=status.HTTP_303_SEE_OTHER)
         decision = lockout_decision(user.failed_logins,
                                     user.locked_until.timestamp() if user.locked_until else None)
         if not decision.allowed:
-            return RedirectResponse("/login?error=locked", status_code=status.HTTP_303_SEE_OTHER)
+            return RedirectResponse("/ui/login?error=locked", status_code=status.HTTP_303_SEE_OTHER)
         if not verify_password(password, user.password_hash):
             user.failed_logins += 1
             audit.record(session, org_id=user.org_id, action="auth.login_failed", actor=user.email,
                          actor_id=user.id, metadata={"failures": user.failed_logins})
             session.commit()
-            return RedirectResponse("/login?error=invalid", status_code=status.HTTP_303_SEE_OTHER)
+            return RedirectResponse("/ui/login?error=invalid", status_code=status.HTTP_303_SEE_OTHER)
         if not user.is_active:
-            return RedirectResponse("/login?error=inactive", status_code=status.HTTP_303_SEE_OTHER)
+            return RedirectResponse("/ui/login?error=inactive", status_code=status.HTTP_303_SEE_OTHER)
         token, token_hash = generate_session_token()
         session.add(SessionRow(user_id=user.id, org_id=user.org_id, token_hash=token_hash,
                                expires_at=utcnow() + _delta(SESSION_TTL_SECONDS),
@@ -141,7 +144,7 @@ def _build_router() -> APIRouter:
         audit.record(session, org_id=user.org_id, action="auth.login", actor=user.email,
                      actor_id=user.id, metadata={"via": "dashboard"})
         session.commit()
-        response = RedirectResponse("/", status_code=status.HTTP_303_SEE_OTHER)
+        response = RedirectResponse("/ui/", status_code=status.HTTP_303_SEE_OTHER)
         response.set_cookie(COOKIE_NAME, token, max_age=SESSION_TTL_SECONDS, httponly=True,
                             samesite="lax", secure=os.environ.get("IRONCLAD_COOKIE_SECURE", "0") == "1",
                             path="/")
@@ -158,11 +161,12 @@ def _build_router() -> APIRouter:
                 row.revoked_at = utcnow()
                 audit.record(session, org_id=row.org_id, action="auth.logout", actor="dashboard")
                 session.commit()
-        response = RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+        response = RedirectResponse("/ui/login", status_code=status.HTTP_303_SEE_OTHER)
         response.delete_cookie(COOKIE_NAME, path="/")
         return response
 
     # ------------------------------------------------------------- overview
+    @router.get("", response_class=HTMLResponse)
     @router.get("/", response_class=HTMLResponse)
     def overview(request: Request, session: DbSession = Depends(get_db)):
         principal = _require_web(request, session)

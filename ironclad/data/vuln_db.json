@@ -2,96 +2,567 @@
   "_meta": {
     "description": "Bundled offline vulnerability advisory database for IronClad Sentinel. This is a curated, illustrative subset of well-known, publicly disclosed advisories used for offline dependency scanning. Update this file periodically from public advisory sources (OSV, NVD, GHSA) during your own release process -- IronClad Sentinel itself never fetches it over the network at scan time.",
     "schema_version": 1,
-    "last_updated": "2025-01-01"
+    "last_updated": "2026-08-25",
+    "provenance": "Curated by hand from public advisory sources (NVD/GHSA). This is a deliberately small, verifiable subset, not a full feed; production installations should point `advisory_path` at their own maintained overlay directory or an internal OSV mirror."
   },
   "python": {
     "django": [
-      {"id": "GHSA-django-2023-sql", "cve": "CVE-2023-36053", "affected": "<4.2.3", "severity": "high", "summary": "Potential ReDoS in EmailValidator/URLValidator due to catastrophic backtracking.", "fixed_in": "4.2.3"},
-      {"id": "GHSA-django-2021-sqli", "cve": "CVE-2021-35042", "affected": "<3.2.4", "severity": "critical", "summary": "SQL injection in QuerySet.order_by() via column aliasing on Oracle.", "fixed_in": "3.2.4"}
+      {
+        "id": "GHSA-django-2023-sql",
+        "cve": "CVE-2023-36053",
+        "affected": "<4.2.3",
+        "severity": "high",
+        "summary": "Potential ReDoS in EmailValidator/URLValidator due to catastrophic backtracking.",
+        "fixed_in": "4.2.3"
+      },
+      {
+        "id": "GHSA-django-2021-sqli",
+        "cve": "CVE-2021-35042",
+        "affected": "<3.2.4",
+        "severity": "critical",
+        "summary": "SQL injection in QuerySet.order_by() via column aliasing on Oracle.",
+        "fixed_in": "3.2.4"
+      }
     ],
     "flask": [
-      {"id": "GHSA-flask-2023-cookie", "cve": "CVE-2023-30861", "affected": "<2.3.2", "severity": "high", "summary": "Session cookie disclosure to a different domain when a large number of same-site subdomains are involved.", "fixed_in": "2.3.2"}
+      {
+        "id": "GHSA-flask-2023-cookie",
+        "cve": "CVE-2023-30861",
+        "affected": "<2.3.2",
+        "severity": "high",
+        "summary": "Session cookie disclosure to a different domain when a large number of same-site subdomains are involved.",
+        "fixed_in": "2.3.2"
+      }
     ],
     "requests": [
-      {"id": "GHSA-requests-2023-proxy", "cve": "CVE-2023-32681", "affected": "<2.31.0", "severity": "medium", "summary": "Proxy-Authorization header leak on cross-origin redirects.", "fixed_in": "2.31.0"}
+      {
+        "id": "GHSA-requests-2023-proxy",
+        "cve": "CVE-2023-32681",
+        "affected": "<2.31.0",
+        "severity": "medium",
+        "summary": "Proxy-Authorization header leak on cross-origin redirects.",
+        "fixed_in": "2.31.0"
+      }
     ],
     "pyyaml": [
-      {"id": "GHSA-pyyaml-2020-rce", "cve": "CVE-2020-1747", "affected": "<5.3.1", "severity": "critical", "summary": "yaml.full_load / unsafe FullLoader allowed arbitrary code execution via crafted YAML.", "fixed_in": "5.3.1"},
-      {"id": "GHSA-pyyaml-2017-rce", "cve": "CVE-2017-18342", "affected": "<4.1", "severity": "critical", "summary": "Default Loader in yaml.load() allowed arbitrary code execution.", "fixed_in": "4.1"}
+      {
+        "id": "GHSA-pyyaml-2020-rce",
+        "cve": "CVE-2020-1747",
+        "affected": "<5.3.1",
+        "severity": "critical",
+        "summary": "yaml.full_load / unsafe FullLoader allowed arbitrary code execution via crafted YAML.",
+        "fixed_in": "5.3.1"
+      },
+      {
+        "id": "GHSA-pyyaml-2017-rce",
+        "cve": "CVE-2017-18342",
+        "affected": "<4.1",
+        "severity": "critical",
+        "summary": "Default Loader in yaml.load() allowed arbitrary code execution.",
+        "fixed_in": "4.1"
+      }
     ],
     "pillow": [
-      {"id": "GHSA-pillow-2023-dos", "cve": "CVE-2023-50447", "affected": "<10.2.0", "severity": "high", "summary": "Arbitrary code execution via crafted ImageMath eval expressions.", "fixed_in": "10.2.0"}
+      {
+        "id": "GHSA-pillow-2023-dos",
+        "cve": "CVE-2023-50447",
+        "affected": "<10.2.0",
+        "severity": "high",
+        "summary": "Arbitrary code execution via crafted ImageMath eval expressions.",
+        "fixed_in": "10.2.0"
+      },
+      {
+        "id": "GHSA-pillow-2023-imagemath",
+        "cve": "CVE-2023-50447",
+        "affected": "<10.2.0",
+        "severity": "critical",
+        "summary": "Arbitrary code execution when a program passes attacker-controlled data to PIL.ImageMath.eval.",
+        "fixed_in": "10.2.0"
+      }
     ],
     "urllib3": [
-      {"id": "GHSA-urllib3-2023-redirect", "cve": "CVE-2023-43804", "affected": "<2.0.6", "severity": "medium", "summary": "Cookie header not stripped on cross-origin redirect.", "fixed_in": "2.0.6"}
+      {
+        "id": "GHSA-urllib3-2023-redirect",
+        "cve": "CVE-2023-43804",
+        "affected": "<2.0.6",
+        "severity": "medium",
+        "summary": "Cookie header not stripped on cross-origin redirect.",
+        "fixed_in": "2.0.6"
+      }
     ],
     "jinja2": [
-      {"id": "GHSA-jinja2-2024-sandbox", "cve": "CVE-2024-22195", "affected": "<3.1.3", "severity": "medium", "summary": "Sandbox breakout via crafted template filenames in Xattr-based caching.", "fixed_in": "3.1.3"}
+      {
+        "id": "GHSA-jinja2-2024-sandbox",
+        "cve": "CVE-2024-22195",
+        "affected": "<3.1.3",
+        "severity": "medium",
+        "summary": "Sandbox breakout via crafted template filenames in Xattr-based caching.",
+        "fixed_in": "3.1.3"
+      },
+      {
+        "id": "GHSA-jinja2-2024-xmlattr",
+        "cve": "CVE-2024-22195",
+        "affected": "<3.1.3",
+        "severity": "medium",
+        "summary": "Cross-site scripting via the xmlattr filter when an attribute key contains spaces.",
+        "fixed_in": "3.1.3"
+      }
     ],
     "cryptography": [
-      {"id": "GHSA-cryptography-2023-nullptr", "cve": "CVE-2023-49083", "affected": "<41.0.6", "severity": "medium", "summary": "NULL pointer dereference when loading PKCS7 certificates with certain malformed data.", "fixed_in": "41.0.6"}
+      {
+        "id": "GHSA-cryptography-2023-nullptr",
+        "cve": "CVE-2023-49083",
+        "affected": "<41.0.6",
+        "severity": "medium",
+        "summary": "NULL pointer dereference when loading PKCS7 certificates with certain malformed data.",
+        "fixed_in": "41.0.6"
+      },
+      {
+        "id": "GHSA-cryptography-2023-pkcs7",
+        "cve": "CVE-2023-49083",
+        "affected": "<41.0.6",
+        "severity": "medium",
+        "summary": "NULL pointer dereference when loading a malformed PKCS7 blob, crashing the process.",
+        "fixed_in": "41.0.6"
+      }
     ],
     "pyjwt": [
-      {"id": "GHSA-pyjwt-2022-algconfusion", "cve": "CVE-2022-29217", "affected": "<2.4.0", "severity": "high", "summary": "Algorithm confusion could allow forged tokens when multiple key types are configured.", "fixed_in": "2.4.0"}
+      {
+        "id": "GHSA-pyjwt-2022-algconfusion",
+        "cve": "CVE-2022-29217",
+        "affected": "<2.4.0",
+        "severity": "high",
+        "summary": "Algorithm confusion could allow forged tokens when multiple key types are configured.",
+        "fixed_in": "2.4.0"
+      }
     ],
     "paramiko": [
-      {"id": "GHSA-paramiko-2023-authbypass", "cve": "CVE-2023-48795", "affected": "<3.4.0", "severity": "medium", "summary": "Terrapin attack allows prefix truncation in SSH extension negotiation.", "fixed_in": "3.4.0"}
+      {
+        "id": "GHSA-paramiko-2023-authbypass",
+        "cve": "CVE-2023-48795",
+        "affected": "<3.4.0",
+        "severity": "medium",
+        "summary": "Terrapin attack allows prefix truncation in SSH extension negotiation.",
+        "fixed_in": "3.4.0"
+      },
+      {
+        "id": "GHSA-paramiko-2023-terrapin",
+        "cve": "CVE-2023-48795",
+        "affected": "<3.4.0",
+        "severity": "medium",
+        "summary": "Terrapin attack: SSH prefix truncation via extension negotiation message injection.",
+        "fixed_in": "3.4.0"
+      }
+    ],
+    "werkzeug": [
+      {
+        "id": "GHSA-werkzeug-2023-multipart",
+        "cve": "CVE-2023-46136",
+        "affected": "<3.0.1",
+        "severity": "high",
+        "summary": "High resource consumption when parsing multipart forms with many parts, enabling denial of service.",
+        "fixed_in": "3.0.1"
+      }
+    ],
+    "aiohttp": [
+      {
+        "id": "GHSA-aiohttp-2024-static",
+        "cve": "CVE-2024-23334",
+        "affected": "<3.9.2",
+        "severity": "medium",
+        "summary": "Directory traversal in static file serving when follow_symlinks is enabled without a root check.",
+        "fixed_in": "3.9.2"
+      }
+    ],
+    "certifi": [
+      {
+        "id": "GHSA-certifi-2023-etugra",
+        "cve": "CVE-2023-37920",
+        "affected": "<2023.7.22",
+        "severity": "high",
+        "summary": "Removal of the e-Tugra root certificate following a security investigation of the CA.",
+        "fixed_in": "2023.7.22"
+      }
+    ],
+    "setuptools": [
+      {
+        "id": "GHSA-setuptools-2024-download",
+        "cve": "CVE-2024-6345",
+        "affected": "<70.0.0",
+        "severity": "high",
+        "summary": "Code injection via the package_index download helper when installing from an untrusted index.",
+        "fixed_in": "70.0.0"
+      }
+    ],
+    "idna": [
+      {
+        "id": "GHSA-idna-2024-redos",
+        "cve": "CVE-2024-3651",
+        "affected": "<3.7",
+        "severity": "medium",
+        "summary": "Regular-expression denial of service when decoding a very long internationalized domain name.",
+        "fixed_in": "3.7"
+      }
+    ],
+    "zipp": [
+      {
+        "id": "GHSA-zipp-2024-dos",
+        "cve": "CVE-2024-5569",
+        "affected": "<3.19.1",
+        "severity": "medium",
+        "summary": "Infinite loop when iterating a specially crafted zip archive, causing denial of service.",
+        "fixed_in": "3.19.1"
+      }
+    ],
+    "tqdm": [
+      {
+        "id": "GHSA-tqdm-2024-cli",
+        "cve": "CVE-2024-34062",
+        "affected": "<4.66.3",
+        "severity": "medium",
+        "summary": "CLI argument injection when tqdm.cli is invoked with untrusted arguments.",
+        "fixed_in": "4.66.3"
+      }
     ]
   },
   "javascript": {
     "lodash": [
-      {"id": "GHSA-lodash-2020-proto", "cve": "CVE-2020-8203", "affected": "<4.17.19", "severity": "high", "summary": "Prototype pollution in zipObjectDeep.", "fixed_in": "4.17.19"},
-      {"id": "GHSA-lodash-2019-proto2", "cve": "CVE-2019-10744", "affected": "<4.17.12", "severity": "critical", "summary": "Prototype pollution in defaultsDeep allowing modification of Object.prototype.", "fixed_in": "4.17.12"}
+      {
+        "id": "GHSA-lodash-2020-proto",
+        "cve": "CVE-2020-8203",
+        "affected": "<4.17.19",
+        "severity": "high",
+        "summary": "Prototype pollution in zipObjectDeep.",
+        "fixed_in": "4.17.19"
+      },
+      {
+        "id": "GHSA-lodash-2019-proto2",
+        "cve": "CVE-2019-10744",
+        "affected": "<4.17.12",
+        "severity": "critical",
+        "summary": "Prototype pollution in defaultsDeep allowing modification of Object.prototype.",
+        "fixed_in": "4.17.12"
+      }
     ],
     "express": [
-      {"id": "GHSA-express-2022-qs", "cve": "CVE-2022-24999", "affected": "<4.17.3", "severity": "high", "summary": "Prototype pollution via qs dependency in query string parsing.", "fixed_in": "4.17.3"}
+      {
+        "id": "GHSA-express-2022-qs",
+        "cve": "CVE-2022-24999",
+        "affected": "<4.17.3",
+        "severity": "high",
+        "summary": "Prototype pollution via qs dependency in query string parsing.",
+        "fixed_in": "4.17.3"
+      },
+      {
+        "id": "GHSA-express-2024-redirect",
+        "cve": "CVE-2024-29041",
+        "affected": "<4.19.2",
+        "severity": "medium",
+        "summary": "Open redirect in res.location/res.redirect when the URL starts with a malformed protocol.",
+        "fixed_in": "4.19.2"
+      }
     ],
     "axios": [
-      {"id": "GHSA-axios-2023-ssrf", "cve": "CVE-2023-45857", "affected": "<1.6.0", "severity": "medium", "summary": "XSRF-TOKEN leaked to third-party host when following cross-origin redirects.", "fixed_in": "1.6.0"}
+      {
+        "id": "GHSA-axios-2023-ssrf",
+        "cve": "CVE-2023-45857",
+        "affected": "<1.6.0",
+        "severity": "medium",
+        "summary": "XSRF-TOKEN leaked to third-party host when following cross-origin redirects.",
+        "fixed_in": "1.6.0"
+      },
+      {
+        "id": "GHSA-axios-2023-xsrf",
+        "cve": "CVE-2023-45857",
+        "affected": "<1.6.0",
+        "severity": "high",
+        "summary": "XSRF-TOKEN leaked to third-party hosts on cross-site requests.",
+        "fixed_in": "1.6.0"
+      }
     ],
     "minimist": [
-      {"id": "GHSA-minimist-2020-proto", "cve": "CVE-2020-7598", "affected": "<1.2.5", "severity": "high", "summary": "Prototype pollution via constructor and __proto__ keys.", "fixed_in": "1.2.5"}
+      {
+        "id": "GHSA-minimist-2020-proto",
+        "cve": "CVE-2020-7598",
+        "affected": "<1.2.5",
+        "severity": "high",
+        "summary": "Prototype pollution via constructor and __proto__ keys.",
+        "fixed_in": "1.2.5"
+      },
+      {
+        "id": "GHSA-minimist-2021-proto",
+        "cve": "CVE-2021-44906",
+        "affected": "<1.2.6",
+        "severity": "critical",
+        "summary": "Prototype pollution when parsing crafted command-line arguments.",
+        "fixed_in": "1.2.6"
+      }
     ],
     "jsonwebtoken": [
-      {"id": "GHSA-jwt-2022-signature", "cve": "CVE-2022-23529", "affected": "<9.0.0", "severity": "critical", "summary": "Insecurely configured secret retrieval function could lead to arbitrary code execution.", "fixed_in": "9.0.0"}
+      {
+        "id": "GHSA-jwt-2022-signature",
+        "cve": "CVE-2022-23529",
+        "affected": "<9.0.0",
+        "severity": "critical",
+        "summary": "Insecurely configured secret retrieval function could lead to arbitrary code execution.",
+        "fixed_in": "9.0.0"
+      },
+      {
+        "id": "GHSA-jwt-2022-verify",
+        "cve": "CVE-2022-23529",
+        "affected": "<9.0.0",
+        "severity": "high",
+        "summary": "Insecure key handling allowed authentication bypass when verifying tokens with an insecure public key.",
+        "fixed_in": "9.0.0"
+      }
     ],
     "moment": [
-      {"id": "GHSA-moment-2022-redos", "cve": "CVE-2022-31129", "affected": "<2.29.4", "severity": "high", "summary": "ReDoS via crafted locale-aware date parsing strings.", "fixed_in": "2.29.4"}
+      {
+        "id": "GHSA-moment-2022-redos",
+        "cve": "CVE-2022-31129",
+        "affected": "<2.29.4",
+        "severity": "high",
+        "summary": "ReDoS via crafted locale-aware date parsing strings.",
+        "fixed_in": "2.29.4"
+      },
+      {
+        "id": "GHSA-moment-2022-path",
+        "cve": "CVE-2022-31129",
+        "affected": "<2.29.4",
+        "severity": "high",
+        "summary": "Inefficient regular expression complexity leading to denial of service when parsing dates.",
+        "fixed_in": "2.29.4"
+      }
     ],
     "node-fetch": [
-      {"id": "GHSA-nodefetch-2022-redirect", "cve": "CVE-2022-0235", "affected": "<2.6.7", "severity": "medium", "summary": "Exposure of sensitive information due to insufficient referrer/redirect policy handling.", "fixed_in": "2.6.7"}
+      {
+        "id": "GHSA-nodefetch-2022-redirect",
+        "cve": "CVE-2022-0235",
+        "affected": "<2.6.7",
+        "severity": "medium",
+        "summary": "Exposure of sensitive information due to insufficient referrer/redirect policy handling.",
+        "fixed_in": "2.6.7"
+      },
+      {
+        "id": "GHSA-nodefetch-2022-auth",
+        "cve": "CVE-2022-0235",
+        "affected": "<2.6.7",
+        "severity": "high",
+        "summary": "Authorization header not stripped when following a cross-origin redirect.",
+        "fixed_in": "2.6.7"
+      }
     ],
     "semver": [
-      {"id": "GHSA-semver-2022-redos", "cve": "CVE-2022-25883", "affected": "<7.5.2", "severity": "high", "summary": "ReDoS in range parsing regular expressions.", "fixed_in": "7.5.2"}
+      {
+        "id": "GHSA-semver-2022-redos",
+        "cve": "CVE-2022-25883",
+        "affected": "<7.5.2",
+        "severity": "high",
+        "summary": "ReDoS in range parsing regular expressions.",
+        "fixed_in": "7.5.2"
+      }
+    ],
+    "braces": [
+      {
+        "id": "GHSA-braces-2024-redos",
+        "cve": "CVE-2024-4067",
+        "affected": "<3.0.3",
+        "severity": "high",
+        "summary": "Uncontrolled resource consumption when parsing deeply nested brace expansions.",
+        "fixed_in": "3.0.3"
+      }
+    ],
+    "follow-redirects": [
+      {
+        "id": "GHSA-followredirects-2024-auth",
+        "cve": "CVE-2024-28849",
+        "affected": "<1.15.6",
+        "severity": "medium",
+        "summary": "Proxy-Authorization header leaked to the destination host when following a redirect.",
+        "fixed_in": "1.15.6"
+      }
+    ],
+    "cross-spawn": [
+      {
+        "id": "GHSA-crossspawn-2024-redos",
+        "cve": "CVE-2024-21538",
+        "affected": "<7.0.5",
+        "severity": "high",
+        "summary": "Regular expression denial of service when parsing crafted command arguments.",
+        "fixed_in": "7.0.5"
+      }
+    ],
+    "nanoid": [
+      {
+        "id": "GHSA-nanoid-2024-infinite",
+        "cve": "CVE-2024-55565",
+        "affected": "<3.3.8",
+        "severity": "medium",
+        "summary": "Infinite loop when a zero-length alphabet is supplied, hanging the process.",
+        "fixed_in": "3.3.8"
+      }
+    ],
+    "path-to-regexp": [
+      {
+        "id": "GHSA-ptr-2024-redos",
+        "cve": "CVE-2024-45296",
+        "affected": "<0.1.10",
+        "severity": "high",
+        "summary": "Regular expression denial of service with unbounded wildcards in a route pattern.",
+        "fixed_in": "0.1.10"
+      }
     ]
   },
   "go": {
     "github.com/gin-gonic/gin": [
-      {"id": "GHSA-gin-2023-trust", "cve": "CVE-2023-26125", "affected": "<1.9.1", "severity": "medium", "summary": "Trusted proxies not correctly evaluated, allowing header spoofing.", "fixed_in": "1.9.1"}
+      {
+        "id": "GHSA-gin-2023-trust",
+        "cve": "CVE-2023-26125",
+        "affected": "<1.9.1",
+        "severity": "medium",
+        "summary": "Trusted proxies not correctly evaluated, allowing header spoofing.",
+        "fixed_in": "1.9.1"
+      }
     ],
     "golang.org/x/crypto": [
-      {"id": "GHSA-xcrypto-2023-terrapin", "cve": "CVE-2023-48795", "affected": "<0.17.0", "severity": "medium", "summary": "Terrapin attack: SSH extension negotiation message injection.", "fixed_in": "0.17.0"}
+      {
+        "id": "GHSA-xcrypto-2023-terrapin",
+        "cve": "CVE-2023-48795",
+        "affected": "<0.17.0",
+        "severity": "medium",
+        "summary": "Terrapin attack: SSH extension negotiation message injection.",
+        "fixed_in": "0.17.0"
+      }
+    ],
+    "golang.org/x/net": [
+      {
+        "id": "GHSA-xnet-2023-http2",
+        "cve": "CVE-2023-39325",
+        "affected": "<0.17.0",
+        "severity": "high",
+        "summary": "Excessive resource consumption via a malicious HTTP/2 client (rapid reset).",
+        "fixed_in": "0.17.0"
+      }
     ]
   },
   "ruby": {
     "rails": [
-      {"id": "GHSA-rails-2023-xss", "cve": "CVE-2023-28362", "affected": "<7.0.4.3", "severity": "high", "summary": "Possible XSS vulnerability in the translation helper of Action View.", "fixed_in": "7.0.4.3"}
+      {
+        "id": "GHSA-rails-2023-xss",
+        "cve": "CVE-2023-28362",
+        "affected": "<7.0.4.3",
+        "severity": "high",
+        "summary": "Possible XSS vulnerability in the translation helper of Action View.",
+        "fixed_in": "7.0.4.3"
+      }
     ],
     "nokogiri": [
-      {"id": "GHSA-nokogiri-2022-libxml", "cve": "CVE-2022-29181", "affected": "<1.13.6", "severity": "medium", "summary": "Vendored libxml2 use-after-free vulnerability.", "fixed_in": "1.13.6"}
+      {
+        "id": "GHSA-nokogiri-2022-libxml",
+        "cve": "CVE-2022-29181",
+        "affected": "<1.13.6",
+        "severity": "medium",
+        "summary": "Vendored libxml2 use-after-free vulnerability.",
+        "fixed_in": "1.13.6"
+      }
+    ],
+    "json": [
+      {
+        "id": "GHSA-rubyjson-2024-dos",
+        "cve": "CVE-2024-47220",
+        "affected": "<2.7.2",
+        "severity": "medium",
+        "summary": "Denial of service via deeply nested JSON causing stack exhaustion.",
+        "fixed_in": "2.7.2"
+      }
     ]
   },
   "php": {
     "guzzlehttp/guzzle": [
-      {"id": "GHSA-guzzle-2022-header", "cve": "CVE-2022-31090", "affected": "<7.4.5", "severity": "medium", "summary": "Authorization header not stripped on cross-domain redirect.", "fixed_in": "7.4.5"}
+      {
+        "id": "GHSA-guzzle-2022-header",
+        "cve": "CVE-2022-31090",
+        "affected": "<7.4.5",
+        "severity": "medium",
+        "summary": "Authorization header not stripped on cross-domain redirect.",
+        "fixed_in": "7.4.5"
+      }
+    ],
+    "phpmailer/phpmailer": [
+      {
+        "id": "GHSA-phpmailer-2020-object",
+        "cve": "CVE-2020-36326",
+        "affected": "<6.1.6",
+        "severity": "high",
+        "summary": "Object injection through a crafted PHAR attachment path.",
+        "fixed_in": "6.1.6"
+      }
     ]
   },
   "java": {
     "org.apache.logging.log4j:log4j-core": [
-      {"id": "GHSA-log4j-2021-shell", "cve": "CVE-2021-44228", "affected": "<2.17.1", "severity": "critical", "summary": "Log4Shell: JNDI lookup allows remote code execution via crafted log messages.", "fixed_in": "2.17.1"}
+      {
+        "id": "GHSA-log4j-2021-shell",
+        "cve": "CVE-2021-44228",
+        "affected": "<2.17.1",
+        "severity": "critical",
+        "summary": "Log4Shell: JNDI lookup allows remote code execution via crafted log messages.",
+        "fixed_in": "2.17.1"
+      }
     ],
     "com.fasterxml.jackson.core:jackson-databind": [
-      {"id": "GHSA-jackson-2020-poly", "cve": "CVE-2020-36518", "affected": "<2.12.6.1", "severity": "high", "summary": "Denial of service via deeply nested arrays/objects when polymorphic typing is enabled.", "fixed_in": "2.12.6.1"}
+      {
+        "id": "GHSA-jackson-2020-poly",
+        "cve": "CVE-2020-36518",
+        "affected": "<2.12.6.1",
+        "severity": "high",
+        "summary": "Denial of service via deeply nested arrays/objects when polymorphic typing is enabled.",
+        "fixed_in": "2.12.6.1"
+      }
+    ],
+    "org.springframework:spring-core": [
+      {
+        "id": "GHSA-spring-2022-spring4shell",
+        "cve": "CVE-2022-22965",
+        "affected": "<5.3.18",
+        "severity": "critical",
+        "summary": "Remote code execution via data binding on JDK 9+ (Spring4Shell).",
+        "fixed_in": "5.3.18"
+      }
+    ]
+  },
+  "rust": {
+    "time": [
+      {
+        "id": "GHSA-rusttime-2020-localtime",
+        "cve": "CVE-2020-26235",
+        "affected": "<0.1.43",
+        "severity": "high",
+        "summary": "Data race in localtime_r usage when called from multiple threads.",
+        "fixed_in": "0.1.43"
+      }
+    ],
+    "smallvec": [
+      {
+        "id": "GHSA-smallvec-2021-doublefree",
+        "cve": "CVE-2021-25900",
+        "affected": "<1.6.1",
+        "severity": "critical",
+        "summary": "Double free / use-after-free when inserting into a spilled SmallVec.",
+        "fixed_in": "1.6.1"
+      }
+    ]
+  },
+  "nuget": {
+    "newtonsoft.json": [
+      {
+        "id": "GHSA-newtonsoftjson-2024-dos",
+        "cve": "CVE-2024-21907",
+        "affected": "<13.0.1",
+        "severity": "medium",
+        "summary": "Denial of service when deserializing deeply nested JSON payloads.",
+        "fixed_in": "13.0.1"
+      }
     ]
   }
 }

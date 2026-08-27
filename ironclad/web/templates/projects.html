@@ -9,7 +9,7 @@
   <tbody>
   {% for view in views %}
     <tr>
-      <td><a href="/projects/{{ view.project.id }}">{{ view.project.name }}</a>
+      <td><a href="/ui/projects/{{ view.project.id }}">{{ view.project.name }}</a>
           <div class="muted">{{ view.project.description }}</div></td>
       <td>{% if view.latest %}#{{ view.latest.id }}{% else %}-{% endif %}</td>
       <td class="status-{{ view.latest.status if view.latest else 'none' }}">{{ view.latest.status if view.latest else 'never' }}</td>

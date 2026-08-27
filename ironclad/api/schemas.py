@@ -50,6 +50,8 @@ class PasswordChangeRequest(StrictModel):
 class ApiTokenCreate(StrictModel):
     name: str = Field(min_length=1, max_length=MAX_NAME)
     scopes: List[str] = Field(default_factory=list, max_length=32)
+    #: Scopes ARE permissions (see ironclad.platform.rbac). "scan:read" and
+    #: "scan.read" are both accepted and normalised to "scan.read".
 
 
 class ApiTokenOut(StrictModel):
@@ -340,6 +342,7 @@ class IntegrationOut(StrictModel):
 
 class AuditOut(StrictModel):
     id: int
+    org_id: int
     actor: str
     actor_id: Optional[int] = None
     action: str

@@ -62,8 +62,10 @@ class JobSpec:
 class JobQueue:
     """Database-backed job queue."""
 
-    def __init__(self, stale_after_seconds: int = DEFAULT_STALE_AFTER_SECONDS):
+    def __init__(self, stale_after_seconds: int = DEFAULT_STALE_AFTER_SECONDS,
+                 retry_backoff: float = 5.0):
         self.stale_after_seconds = stale_after_seconds
+        self.retry_backoff = retry_backoff
         self._handlers: Dict[str, Callable[[Session, Dict[str, Any]], None]] = {}
 
     def register(self, kind: str, handler: Callable[[Session, Dict[str, Any]], None]) -> None:
@@ -112,10 +114,15 @@ class JobQueue:
             .where(Job.id == row[0], Job.status.in_((QUEUED, RUNNING)))
             .values(status=RUNNING, attempts=Job.attempts + 1, started_at=now, error="")
         )
-        session.flush()
+        # Commit the claim itself. If the handler later raises and the caller
+        # rolls back, the attempt counter and the RUNNING marker must survive
+        # -- otherwise a job that always fails would retry forever because
+        # `attempts` kept being rolled back to 0.
+        session.commit()
         return session.get(Job, row[0])
 
-    def finish(self, session: Session, job: Job, *, error: str = "", retry_backoff: float = 5.0) -> str:
+    def finish(self, session: Session, job: Job, *, error: str = "",
+               retry_backoff: Optional[float] = None) -> str:
         """Mark a job succeeded, or failed/retryable."""
         if not error:
             job.status = SUCCEEDED
@@ -128,7 +135,8 @@ class JobQueue:
             job.finished_at = utcnow()
             return FAILED
         # Exponential backoff so a persistently failing job does not spin.
-        delay = retry_backoff * (2 ** max(0, job.attempts - 1))
+        backoff = self.retry_backoff if retry_backoff is None else retry_backoff
+        delay = backoff * (2 ** max(0, job.attempts - 1))
         job.status = QUEUED
         job.scheduled_at = _seconds_from_now(delay)
         return QUEUED
@@ -197,7 +205,13 @@ class Worker:
         self.running = False
 
     def run(self, session_factory: Callable[[], Session], max_jobs: Optional[int] = None) -> int:
-        """Poll until stopped (or ``max_jobs`` handled, for tests/CLI)."""
+        """Poll until stopped, or drain and exit when ``max_jobs`` is given.
+
+        With ``max_jobs`` the worker returns as soon as it has handled that
+        many jobs *or* the queue is empty -- otherwise a one-shot
+        ``ironclad server worker --max-jobs 1`` would block forever on an
+        idle queue, which is exactly what CI does not want.
+        """
         self.running = True
         while self.running:
             session = session_factory()
@@ -212,7 +226,7 @@ class Worker:
             finally:
                 session.close()
             self.processed += handled
-            if max_jobs is not None and self.processed >= max_jobs:
+            if max_jobs is not None and (self.processed >= max_jobs or handled == 0):
                 self.running = False
                 break
             if handled == 0:

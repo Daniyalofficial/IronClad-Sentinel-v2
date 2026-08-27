@@ -1,6 +1,8 @@
 """
 Multi-format report writer. Every format is generated purely from the
 in-memory `ScanResult` -- no network calls, no external services.
+
+Supported formats: json, sarif, html, markdown, junit, cyclonedx.
 """
 from __future__ import annotations
 
@@ -8,6 +10,7 @@ import os
 from typing import Dict, List
 
 from ironclad.core.models import ScanResult
+from ironclad.reporting.cyclonedx_report import render_cyclonedx
 from ironclad.reporting.html_report import render_html
 from ironclad.reporting.junit_report import render_junit
 from ironclad.reporting.markdown_report import render_markdown
@@ -19,6 +22,7 @@ RENDERERS = {
     "html": render_html,
     "markdown": render_markdown,
     "junit": render_junit,
+    "cyclonedx": render_cyclonedx,
 }
 
 EXTENSIONS = {
@@ -27,6 +31,7 @@ EXTENSIONS = {
     "html": "html",
     "markdown": "md",
     "junit": "junit.xml",
+    "cyclonedx": "cdx.json",
 }
 
 

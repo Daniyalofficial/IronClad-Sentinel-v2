@@ -2,12 +2,16 @@
 Configuration loading for IronClad Sentinel.
 
 Config precedence (highest wins):
+
   1. CLI flags
-  2. `.ironclad.yml` in the scan target root
-  3. Built-in defaults
+  2. ``IRONCLAD_*`` environment variables (e.g. ``IRONCLAD_MIN_SEVERITY``)
+  3. ``.ironclad.yml`` in the scan target root (project config)
+  4. ``~/.ironclad/config.yml`` (organization/machine-wide config)
+  5. Built-in defaults
 
 The config file format is intentionally small and explicit -- no plugin
 downloads, no remote includes, nothing that would require network access.
+Only the ``remote`` advisory source ever opens a socket, and it is opt-in.
 """
 from __future__ import annotations
 
@@ -33,6 +37,12 @@ DEFAULT_EXCLUDE_FILE_GLOBS = {
 CONFIG_FILENAME = ".ironclad.yml"
 
 
+def _read_yaml(path: str) -> Dict[str, Any]:
+    with open(path, "r", encoding="utf-8") as fh:
+        data = yaml.safe_load(fh) or {}
+    return data if isinstance(data, dict) else {}
+
+
 @dataclass
 class IronCladConfig:
     target: str = "."
@@ -53,18 +63,59 @@ class IronCladConfig:
     entropy_threshold: float = 4.3
     report_formats: List[str] = field(default_factory=lambda: ["json"])
     output_dir: str = ".ironclad/reports"
+    # Advisory feed selection. "bundled" is offline and is the default;
+    # "directory" merges an organization overlay; "remote" is opt-in only.
+    advisory_source: str = "bundled"
+    advisory_path: Optional[str] = None
+    advisory_endpoint: Optional[str] = None
 
     @classmethod
     def load(cls, target: str, overrides: Optional[Dict[str, Any]] = None) -> "IronCladConfig":
+        """Load configuration using the documented precedence chain."""
         cfg = cls(target=target)
-        config_path = os.path.join(target, CONFIG_FILENAME)
-        if os.path.isfile(config_path):
-            with open(config_path, "r", encoding="utf-8") as fh:
-                data = yaml.safe_load(fh) or {}
-            cfg._apply(data)
+
+        org_path = os.path.join(os.path.expanduser("~"), ".ironclad", "config.yml")
+        if os.path.isfile(org_path):
+            cfg._apply(_read_yaml(org_path))
+
+        project_path = os.path.join(target, CONFIG_FILENAME)
+        if os.path.isfile(project_path):
+            cfg._apply(_read_yaml(project_path))
+
+        cfg._apply(cls._env_overrides())
+
         if overrides:
             cfg._apply(overrides)
         return cfg
+
+    #: Environment variables mapped to configuration fields.
+    ENV_MAP = {
+        "IRONCLAD_MIN_SEVERITY": ("min_severity", str),
+        "IRONCLAD_OUTPUT_DIR": ("output_dir", str),
+        "IRONCLAD_BASELINE": ("baseline_file", str),
+        "IRONCLAD_ENTROPY_THRESHOLD": ("entropy_threshold", float),
+        "IRONCLAD_MAX_FILE_SIZE_KB": ("max_file_size_kb", int),
+        "IRONCLAD_ADVISORY_SOURCE": ("advisory_source", str),
+        "IRONCLAD_ADVISORY_PATH": ("advisory_path", str),
+        "IRONCLAD_ADVISORY_ENDPOINT": ("advisory_endpoint", str),
+        "IRONCLAD_IGNORE_RULES": ("ignore_rule_ids", lambda raw: [r.strip() for r in raw.split(",") if r.strip()]),
+        "IRONCLAD_ENGINES": ("enabled_engines", lambda raw: [e.strip() for e in raw.split(",") if e.strip()]),
+    }
+
+    @classmethod
+    def _env_overrides(cls) -> Dict[str, Any]:
+        found: Dict[str, Any] = {}
+        for env_name, (field_name, caster) in cls.ENV_MAP.items():
+            raw = os.environ.get(env_name)
+            if raw is None or raw == "":
+                continue
+            try:
+                found[field_name] = caster(raw)
+            except (TypeError, ValueError):
+                # A malformed environment value must not silently widen or
+                # narrow a scan; ignore it and let the file/default win.
+                continue
+        return found
 
     def _apply(self, data: Dict[str, Any]) -> None:
         for key, value in data.items():

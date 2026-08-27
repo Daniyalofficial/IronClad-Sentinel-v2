@@ -27,7 +27,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from sqlalchemy import text
 
 from ironclad import __version__
@@ -169,6 +169,10 @@ def create_app(database_url: Optional[str] = None, *, run_migrations_on_start: b
 
     for router in routes.ALL_ROUTERS:
         app.include_router(router)
+
+    @app.get("/", include_in_schema=False)
+    def root() -> RedirectResponse:
+        return RedirectResponse("/ui/")
 
     if include_web:
         from ironclad.web.app import mount_dashboard

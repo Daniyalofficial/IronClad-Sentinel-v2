@@ -51,6 +51,7 @@ from ironclad.platform.models import (
     utcnow,
 )
 from ironclad.platform.rbac import (
+    ALL_PERMISSIONS,
     AUDIT_READ,
     FINDING_MANAGE,
     FINDING_READ,
@@ -70,6 +71,7 @@ from ironclad.platform.rbac import (
     USER_MANAGE,
     USER_READ,
     describe_roles,
+    normalize_scope,
     role_at_least,
 )
 from ironclad.platform.scanning import (
@@ -279,7 +281,12 @@ def create_api_token(body: schemas.ApiTokenCreate,
                      session: DbSession = Depends(get_db)):
     context.require(TOKEN_MANAGE)
     token, token_hash, prefix = generate_api_token(body.name)
-    scopes = ",".join(sorted(set(body.scopes))) or "scan:read,scan:create,finding:read"
+    requested = [normalize_scope(scope) for scope in body.scopes]
+    unknown = sorted({scope for scope in requested if scope not in ALL_PERMISSIONS})
+    if unknown:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            f"unknown permission scope(s): {unknown}")
+    scopes = ",".join(sorted(set(requested))) or "scan.read,scan.create,finding.read"
     row = ApiToken(org_id=context.org_id, user_id=context.principal.user_id, name=body.name,
                    token_hash=token_hash, token_prefix=prefix, scopes=scopes)
     session.add(row)
@@ -601,8 +608,13 @@ def scan_result(scan_id: int, context: RequestContext = Depends(require_principa
     if scan is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "scan not found")
     decision = None
-    policy_row = get_for_org(session, PolicyRow, context.org_id, scan.policy_id) if scan.policy_id else None
-    if policy_row is not None:
+    document = None
+    if scan.policy_document:
+        document = json.loads(scan.policy_document)
+    elif scan.policy_id:
+        policy_row = get_for_org(session, PolicyRow, context.org_id, scan.policy_id)
+        document = json.loads(policy_row.document) if policy_row is not None else None
+    if document is not None:
         from ironclad.core.policy import evaluate_policy
         from ironclad.core.models import CodeLocation, Engine, Finding as CoreFinding
         from ironclad.core.models import ScanResult as CoreScanResult
@@ -623,7 +635,7 @@ def scan_result(scan_id: int, context: RequestContext = Depends(require_principa
             for r in rows if not r.baselined
         ]
         result = CoreScanResult(target=scan.target_path, findings=findings, stats=ScanStats())
-        outcome = evaluate_policy(result, Policy.from_dict(json.loads(policy_row.document)))
+        outcome = evaluate_policy(result, Policy.from_dict(document))
         decision = schemas.PolicyDecisionOut(
             passed=outcome.passed, policy=outcome.policy_name,
             violation_count=len(outcome.violations),

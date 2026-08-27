@@ -1,0 +1,59 @@
+# IronClad Sentinel rule pack. Schema: ironclad/rules/schema.py
+# Every rule needs: id, severity, confidence, category, pattern, message, remediation.
+rules:
+- id: RUBY-SYSTEM-INTERPOLATION
+  title: Shell command built by string interpolation
+  languages:
+  - ruby
+  severity: critical
+  category: injection
+  cwe: CWE-78
+  owasp: A03:2021-Injection
+  pattern: (system|exec|%x)\s*\(?\s*["'][^"']*#\{
+  message: A shell command is assembled by interpolation; any attacker-influenced value inside it allows
+    command injection.
+  remediation: Pass the command as an argument array (system('cmd', arg1)) and avoid shell metacharacters.
+  confidence: high
+  references:
+  - https://cwe.mitre.org/data/definitions/78.html
+- id: RUBY-SQL-INTERPOLATION
+  title: SQL built by string interpolation
+  languages:
+  - ruby
+  severity: critical
+  category: injection
+  cwe: CWE-89
+  owasp: A03:2021-Injection
+  pattern: (execute|find_by_sql|where|order)\s*\(\s*"[^"]*#\{
+  message: SQL is built with interpolation instead of bound placeholders, allowing SQL injection.
+  remediation: 'Use bound parameters: where(''id = ?'', id) or Arel/scope methods.'
+  confidence: high
+  references:
+  - https://cwe.mitre.org/data/definitions/89.html
+- id: RUBY-EVAL-USE
+  title: Dynamic code evaluation
+  languages:
+  - ruby
+  severity: high
+  category: injection
+  cwe: CWE-95
+  owasp: A03:2021-Injection
+  pattern: \b(eval|instance_eval|class_eval|module_eval)\s*[\(\s]
+  message: eval-family methods execute arbitrary Ruby source; with any user-influenced argument this is
+    remote code execution.
+  remediation: Replace eval with a data-driven dispatch table or a real parser.
+  confidence: medium
+- id: RUBY-SEND-FROM-PARAMS
+  title: Dynamic method dispatch from request parameters
+  languages:
+  - ruby
+  severity: high
+  category: broken-access-control
+  cwe: CWE-470
+  owasp: A01:2021-Broken Access Control
+  pattern: \.send\s*\(\s*params
+  message: The method to invoke is taken from request parameters, so an attacker can call unintended methods.
+  remediation: Map allowed action names to methods with an explicit allowlist; use public_send at most.
+  confidence: high
+  references:
+  - https://cwe.mitre.org/data/definitions/470.html

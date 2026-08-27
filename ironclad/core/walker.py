@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import fnmatch
 import os
+import re
 from dataclasses import dataclass, field
 from typing import Dict, List
 
@@ -41,13 +42,35 @@ LANGUAGE_EXTENSIONS = {
 }
 
 DEPENDENCY_MANIFESTS = {
-    "requirements.txt", "Pipfile.lock", "poetry.lock", "pyproject.toml",
-    "package.json", "package-lock.json", "yarn.lock",
-    "go.sum", "go.mod",
-    "Gemfile.lock",
-    "pom.xml", "build.gradle",
-    "composer.lock",
+    # Python
+    "requirements.txt", "Pipfile", "Pipfile.lock", "poetry.lock", "pyproject.toml",
+    # npm / JavaScript
+    "package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
+    # Go
+    "go.mod", "go.sum",
+    # Rust
+    "Cargo.toml", "Cargo.lock",
+    # Java / JVM
+    "pom.xml", "build.gradle", "build.gradle.kts",
+    # PHP
+    "composer.json", "composer.lock",
+    # Ruby
+    "Gemfile", "Gemfile.lock",
+    # .NET
+    "packages.config",
 }
+
+# Manifest filenames that vary per project (requirements-dev.txt, MyApp.csproj)
+_REQUIREMENTS_VARIANT = re.compile(r"^requirements.*\.txt$", re.IGNORECASE)
+
+
+def is_dependency_manifest(filename: str) -> bool:
+    """True when a filename is a dependency manifest IronClad can parse."""
+    if filename in DEPENDENCY_MANIFESTS:
+        return True
+    if _REQUIREMENTS_VARIANT.match(filename):
+        return True
+    return filename.lower().endswith(".csproj")
 
 IAC_FILENAMES_HINTS = {
     "dockerfile": "docker",
@@ -140,7 +163,7 @@ def discover(config: IronCladConfig) -> FileSet:
             elif language == "yaml" and ("k8s" in dirpath.lower() or "kubernetes" in dirpath.lower() or lower_name in ("deployment.yaml", "deployment.yml")):
                 iac_kind = "kubernetes-maybe"
 
-            is_manifest = filename in DEPENDENCY_MANIFESTS
+            is_manifest = is_dependency_manifest(filename)
 
             fileset.files.append(DiscoveredFile(
                 path=full_path,

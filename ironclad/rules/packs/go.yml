@@ -1,0 +1,74 @@
+# IronClad Sentinel rule pack. Schema: ironclad/rules/schema.py
+# Every rule needs: id, severity, confidence, category, pattern, message, remediation.
+rules:
+- id: GO-SQL-CONCATENATION
+  title: SQL built with fmt.Sprintf or concatenation
+  languages:
+  - go
+  severity: critical
+  category: injection
+  cwe: CWE-89
+  owasp: A03:2021-Injection
+  pattern: (Query|QueryRow|Exec|QueryContext|ExecContext)\s*\(\s*(fmt\.Sprintf\s*\(|[^,)]*\+\s*[a-zA-Z_])
+  message: A query string is built with fmt.Sprintf or concatenation instead of placeholders, allowing
+    SQL injection.
+  remediation: Use db.Query("... WHERE id = $1", id) style placeholders and pass values as arguments.
+  confidence: high
+  references:
+  - https://cwe.mitre.org/data/definitions/89.html
+- id: GO-UNESCAPED-TEMPLATE
+  title: HTML rendered with text/template instead of html/template
+  languages:
+  - go
+  severity: high
+  category: xss
+  cwe: CWE-79
+  owasp: A03:2021-Injection
+  pattern: text/template"
+  message: text/template performs no contextual escaping, so rendering it into an HTTP response produces
+    XSS whenever the data is user-influenced.
+  remediation: Import html/template for anything written to an HTTP response.
+  confidence: medium
+  references:
+  - https://cwe.mitre.org/data/definitions/79.html
+- id: GO-WEAK-RANDOM-SECURITY
+  title: math/rand used for a security value
+  languages:
+  - go
+  severity: high
+  category: crypto
+  cwe: CWE-330
+  owasp: A02:2021-Cryptographic Failures
+  pattern: math/rand"
+  message: math/rand is deterministic given its seed and must never generate tokens, keys, salts or session
+    identifiers.
+  remediation: Use crypto/rand (rand.Read / rand.Int) for security values.
+  confidence: medium
+  references:
+  - https://cwe.mitre.org/data/definitions/330.html
+- id: GO-UNSAFE-POINTER
+  title: Use of the unsafe package
+  languages:
+  - go
+  severity: medium
+  category: memory-safety
+  cwe: CWE-843
+  owasp: A04:2021-Insecure Design
+  pattern: '"unsafe"'
+  message: unsafe.Pointer bypasses Go's type and memory safety guarantees, reintroducing memory-corruption
+    bugs.
+  remediation: Remove the unsafe usage; if unavoidable for interop, isolate it behind a minimal, fuzz-tested
+    boundary.
+  confidence: medium
+- id: GO-IGNORING-TLS-ERROR
+  title: TLS handshake error ignored
+  languages:
+  - go
+  severity: medium
+  category: crypto
+  cwe: CWE-295
+  owasp: A02:2021-Cryptographic Failures
+  pattern: _\s*=\s*\w+\.Handshake\s*\(
+  message: The TLS handshake error is discarded, so a failed verification is treated as a successful connection.
+  remediation: Return or log the handshake error and abort the connection.
+  confidence: medium

@@ -192,6 +192,9 @@ class Scan(Base):
     requested_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     idempotency_key: Mapped[Optional[str]] = mapped_column(Text)
     policy_id: Mapped[Optional[int]] = mapped_column(ForeignKey("policies.id", ondelete="SET NULL"))
+    #: The exact policy document applied, so the decision can be recomputed
+    #: later even when the policy was supplied inline and has no row.
+    policy_document: Mapped[str] = mapped_column(Text, nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(Timestamp, nullable=False, default=utcnow)
     started_at: Mapped[Optional[datetime]] = mapped_column(Timestamp)
     finished_at: Mapped[Optional[datetime]] = mapped_column(Timestamp)

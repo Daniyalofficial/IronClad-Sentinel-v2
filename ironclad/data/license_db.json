@@ -7,12 +7,29 @@
     "pillow": "MIT-CMU",
     "urllib3": "MIT",
     "jinja2": "BSD-3-Clause",
-    "cryptography": "Apache-2.0",
+    "cryptography": "Apache-2.0 OR BSD-3-Clause",
     "pyjwt": "MIT",
     "paramiko": "LGPL-2.1",
     "numpy": "BSD-3-Clause",
     "pandas": "BSD-3-Clause",
-    "gpl-licensed-example": "GPL-3.0"
+    "gpl-licensed-example": "GPL-3.0",
+    "werkzeug": "BSD-3-Clause",
+    "aiohttp": "Apache-2.0",
+    "certifi": "MPL-2.0",
+    "setuptools": "MIT",
+    "idna": "BSD-3-Clause",
+    "zipp": "MIT",
+    "tqdm": "MIT",
+    "click": "BSD-3-Clause",
+    "rich": "MIT",
+    "pytest": "MIT",
+    "sqlalchemy": "MIT",
+    "fastapi": "MIT",
+    "pydantic": "MIT",
+    "uvicorn": "BSD-3-Clause",
+    "httpx": "BSD-3-Clause",
+    "alembic": "MIT",
+    "gitpython": "BSD-3-Clause"
   },
   "javascript": {
     "lodash": "MIT",
@@ -25,21 +42,42 @@
     "semver": "ISC",
     "react": "MIT",
     "vue": "MIT",
-    "gpl-example-pkg": "GPL-3.0"
+    "gpl-example-pkg": "GPL-3.0",
+    "braces": "MIT",
+    "follow-redirects": "MIT",
+    "cross-spawn": "MIT",
+    "nanoid": "MIT",
+    "path-to-regexp": "MIT",
+    "ws": "MIT"
   },
   "go": {
     "github.com/gin-gonic/gin": "MIT",
-    "golang.org/x/crypto": "BSD-3-Clause"
+    "golang.org/x/crypto": "BSD-3-Clause",
+    "golang.org/x/net": "BSD-3-Clause"
   },
   "ruby": {
     "rails": "MIT",
-    "nokogiri": "MIT"
+    "nokogiri": "MIT",
+    "json": "Ruby"
   },
   "php": {
-    "guzzlehttp/guzzle": "MIT"
+    "guzzlehttp/guzzle": "MIT",
+    "phpmailer/phpmailer": "LGPL-2.1"
   },
   "java": {
     "org.apache.logging.log4j:log4j-core": "Apache-2.0",
-    "com.fasterxml.jackson.core:jackson-databind": "Apache-2.0"
+    "com.fasterxml.jackson.core:jackson-databind": "Apache-2.0",
+    "org.springframework:spring-core": "Apache-2.0"
+  },
+  "rust": {
+    "time": "MIT OR Apache-2.0",
+    "smallvec": "MIT OR Apache-2.0"
+  },
+  "nuget": {
+    "newtonsoft.json": "MIT"
+  },
+  "_meta": {
+    "description": "Offline package -> SPDX license identifier map used by the license compliance engine. Extend it (or supply an organization overlay) rather than assuming an unmapped package is permissive.",
+    "last_updated": "2026-08-25"
   }
 }

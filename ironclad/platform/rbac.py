@@ -84,6 +84,17 @@ ROLE_PERMISSIONS: Dict[str, FrozenSet[str]] = {
 ROLE_RANK = {"viewer": 0, "developer": 1, "security": 2, "admin": 3, "owner": 4}
 
 
+def normalize_scope(scope: str) -> str:
+    """Normalise a token scope into permission form.
+
+    ``scan:read`` and ``scan.read`` both mean the ``scan.read`` permission.
+    Accepting the colon spelling matters because that is the convention most
+    OAuth-style tooling emits; silently treating it as an unknown string
+    would hand back a token that can do nothing.
+    """
+    return str(scope).strip().replace(":", ".").lower()
+
+
 class PermissionDenied(Exception):
     """Raised when an actor lacks a permission.
 
@@ -114,8 +125,11 @@ class Principal:
     def permissions(self) -> FrozenSet[str]:
         granted = ROLE_PERMISSIONS.get(self.role, frozenset())
         if self.token_scopes:
-            # A token may narrow the owner's permissions but never widen them.
-            return granted & self.token_scopes
+            # Scopes are permissions. They may NARROW the owner's grants but
+            # never widen them, and any string that is not a known permission
+            # grants nothing rather than being silently ignored.
+            normalized = {normalize_scope(scope) for scope in self.token_scopes}
+            return granted & normalized
         return granted
 
     def can(self, permission: str) -> bool:

@@ -2,7 +2,7 @@
 {% block title %}Findings &middot; IronClad Sentinel{% endblock %}
 {% block content %}
 <h1>Findings</h1>
-<form class="filters" method="get" action="/findings">
+<form class="filters" method="get" action="/ui/findings">
   <label>Severity
     <select name="severity">
       <option value="">all</option>
@@ -37,7 +37,7 @@
 {% for finding in findings %}<tr>
   <td class="{{ finding.severity }}">{{ finding.severity }}</td>
   <td><code>{{ finding.rule_id }}</code></td>
-  <td><a href="/findings/{{ finding.id }}">{{ finding.title }}</a></td>
+  <td><a href="/ui/findings/{{ finding.id }}">{{ finding.title }}</a></td>
   <td>{{ finding.file_path }}:{{ finding.start_line }}</td>
   <td>{{ finding.confidence }}</td>
   <td>{{ finding.status }}</td>

@@ -46,7 +46,7 @@
 {% for finding in findings %}<tr>
   <td class="{{ finding.severity }}">{{ finding.severity }}</td>
   <td><code>{{ finding.rule_id }}</code></td>
-  <td><a href="/findings/{{ finding.id }}">{{ finding.title }}</a></td>
+  <td><a href="/ui/findings/{{ finding.id }}">{{ finding.title }}</a></td>
   <td>{{ finding.file_path }}:{{ finding.start_line }}</td>
   <td>{{ finding.category }}</td>
   <td>{{ finding.status }}{% if finding.baselined %} <span class="muted">(baselined)</span>{% endif %}</td>

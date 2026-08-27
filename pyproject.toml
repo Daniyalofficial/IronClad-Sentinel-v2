@@ -19,8 +19,23 @@ dependencies = [
     "cryptography>=41.0",
 ]
 
+# The scanner core stays dependency-light; the server (API + dashboard +
+# database) is an explicit extra so an air-gapped scan-only install does not
+# need a web stack.
+[project.optional-dependencies]
+server = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "SQLAlchemy>=2.0",
+    "pydantic>=2.6",
+    "email-validator>=2.1",
+    "python-multipart>=0.0.9",
+]
+postgres = ["psycopg2-binary>=2.9"]
+dev = ["pytest>=7.4", "httpx>=0.27"]
+
 [project.scripts]
-ironclad = "ironclad.cli:main"
+ironclad = "ironclad.cli:_safe_main"
 
 [tool.setuptools.packages.find]
 include = ["ironclad*"]
@@ -31,4 +46,7 @@ ironclad = [
     "data/*.json",
     "reporting/templates/*.j2",
     "licensing/vendor_public_key.pem",
+    "platform/migrations/*/*.sql",
+    "web/templates/*.html",
+    "web/static/*.css",
 ]

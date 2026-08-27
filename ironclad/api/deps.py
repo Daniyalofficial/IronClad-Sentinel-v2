@@ -54,6 +54,10 @@ class RequestContext:
 
     def audit(self, action: str, *, target_type: str = "", target_id: str = "",
               metadata: Optional[dict] = None, org_id: Optional[int] = None) -> None:
+        """Append an audit record inside the current request's transaction."""
+        if self.session is None:
+            raise RuntimeError(
+                "audit() called without a database session; the route must depend on get_db")
         if self.principal is None and org_id is None:
             return
         audit.record(self.session, org_id=org_id or self.org_id, action=action,
@@ -117,30 +121,32 @@ def get_context(request: Request,
                 raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid or expired credentials")
         if principal is not None:
             set_request_context(request_id=request_id, org_id=principal.org_id)
-        # Detach the principal from the session: routes open their own
-        # session per operation so a long request cannot hold a transaction.
         request.state.principal = principal
     return RequestContext(session=None, principal=principal, request_id=request_id, auth_kind=kind)  # type: ignore[arg-type]
 
 
-def db_session(request: Request):
-    """Yield a database session bound to the request's transaction."""
-    engine = request.app.state.engine
-    with session_scope(engine) as session:
-        yield session
+def get_db(request: Request, context: RequestContext = Depends(get_context)):
+    """Open the one session used by this request and close it afterwards.
 
+    The session is also attached to the request context so that
+    ``context.audit(...)`` writes into the same transaction as the route
+    body -- an audit record must never be committed separately from the
+    change it describes, and must never be written to a ``None`` session.
 
-def get_db(request: Request) -> DbSession:
-    """Open a session for one route call and close it afterwards.
-
-    Committing is explicit at the call site (``session.commit()``) so a
+    Committing stays explicit at the call site (``session.commit()``) so a
     route that fails validation cannot half-write.
     """
     session = session_factory(request.app.state.engine)()
+    context.session = session
     try:
         yield session
     finally:
+        context.session = None
         session.close()
+
+
+# Backwards-compatible alias.
+db_session = get_db
 
 
 def require_principal(context: RequestContext = Depends(get_context)) -> RequestContext:

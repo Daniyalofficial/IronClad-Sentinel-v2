@@ -163,10 +163,30 @@ def perform_scan(
     scan_row.status = "running"
     scan_row.started_at = utcnow()
     scan_row.target_path = target
+    scan_row.policy_document = json.dumps(policy.to_dict(), sort_keys=True) if policy else ""
     session.flush()
     events.default_bus.publish(session, events.SCAN_STARTED, org_id,
                                {"scan_id": scan_row.id}, subject_id=str(scan_row.id),
                                correlation_id=correlation_id)
+
+    # Re-validate at execution time: the API checked the path when the job
+    # was queued, but a queued job can sit for a while and the directory may
+    # be gone by then. Silently "succeeding" with zero findings would report
+    # a clean scan of a tree that no longer exists.
+    try:
+        resolve_target(target)
+    except TargetError as exc:
+        scan_row.status = "failed"
+        scan_row.finished_at = utcnow()
+        scan_row.error = f"TargetError: {exc}"[:2000]
+        registry.inc(SCAN_FAILURES, 1, "Scans that failed")
+        registry.inc(SCAN_TOTAL, 1, "Scans executed")
+        events.default_bus.publish(session, events.SCAN_FAILED, org_id,
+                                   {"scan_id": scan_row.id, "error": scan_row.error},
+                                   subject_id=str(scan_row.id), correlation_id=correlation_id)
+        session.flush()
+        return ScanOutcome(scan=scan_row, result=None, decision=None,
+                           new_findings=0, resolved_findings=0)
 
     config = IronCladConfig.load(target, {"report_formats": ["json"]})
     try:
