@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import math
 import re
-from typing import List
+from typing import List, Optional
 
 from ironclad.core.models import CodeLocation, Engine, Finding, Severity
 from ironclad.core.walker import DiscoveredFile, read_text_safely
@@ -39,6 +39,29 @@ PLACEHOLDER_HINTS = re.compile(
 )
 
 BASE64_LIKE = re.compile(r"^[A-Za-z0-9+/=_\-]+$")
+
+# A credential assignment with a *literal* value. Independent of entropy:
+# a weak password such as "super-secret-password-123" has low entropy but is
+# exactly the finding an operator needs to see, so an entropy-only detector
+# would silently miss it.
+CREDENTIAL_ASSIGNMENT = re.compile(
+    r"""(?P<var>[A-Za-z_][A-Za-z0-9_.\-]{1,60})\s*[:=]\s*(?P<quote>['"])(?P<value>[^'"\n]{6,200})(?P=quote)"""
+)
+
+#: Literal values that look like a credential variable name but are not a
+#: secret (field names, defaults, sentinels). Matching the variable name is
+#: not the same as containing one.
+NON_SECRET_LITERALS = {
+    "password", "passwd", "pwd", "secret", "token", "api_key", "apikey",
+    "access_key", "private_key", "none", "null", "true", "false", "nil",
+    "unset", "undefined", "redacted", "masked", "n/a", "-", "changeme",
+}
+
+#: Patterns that mean "this value comes from configuration", not from source.
+ENV_LOOKUP_HINTS = re.compile(
+    r"(?i)(os\.environ|getenv|process\.env|System\.getenv|ENV\[|vault|keyring|"
+    r"secret_?manager|config\.get|settings\.|fetch_?secret|read_?secret)"
+)
 
 EXCLUDED_LANGUAGES = {"other"}
 BINARY_LOOKING_EXT = {".png", ".jpg", ".gif", ".woff", ".ttf"}
@@ -69,6 +92,74 @@ def _looks_like_hash_or_uuid(value: str) -> bool:
     return False
 
 
+def _scan_credential_assignments(discovered: DiscoveredFile, lines: List[str],
+                                 findings: List[Finding],
+                                 skip_lines: Optional[set] = None) -> set:
+    """Flag credentials assigned a literal value, regardless of entropy.
+
+    ``skip_lines`` holds lines already reported by the entropy pass, which is
+    the more informative of the two (it includes the measured entropy); one
+    finding per problem, not two.
+    """
+    reported: set = set()
+    for idx, line in enumerate(lines, start=1):
+        if skip_lines and idx in skip_lines:
+            continue
+        if ENV_LOOKUP_HINTS.search(line):
+            continue
+        stripped = line.strip()
+        if stripped.startswith("#") or stripped.startswith("//"):
+            continue
+        for match in CREDENTIAL_ASSIGNMENT.finditer(line):
+            var_name = match.group("var")
+            value = match.group("value")
+            if not SENSITIVE_VAR_HINTS.search(var_name):
+                continue
+            if value.strip().lower() in NON_SECRET_LITERALS:
+                continue
+            if value.strip().lower() == var_name.strip().lower().split(".")[-1]:
+                continue
+            if PLACEHOLDER_HINTS.search(value):
+                continue
+            if _looks_like_hash_or_uuid(value):
+                continue
+            findings.append(Finding(
+                rule_id="SECRETS-HARDCODED-CREDENTIAL",
+                title=f"Hardcoded credential in `{var_name}`",
+                description=(
+                    f"`{var_name}` is assigned a literal string. A credential committed to "
+                    f"source control is readable by everyone with repository access, survives "
+                    f"in git history after deletion, and is usually shared rather than rotated."
+                ),
+                severity=Severity.HIGH,
+                engine=Engine.SECRETS,
+                category="secrets",
+                cwe="CWE-798",
+                owasp="A07:2021-Identification and Authentication Failures",
+                confidence="medium",
+                remediation=(
+                    "Load the value from an environment variable or a secret manager, remove it "
+                    "from version control, and rotate it -- deleting the line does not remove it "
+                    "from git history."
+                ),
+                references=["https://cwe.mitre.org/data/definitions/798.html"],
+                location=CodeLocation(file_path=discovered.rel_path, start_line=idx, end_line=idx,
+                                      snippet=_redact(line.strip(), value)[:300]),
+                extra={"variable": var_name, "value_length": len(value)},
+            ))
+            reported.add(idx)
+            break
+    return reported
+
+
+def _redact(line: str, secret: str) -> str:
+    """Never echo the secret itself into a finding's snippet."""
+    if not secret:
+        return line
+    masked = secret[:2] + "*" * max(0, min(len(secret) - 2, 12))
+    return line.replace(secret, masked)
+
+
 def scan_file_for_secrets(discovered: DiscoveredFile, entropy_threshold: float = 4.3) -> List[Finding]:
     if discovered.language in EXCLUDED_LANGUAGES:
         pass  # still worth scanning generic text files
@@ -78,6 +169,7 @@ def scan_file_for_secrets(discovered: DiscoveredFile, entropy_threshold: float =
 
     findings: List[Finding] = []
     lines = content.splitlines()
+    entropy_lines: set = set()
 
     for idx, line in enumerate(lines, start=1):
         if len(line) > 2000:
@@ -127,5 +219,12 @@ def scan_file_for_secrets(discovered: DiscoveredFile, entropy_threshold: float =
                 ),
                 extra={"entropy": round(entropy, 3), "variable": var_name},
             ))
+            entropy_lines.add(idx)
+            break
+
+    # Second pass: literal credentials that the entropy test would miss. A
+    # weak password has low entropy but is still a committed credential, so
+    # an entropy-only detector silently drops it.
+    _scan_credential_assignments(discovered, lines, findings, skip_lines=entropy_lines)
 
     return findings
