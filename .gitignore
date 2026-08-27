@@ -21,6 +21,13 @@ vendor_private_key.pem
 .ironclad/reports/
 /reports/
 
+# Local SQLite databases created by `ironclad server init` or the CI
+# pipeline simulation. Never commit a database -- it holds password hashes
+# and session digests.
+.ironclad/*.db
+.ironclad/*.db-wal
+.ironclad/*.db-shm
+
 # Local license files (customer-specific, shouldn't be in version control)
 license.json
 demo_license/
