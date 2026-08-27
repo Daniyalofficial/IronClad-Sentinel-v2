@@ -132,3 +132,34 @@ Conventional-commit prefixes: `feat:`, `fix:`, `test:`, `docs:`, `perf:`,
 `refactor:`. Describe the *reason* in the body, especially for anything a
 reviewer would otherwise "fix" back — several comments in this codebase
 explain why an apparently suboptimal choice is deliberate.
+
+## CI pipeline
+
+The full three-job pipeline (test + scanner quality, API/PostgreSQL,
+end-to-end demo and packaging) is staged at **`deploy/ci/verify.yml`**.
+
+It is not at `.github/workflows/verify.yml` because the automation account
+used for this branch does not have the GitHub App `workflows` permission,
+and GitHub refuses pushes that create or update workflow files without it.
+Installing it is a one-line copy by anyone who does have that permission:
+
+```bash
+cp deploy/ci/verify.yml .github/workflows/verify.yml
+git commit -m "ci: install the full verification pipeline" .github/workflows/verify.yml
+```
+
+Until it is installed, the repository runs the original single-job
+`verify.yml` from `main`, which covers the test suite, CLI smoke tests, SBOM
+generation and a throughput benchmark — but **not** the API/PostgreSQL job
+or the end-to-end demo job.
+
+Everything the new pipeline checks can be run locally in the same order:
+
+```bash
+pytest -q
+python benchmarks/corpus_metrics.py --fail-below 0.95
+python benchmarks/scale_benchmark.py --tiers 1000
+ironclad scan ironclad --fail-on high
+bash demo/run_demo.sh
+python -m build --wheel
+```

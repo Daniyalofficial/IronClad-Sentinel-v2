@@ -1,0 +1,265 @@
+name: IronClad verification
+
+on:
+  push:
+    branches: [main, 'arena/*', 'whole-project-*', 'enterprise-*', 'hardening-*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Tests, scanner quality and CLI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install (core + server + dev)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[server,dev]"
+
+      - name: Full test suite
+        run: pytest -q
+
+      - name: CLI smoke tests
+        run: |
+          python -m ironclad.cli --help
+          ironclad version
+          ironclad version --json
+          ironclad doctor --json
+          ironclad config show --json .
+          ironclad policy init --out /tmp/policy.yaml
+          ironclad policy validate /tmp/policy.yaml
+
+      - name: SBOM smoke test (CycloneDX + SPDX)
+        run: |
+          ironclad sbom tests/security_corpus/sbom_license --out /tmp/cdx.json --project-name ironclad-ci
+          ironclad sbom tests/security_corpus/sbom_license --out /tmp/spdx.json --format spdx --project-name ironclad-ci
+          python - <<'PY'
+          import json
+          from ironclad.scanners.sbom import validate_cyclonedx
+          from ironclad.scanners.spdx import validate_spdx
+
+          cdx = json.load(open('/tmp/cdx.json'))
+          assert cdx['bomFormat'] == 'CycloneDX' and cdx['specVersion'] == '1.5'
+          assert len(cdx['components']) >= 1
+          assert len({c['purl'] for c in cdx['components']}) == len(cdx['components'])
+          problems = validate_cyclonedx(cdx)
+          assert problems == [], problems
+          print(f"CycloneDX valid: {len(cdx['components'])} components, "
+                f"{len(cdx.get('dependencies', []))} dependency nodes")
+
+          spdx = json.load(open('/tmp/spdx.json'))
+          problems = validate_spdx(spdx)
+          assert problems == [], problems
+          print(f"SPDX valid: {spdx['spdxVersion']}, {len(spdx['packages'])} packages")
+          PY
+
+      - name: SBOM output is deterministic
+        run: |
+          ironclad sbom tests/security_corpus/sbom_license --out /tmp/a.json --project-name x
+          ironclad sbom tests/security_corpus/sbom_license --out /tmp/b.json --project-name x
+          python - <<'PY'
+          import json
+          a, b = (json.load(open(p)) for p in ('/tmp/a.json', '/tmp/b.json'))
+          for doc in (a, b):
+              doc['metadata'].pop('timestamp', None)
+          assert a == b, "SBOM output must be deterministic apart from the timestamp"
+          print("SBOM determinism verified")
+          PY
+
+      - name: Policy gate smoke test
+        run: |
+          set +e
+          ironclad scan tests/security_corpus --policy /tmp/policy.yaml \
+            --format json --output-dir /tmp/reports --quiet
+          code=$?
+          set -e
+          test "$code" -eq 1 || { echo "expected the corpus to fail the gate, got $code"; exit 1; }
+          echo "policy gate correctly failed the vulnerable corpus (exit $code)"
+
+      - name: Baseline round trip
+        run: |
+          ironclad baseline create tests/security_corpus --out /tmp/baseline.json \
+            --reason "CI-1" --expires-in-days 30 --created-by ci
+          ironclad baseline list /tmp/baseline.json
+          ironclad scan tests/security_corpus --policy /tmp/policy.yaml \
+            --baseline /tmp/baseline.json --output-dir /tmp/reports --quiet
+          echo "baselined corpus passed the gate"
+
+      - name: Detection accuracy (corpus precision/recall)
+        run: python benchmarks/corpus_metrics.py --fail-below 0.95
+
+      - name: Throughput benchmark
+        run: |
+          python benchmarks/scan_benchmark.py tests/security_corpus | tee /tmp/bench.txt
+          grep -q '^files_scanned=' /tmp/bench.txt
+          grep -q '^files_per_second=' /tmp/bench.txt
+          python benchmarks/scale_benchmark.py --tiers 1000 | tee /tmp/scale.txt
+          grep -q '^files_per_second=' /tmp/scale.txt
+
+      - name: Self-scan must stay clean
+        run: ironclad scan ironclad --fail-on high --output-dir /tmp/self --quiet
+
+      - name: No placeholder markers in shipped code
+        run: |
+          ! grep -rn --include='*.py' -E '\b(TODO|FIXME|XXX)\b' ironclad/ \
+            || { echo "placeholder markers found in ironclad/"; exit 1; }
+
+  api:
+    name: API, dashboard and database
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ironclad
+          POSTGRES_PASSWORD: ironclad-ci
+          POSTGRES_DB: ironclad
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ironclad"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      IRONCLAD_SIGNING_KEY: ci-signing-key-that-is-at-least-32-chars
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install (core + server + postgres + dev)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[server,postgres,dev]"
+
+      - name: API, dashboard, worker and platform tests
+        run: pytest -q tests/test_api.py tests/test_security.py
+
+      - name: SQLite migrations apply and are idempotent
+        run: |
+          export IRONCLAD_DATABASE_URL="sqlite:///./.ironclad/ci.db"
+          ironclad server init --org-name "CI Org" --org-slug ci \
+            --admin-email ci@example.com --admin-password 'C1-Strong-Passw0rd'
+          ironclad server worker --max-jobs 1
+          python - <<'PY'
+          from ironclad.platform.database import build_engine, run_migrations, current_schema_version
+          engine = build_engine()
+          assert run_migrations(engine) == [], "a second run must apply nothing"
+          print("sqlite schema version:", current_schema_version(engine))
+          PY
+
+      - name: PostgreSQL migrations apply against a real server
+        run: |
+          export IRONCLAD_DATABASE_URL="postgresql+psycopg2://ironclad:ironclad-ci@localhost:5432/ironclad"
+          python - <<'PY'
+          from ironclad.platform.database import (build_engine, run_migrations,
+                                                  current_schema_version, pending_migrations)
+          from ironclad.platform.scanning import bootstrap_organization
+          from ironclad.platform.database import session_scope
+
+          engine = build_engine()
+          applied = run_migrations(engine, verbose=True)
+          print("applied:", applied)
+          assert run_migrations(engine) == [], "idempotency"
+          with session_scope(engine) as s:
+              org, owner = bootstrap_organization(
+                  s, name="PG Org", slug="pg", admin_email="pg@example.com",
+                  password="C1-Strong-Passw0rd")
+              print("created org", org.id, "owner", owner.email)
+          print("postgres schema version:", current_schema_version(engine))
+          assert pending_migrations(engine) == []
+          PY
+
+      - name: Server boots and serves /ready
+        run: |
+          export IRONCLAD_DATABASE_URL="sqlite:///./.ironclad/ci.db"
+          uvicorn ironclad.api.app:create_app --factory --host 127.0.0.1 --port 8123 &
+          pid=$!
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8123/ready >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8123/health
+          curl -fsS http://127.0.0.1:8123/version
+          curl -fsS http://127.0.0.1:8123/metrics | head -5
+          curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8123/ui/login | grep -q 200
+          kill $pid
+
+  end-to-end:
+    name: Company demo and packaging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[server,dev]" build
+
+      - name: Run the company demo end to end
+        run: bash demo/run_demo.sh
+
+      - name: Build a wheel and verify it imports clean
+        run: |
+          python -m build --wheel
+          python -m pip install --force-reinstall --no-deps dist/*.whl
+          python - <<'PY'
+          import importlib.util, pathlib, ironclad
+          root = pathlib.Path(ironclad.__file__).parent
+          # Package data must be present in the installed wheel, or migrations
+          # and templates silently vanish in a customer install.
+          required = [
+              "platform/migrations/sqlite/0001_initial.sql",
+              "platform/migrations/postgres/0001_initial.sql",
+              "web/templates/base.html",
+              "web/static/style.css",
+              "rules/packs/java.yml",
+              "data/vuln_db.json",
+              "data/license_db.json",
+          ]
+          missing = [r for r in required if not (root / r).exists()]
+          assert not missing, f"missing from wheel: {missing}"
+          print("wheel package data verified:", len(required), "paths")
+          for mod in ("ironclad.api.app", "ironclad.web.app", "ironclad.platform.jobs"):
+              assert importlib.util.find_spec(mod), mod
+          print("server modules importable from the installed wheel")
+          PY
+
+      - name: Deployment manifests parse
+        run: |
+          python - <<'PY'
+          import glob, yaml
+          files = sorted(glob.glob('deploy/k8s/*.yaml')) + ['docker-compose.yml']
+          docs = 0
+          for f in files:
+              parsed = [d for d in yaml.safe_load_all(open(f)) if d]
+              assert parsed, f"{f} parsed to nothing"
+              docs += len(parsed)
+          print(f"{len(files)} manifests, {docs} documents")
+          PY
+          bash -n scripts/container-entrypoint.sh
+          bash -n scripts/build_release.sh
+          bash -n scripts/customer_install.sh
