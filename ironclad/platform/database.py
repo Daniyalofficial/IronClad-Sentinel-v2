@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from typing import Dict, Iterator, List, Optional
 
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -48,21 +49,45 @@ class MigrationError(RuntimeError):
 
 
 def detect_dialect(url: str) -> str:
-    if url.startswith("postgresql://") or url.startswith("postgres://"):
+    """Map a SQLAlchemy URL onto one of the supported dialects.
+
+    Parsed with SQLAlchemy's own URL parser rather than a string prefix, so
+    every driver spelling works: ``postgresql://``, ``postgres://`` and
+    ``postgresql+psycopg2://`` are all PostgreSQL. A prefix check would
+    reject the driver-qualified form, which is exactly what a production
+    deployment is told to use.
+    """
+    try:
+        # get_backend_name() -- not get_driver_name(): the latter resolves to
+        # the DBAPI ("pysqlite", "psycopg2"), the former to the database
+        # ("sqlite", "postgresql"), which is what selects a migration folder.
+        backend = make_url(url).get_backend_name()
+    except Exception as exc:  # noqa: BLE001 - surfaced as a config error
+        raise MigrationError(f"unparseable database URL: {exc}") from exc
+    if backend in {"postgresql", "postgres"}:
         return "postgres"
-    if url.startswith("sqlite"):
+    if backend == "sqlite":
         return "sqlite"
-    raise MigrationError(f"unsupported database URL scheme: {url.split('://', 1)[0]!r}")
+    raise MigrationError(f"unsupported database backend: {backend!r}")
 
 
 def database_url(override: Optional[str] = None) -> str:
-    """Resolve the database URL: explicit > env > default (local SQLite)."""
+    """Resolve the database URL: explicit > env > default (local SQLite).
+
+    For a file-backed SQLite URL the parent directory is created first, so a
+    fresh checkout does not fail with "unable to open database file".
+    """
     url = override or os.environ.get(SQLITE_URL_ENV) or DEFAULT_SQLITE_URL
-    if url.startswith("sqlite:///./") or url.startswith("sqlite:////"):
-        path = url.split("///", 1)[-1].lstrip("/")
-        directory = os.path.dirname(path)
-        if directory:
-            os.makedirs(directory, exist_ok=True)
+    if detect_dialect(url) == "sqlite":
+        # Three slashes = relative path, four = absolute. Taking everything
+        # after "sqlite:///" preserves that distinction; stripping the
+        # leading slash would silently turn an absolute path into a relative
+        # one and create the directory in the wrong place.
+        database = make_url(url).database
+        if database and database != ":memory:":
+            directory = os.path.dirname(os.path.abspath(database))
+            if directory:
+                os.makedirs(directory, exist_ok=True)
     return url
 
 
