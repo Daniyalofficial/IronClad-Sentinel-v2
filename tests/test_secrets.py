@@ -1,3 +1,5 @@
+import pytest
+
 from ironclad.core.walker import DiscoveredFile
 from ironclad.scanners.secrets import scan_file_for_secrets, shannon_entropy
 import os
@@ -50,6 +52,32 @@ def test_low_entropy_literal_is_not_an_entropy_finding_but_is_a_credential():
         rule_ids = {f.rule_id for f in findings}
         assert "SECRETS-HIGH-ENTROPY-ASSIGNMENT" not in rule_ids
         assert "SECRETS-HARDCODED-CREDENTIAL" in rule_ids
+    finally:
+        os.unlink(d.path)
+
+
+@pytest.mark.parametrize("length,label", [(32, "md5"), (40, "sha1"), (64, "sha256")])
+def test_hex_digests_are_not_reported_as_credentials(length, label):
+    """A pinned digest is not a secret, even in a credential-named variable.
+
+    Regression: the sha256 length (64) was missing from the exclusion list,
+    so `api_token = "<sha256>"` was reported as a hardcoded credential.
+    """
+    digest = ("a1b2c3d4" * 8)[:length]
+    d = _discovered_for(f'api_token = "{digest}"\n')
+    try:
+        assert scan_file_for_secrets(d) == [], f"{label}-length hex should not be reported"
+    finally:
+        os.unlink(d.path)
+
+
+def test_a_real_token_of_the_same_length_is_still_reported():
+    """The exclusion is shape-based, not length-based."""
+    token = "Zk9pQ2xR7vN4mT8sW1yB6dF3hJ0aL5eUqR7cXnB4vM2tY8wE6sA0dG9"  # 56 chars, not hex
+    d = _discovered_for(f'api_token = "{token}"\n')
+    try:
+        findings = scan_file_for_secrets(d)
+        assert findings, "a non-hex token must still be reported"
     finally:
         os.unlink(d.path)
 

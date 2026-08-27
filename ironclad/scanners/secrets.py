@@ -102,12 +102,18 @@ def shannon_entropy(data: str) -> float:
     return entropy
 
 
+#: Hex digests at the lengths the common algorithms produce. A pinned
+#: checksum or commit digest assigned to a credential-named variable
+#: (`api_token = "<sha256>"`) is not a secret, and reporting it trains
+#: people to ignore the rule.
+_HEX_DIGEST_LENGTHS = (32, 40, 64)  # md5, sha1/git sha, sha256
+
+
 def _looks_like_hash_or_uuid(value: str) -> bool:
-    """Skip common non-secret high-entropy patterns: hex hashes, UUIDs, git SHAs."""
-    if re.fullmatch(r"[0-9a-fA-F]{32}", value):
-        return True  # md5-length hex
-    if re.fullmatch(r"[0-9a-fA-F]{40}", value):
-        return True  # sha1-length hex / git commit sha
+    """Skip common non-secret high-entropy patterns: hex digests and UUIDs."""
+    for length in _HEX_DIGEST_LENGTHS:
+        if re.fullmatch(r"[0-9a-fA-F]{%d}" % length, value):
+            return True
     if re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", value):
         return True  # UUID
     return False
