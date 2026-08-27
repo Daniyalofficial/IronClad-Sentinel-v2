@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}IronClad Sentinel{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">IronClad <span>Sentinel</span></div>
+  <nav class="primary">
+    {% for label, href, key in nav.links %}
+      <a href="{{ href }}" class="{{ 'active' if nav.active == key else '' }}">{{ label }}</a>
+    {% endfor %}
+  </nav>
+  <div class="session">
+    {% if nav.user %}
+      <span class="who">{{ nav.user.email }}</span>
+      <span class="role">{{ nav.user.role }}</span>
+      <form method="post" action="/logout" class="inline"><button class="link">Sign out</button></form>
+    {% endif %}
+  </div>
+</header>
+<main class="content">
+  {% block content %}{% endblock %}
+</main>
+<footer class="footer">
+  IronClad Sentinel v{{ nav.version }} &middot; self-hosted &middot; zero telemetry
+  {% if nav.org %}&middot; organization: {{ nav.org.name }}{% endif %}
+</footer>
+</body>
+</html>

@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Audit log &middot; IronClad Sentinel{% endblock %}
+{% block content %}
+<h1>Audit log</h1>
+<form class="filters" method="get" action="/audit">
+  <label>Action <input name="action" value="{{ action_filter }}" placeholder="scan.created"></label>
+  <button type="submit" class="primary">Filter</button>
+</form>
+<p class="muted">{{ entries|length }} record(s). Audit records are append-only; nothing in the
+  product updates or deletes them.</p>
+<table class="grid"><thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Target</th>
+  <th>Request</th><th>Metadata</th></tr></thead><tbody>
+{% for entry in entries %}<tr>
+  <td>{{ entry.created_at }}</td><td>{{ entry.actor }}</td><td><code>{{ entry.action }}</code></td>
+  <td>{{ entry.target_type }}{% if entry.target_id %} #{{ entry.target_id }}{% endif %}</td>
+  <td><code>{{ entry.request_id[:8] }}</code></td>
+  <td><code>{{ entry.metadata }}</code></td>
+</tr>{% endfor %}
+</tbody></table>
+{% endblock %}

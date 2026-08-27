@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name }} &middot; IronClad Sentinel{% endblock %}
+{% block content %}
+<h1>{{ project.name }}</h1>
+<p class="muted">{{ project.description or 'No description' }} &middot; default branch <code>{{ project.default_branch }}</code></p>
+
+<section class="tiles">
+  <div class="tile"><span class="label">Scans</span><strong>{{ scans|length }}</strong></div>
+  <div class="tile"><span class="label">Findings in latest scan</span><strong>{{ findings|length }}</strong></div>
+  <div class="tile"><span class="label">Components</span><strong>{{ components|length }}</strong></div>
+  <div class="tile critical"><span class="label">Blocked licenses</span><strong>{{ licenses.blocked }}</strong></div>
+  <div class="tile warn"><span class="label">Unknown licenses</span><strong>{{ licenses.unknown }}</strong></div>
+</section>
+
+<h2>Risk trend</h2>
+{% if trend %}
+<table class="grid"><thead><tr><th>Scan</th><th>When</th><th>Grade</th><th>Risk</th>
+  <th>Crit</th><th>High</th><th>Med</th><th>Low</th></tr></thead><tbody>
+{% for point in trend %}<tr><td>#{{ point.scan_id }}</td><td>{{ point.created_at }}</td>
+  <td class="grade">{{ point.grade }}</td><td>{{ point.risk_score }}</td>
+  <td class="critical">{{ point.counts.critical }}</td><td class="high">{{ point.counts.high }}</td>
+  <td>{{ point.counts.medium }}</td><td>{{ point.counts.low }}</td></tr>{% endfor %}
+</tbody></table>
+{% else %}<p class="muted">No completed scans yet.</p>{% endif %}
+
+<h2>Scans</h2>
+<table class="grid"><thead><tr><th>Scan</th><th>Status</th><th>Grade</th><th>Risk</th><th>Files</th>
+  <th>Duration</th><th>Policy</th><th>Baselined</th><th>Started</th></tr></thead><tbody>
+{% for view in scans %}<tr>
+  <td>#{{ view.scan.id }}</td>
+  <td class="status-{{ view.scan.status }}">{{ view.scan.status }}</td>
+  <td class="grade">{{ view.scan.grade or '-' }}</td>
+  <td>{{ view.scan.risk_score }}</td>
+  <td>{{ view.scan.files_scanned }}</td>
+  <td>{{ '%.2f'|format(view.scan.duration_seconds or 0) }}s</td>
+  <td>{% if view.scan.policy_passed is none %}-{% elif view.scan.policy_passed %}pass{% else %}<strong>fail</strong>{% endif %}</td>
+  <td>{{ view.scan.baseline_suppressed }}{% if view.scan.baseline_expired %} ({{ view.scan.baseline_expired }} expired){% endif %}</td>
+  <td>{{ view.scan.created_at }}</td>
+</tr>{% endfor %}
+</tbody></table>
+
+<h2>Findings (latest scan)</h2>
+{% if findings %}
+<table class="grid"><thead><tr><th>Severity</th><th>Rule</th><th>Title</th><th>Location</th>
+  <th>Category</th><th>Status</th></tr></thead><tbody>
+{% for finding in findings %}<tr>
+  <td class="{{ finding.severity }}">{{ finding.severity }}</td>
+  <td><code>{{ finding.rule_id }}</code></td>
+  <td><a href="/findings/{{ finding.id }}">{{ finding.title }}</a></td>
+  <td>{{ finding.file_path }}:{{ finding.start_line }}</td>
+  <td>{{ finding.category }}</td>
+  <td>{{ finding.status }}{% if finding.baselined %} <span class="muted">(baselined)</span>{% endif %}</td>
+</tr>{% endfor %}
+</tbody></table>
+{% else %}<p class="muted">No findings recorded for the latest scan.</p>{% endif %}
+
+<h2>SBOM &amp; licenses</h2>
+{% if sbom %}
+<p class="muted">{{ sbom.format|upper }} &middot; {{ sbom.component_count }} components &middot; generated {{ sbom.created_at }}
+  &middot; <a href="/sbom/document?project_id={{ project.id }}">download document</a></p>
+<table class="grid"><thead><tr><th>Component</th><th>Version</th><th>Ecosystem</th>
+  <th>License</th><th>Classification</th></tr></thead><tbody>
+{% for component in components %}<tr>
+  <td>{{ component.name }}</td><td>{{ component.version }}</td><td>{{ component.ecosystem }}</td>
+  <td>{{ component.license }}</td>
+  <td class="{{ component.license_class }}">{{ component.license_class }}</td>
+</tr>{% endfor %}
+</tbody></table>
+{% else %}<p class="muted">No SBOM yet. It is generated with each successful scan.</p>{% endif %}
+{% endblock %}
