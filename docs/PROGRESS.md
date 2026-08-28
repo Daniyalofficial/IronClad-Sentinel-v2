@@ -20,7 +20,7 @@ bash demo/run_demo.sh                                  # end-to-end story
 | Area | Before | Now | Evidence |
 |---|---:|---:|---|
 | 1. Core architecture | 90 | **97** | Single `Finding` schema, one discovery pass, 6 engines (`core/`, `engine.py`) |
-| 2. Security scanning (breadth) | 75 | **93** | 9 packs / 66 rules; every extended rule has must-fire + must-not-fire cases |
+| 2. Security scanning (breadth) | 75 | **95** | 9 packs / 66 rules; every extended rule has must-fire + must-not-fire cases |
 | 3. SAST (Python depth) | 75 | **94** | `ast_python.py` + `python_flows.py`: 10 flow/structural detectors, 18 fixtures |
 | 4. Secrets | 85 | **95** | Provider patterns + entropy + new credential rule; redaction asserted |
 | 5. Dependency intelligence | 85 | **94** | 8 ecosystems, 20 parsers, pluggable advisories, manifest-integrity findings |
@@ -47,7 +47,7 @@ bash demo/run_demo.sh                                  # end-to-end story
 | 26. Scalability | 40 | **90** | Measured to 100k files; linear throughput, flat memory |
 | 27. Reliability | 40 | **91** | Failure paths tested: crash, retry, cancel, missing target, dead feed |
 | 28. Security hardening | 70 | **94** | Self-scan clean; threat model with a test per control |
-| 29. Testing | 90 | **96** | 61 → **452** tests across 24 modules |
+| 29. Testing | 90 | **96** | 61 → **467** tests across 24 modules |
 | 30. Performance | 60 | **92** | Published numbers for 3 tiers + corpus throughput |
 | 31. Documentation | 75 | **95** | 12 documents, all describing shipped behaviour |
 | 32. Developer experience | 70 | **92** | `doctor`, `init`, CONTRIBUTING, one-command setup |
@@ -55,7 +55,7 @@ bash demo/run_demo.sh                                  # end-to-end story
 | 34. Commercial readiness | 65 | **90** | Positioning, feature matrix, pilot guide, licensing |
 | 35. Disaster recovery / ops | 20 | **92** | Backup/restore tested, failure-mode table, RTO/RPO |
 
-**Whole-project completion: ~66% → ~93%**
+**Whole-project completion: ~66% → ~94%**
 
 Not 98%. The gap is itemised below rather than rounded away.
 
@@ -90,11 +90,33 @@ Measured scale numbers (this machine, Python 3.11, all engines):
 Stated plainly, because "98%" claimed over these gaps would be a lie.
 
 ### Detection quality on real code
-The corpus is **24 hand-written files**. Precision 1.00 there means the
-rules do not fire on their own safe counterparts — necessary, but far
-weaker than "no false positives on your monorepo". A real-world corpus
-(several cloned OSS repositories, manually labelled) has not been run.
-That is the single biggest unknown in the numbers above.
+Partly closed. The labelled corpus is **26 hand-written files**, and
+precision 1.00 there only proves the rules do not fire on their own safe
+counterparts.
+
+That gap was measured directly against five real OSS projects — flask,
+click, jinja, requests, httpx, **671 files** — in
+[`REAL_WORLD_CORPUS.md`](REAL_WORLD_CORPUS.md). It exposed five distinct
+false-positive classes (asserts in test files, substring matching, docstring
+examples, credential-named namespace prefixes, `usedforsecurity=False`), all
+now fixed with regression tests:
+
+| | total findings | in production source |
+|---|---:|---:|
+| before tuning | 182 | 47 |
+| after fixes | **73** | **25** |
+
+No loss of detection: the labelled corpus stayed at 12 TP / 0 FN / precision
+1.00 / recall 1.00 throughout, and the self-scan stayed clean.
+
+**Still open:**
+- **One language.** All five projects are Python, so this exercises the AST
+  engine and the Python pack. The Java/Go/PHP/Ruby packs are unmeasured on
+  real code.
+- **No false-negative measurement.** Finding what the scanner *missed* in
+  671 files would require knowing every real vulnerability in five mature
+  libraries. The measurement covers noise, not coverage.
+- **One reviewer**, hand-classified, not a consensus labelling.
 
 ### Advisory data
 44 packages across 8 ecosystems. That is a demonstration dataset, not a

@@ -103,6 +103,14 @@ API, a dashboard, a job queue, events, audit and deployment artifacts.
   outcome via exit codes.
 - Test suite grows from 61 to **452 tests**.
 
+**Real-world accuracy measurement**
+- Measured against five real OSS projects (flask, click, jinja, requests,
+  httpx — 671 files) rather than only the synthetic corpus. Found and fixed
+  five false-positive classes; total findings fell **182 → 73 (−60%)** and
+  production-source findings **47 → 25 (−47%)** with no loss of detection.
+  Documented with method, per-class fixes and limitations in
+  `docs/REAL_WORLD_CORPUS.md`.
+
 **Documentation**
 - New: `API.md`, `DEPLOYMENT.md`, `SECURITY.md`, `THREAT_MODEL.md`,
   `DISASTER_RECOVERY.md`, `BENCHMARKS.md`, `CONTRIBUTING.md`,
