@@ -3,6 +3,62 @@
 All notable changes. Format follows [Keep a Changelog](https://keepachangelog.com/);
 versioning is [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+Verification-driven hardening. Every fix below was found by *executing* the
+system in a way it had not been executed before, not by reading it.
+
+### Fixed
+
+- **Migrations were not atomic.** pysqlite implicitly commits before DDL, so
+  `engine.begin()` never wrapped a migration in a transaction. A migration
+  that failed partway left all 19 tables behind while recording nothing as
+  applied, and a retry died on "table already exists" — a single bad
+  migration could brick a fresh install. Transaction control is now handed
+  to SQLAlchemy (DBAPI autocommit plus an explicit `BEGIN`).
+- **Two SSRF bypasses.** RFC 6598 CGNAT (`100.64.0.0/10`) passed the guard
+  because Python's `ipaddress` reports `is_private=False` for it; and
+  `http://localhost.localdomain/` was not recognised as local. Both now
+  blocked, along with the hex/octal/decimal loopback encodings, IPv6 and
+  IPv4-mapped loopback, RFC 6890/2544, broadcast and userinfo tricks.
+- **The WAL/foreign-key pragmas** moved to the connect event, since
+  `journal_mode` cannot be changed from inside a transaction once DDL is
+  transactional.
+
+### Added
+
+- `scripts/verify_all.sh` — one reproducible verification entry point (11
+  stages) for as long as the comprehensive GitHub workflow cannot be
+  installed. 32 checks pass; anything unavailable is reported SKIPPED with
+  the reason.
+- `tests/test_deployment.py` (20 tests) — the container entrypoint is now
+  *executed* for every role rather than inspected, and the Kubernetes/compose
+  hardening claims are assertions: non-root, `readOnlyRootFilesystem`, all
+  capabilities dropped, resource limits, probes on the right paths, read-only
+  scan volume, fail-fast on missing secrets.
+- `tests/test_resilience.py` (29 tests) — migration failure recovery,
+  edited-migration refusal, stale-job reclaim (and an in-flight job *not*
+  being stolen), duplicate-finding rejection, retry exhaustion, cancelled
+  jobs never executing, queued work surviving a restart, reconnection after
+  dispose, expired/revoked sessions, deactivated users, the lockout matrix,
+  malformed payloads, no stack-trace leakage, cross-tenant 404s, invalid
+  scan paths, token narrowing.
+- 18 parameterised SSRF bypass regression tests.
+- A version-consistency test covering `pyproject.toml`, `__init__.py`,
+  `SBOM_TOOL_VERSION`, the Kubernetes image tags and the changelog.
+
+### Documented
+
+- `SECURITY.md` now states the SSRF threat surface explicitly, including
+  that **DNS rebinding is not defended** (the host is resolved at validation
+  time, not at connect time).
+
+### Known limitation added
+
+- The container image has still never been built or run: no container runtime
+  exists in the verification environment. The entrypoint logic is executed,
+  but in-container behaviour is not verified.
+
 ## [1.1.0] - 2026-08-27
 
 The release that turns IronClad Sentinel from a scanner into a platform:

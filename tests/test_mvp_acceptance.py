@@ -39,3 +39,28 @@ def test_no_placeholder_markers_in_core_tree():
             if marker in text:
                 bad.append(f"{path.relative_to(ROOT)}: {marker}")
     assert not bad, f"placeholder markers remain in core: {bad}"
+
+
+def test_version_is_consistent_everywhere():
+    """Version drift between pyproject, the package and the manifests is how
+    a customer ends up running an image that reports the wrong version."""
+    import re
+
+    import ironclad
+
+    version = ironclad.__version__
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    assert f'version = "{version}"' in pyproject, (
+        f"pyproject.toml does not declare version {version}")
+
+    sbom = (ROOT / "ironclad" / "scanners" / "sbom.py").read_text(encoding="utf-8")
+    assert f'SBOM_TOOL_VERSION = "{version}"' in sbom, (
+        f"SBOM_TOOL_VERSION is not {version}")
+
+    for manifest in sorted((ROOT / "deploy" / "k8s").glob("*.yaml")):
+        text = manifest.read_text(encoding="utf-8")
+        for tag in re.findall(r"ironclad-sentinel:([0-9][0-9.]*)", text):
+            assert tag == version, f"{manifest.name} pins image tag {tag}, expected {version}"
+
+    changelog = (ROOT / "docs" / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert f"## [{version}]" in changelog, f"CHANGELOG.md has no [{version}] entry"
