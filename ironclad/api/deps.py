@@ -22,7 +22,13 @@ from sqlalchemy.orm import Session as DbSession
 
 from ironclad.platform import audit
 from ironclad.platform.database import session_factory, session_scope
-from ironclad.platform.models import ApiToken, Session as SessionRow, User, utcnow
+from ironclad.platform.models import (
+    ApiToken,
+    Session as SessionRow,
+    User,
+    as_naive_utc,
+    utcnow,
+)
 from ironclad.platform.observability import request_scope, set_request_context
 from ironclad.platform.rbac import PermissionDenied, Principal
 from ironclad.platform.security import constant_time_equals, hash_token
@@ -96,7 +102,7 @@ def _authenticate(session: DbSession, token: str) -> tuple[Optional[Principal], 
     ).scalar_one_or_none()
     if row is None or row.revoked_at is not None:
         return None, "session"
-    if row.expires_at is not None and row.expires_at < utcnow():
+    if as_naive_utc(row.expires_at) is not None and as_naive_utc(row.expires_at) < utcnow():
         return None, "session"
     user = session.get(User, row.user_id)
     if user is None or not user.is_active:

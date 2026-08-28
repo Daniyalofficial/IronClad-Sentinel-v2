@@ -23,7 +23,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Dict, Iterator, List, Optional
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -103,7 +103,27 @@ def build_engine(url: Optional[str] = None, **kwargs) -> Engine:
             connection.execute(text("PRAGMA foreign_keys=ON"))
         return engine
     kwargs.setdefault("pool_pre_ping", True)
-    return create_engine(resolved, future=True, **kwargs)
+    engine = create_engine(resolved, future=True, **kwargs)
+
+    @event.listens_for(engine, "connect")
+    def _force_utc(dbapi_connection, _record):  # noqa: ANN001 - driver-supplied types
+        """Pin the session timezone to UTC.
+
+        The product stores naive-UTC timestamps by convention (SQLite cannot
+        carry an offset). PostgreSQL resolves a naive parameter against the
+        *session* TimeZone, so a server configured for anything other than
+        UTC would silently shift every timestamp comparison -- the job
+        queue's stale-claim window and its `scheduled_at <= now` claim query
+        are both SQL-side comparisons. Pinning UTC makes the convention hold
+        regardless of how the server was configured.
+        """
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute("SET TIME ZONE 'UTC'")
+        finally:
+            cursor.close()
+
+    return engine
 
 
 def session_factory(engine: Engine) -> sessionmaker:

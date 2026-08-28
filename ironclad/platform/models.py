@@ -42,6 +42,26 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def as_naive_utc(value: Optional[datetime]) -> Optional[datetime]:
+    """Normalise a database-loaded timestamp to naive UTC.
+
+    PostgreSQL `TIMESTAMPTZ` hands back **timezone-aware** datetimes, while
+    SQLite hands back naive ones. Comparing an aware value against
+    :func:`utcnow` raises `TypeError: can't compare offset-naive and
+    offset-aware datetimes` -- which on PostgreSQL meant *every authenticated
+    request failed with a 500*, because session expiry is checked on each one.
+
+    Every timestamp in this product is UTC, so converting to UTC and dropping
+    the offset makes both dialects behave identically without changing the
+    stored representation.
+    """
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
 class Base(DeclarativeBase):
     pass
 

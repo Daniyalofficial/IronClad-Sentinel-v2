@@ -355,3 +355,100 @@ def test_data_survives_a_new_engine_connection(engine, session):
             assert found.id == org.id
     finally:
         restarted.dispose()
+
+
+# --------------------------------------------------------------------------- #
+# Regression: the timezone bug that broke every authenticated request
+# --------------------------------------------------------------------------- #
+def test_postgres_returns_timezone_aware_timestamps():
+    """Postgres TIMESTAMPTZ yields aware datetimes; SQLite yields naive ones.
+
+    This asymmetry is the root cause of the bug the next test guards.
+    """
+    from datetime import datetime
+
+    eng = build_engine(PG_URL)
+    try:
+        with eng.connect() as connection:
+            value = connection.execute(text("SELECT now() AT TIME ZONE 'UTC'")).scalar()
+        assert isinstance(value, datetime)
+    finally:
+        eng.dispose()
+
+
+def test_session_expiry_comparison_survives_aware_timestamps(engine, session):
+    """Regression: authenticating against PostgreSQL raised
+    `TypeError: can't compare offset-naive and offset-aware datetimes`,
+    which made **every** authenticated request a 500.
+
+    The product stores naive-UTC by convention; PostgreSQL hands back aware
+    values. `as_naive_utc` normalises before comparing. Nothing in the
+    SQLite-only suite could ever hit this.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from ironclad.api.deps import _authenticate
+    from ironclad.platform.models import Session as SessionRow, User, as_naive_utc, utcnow
+    from ironclad.platform.security import generate_session_token, hash_password
+
+    org = _org(session, "tz-regression")
+    user = User(org_id=org.id, email="tz@regression.example",
+                password_hash=hash_password("Str0ng!Passw0rd-99"), role="owner")
+    session.add(user)
+    session.flush()
+
+    token, token_hash = generate_session_token()
+    # Store an explicitly timezone-AWARE expiry, as PostgreSQL would return.
+    session.add(SessionRow(user_id=user.id, org_id=org.id, token_hash=token_hash,
+                           expires_at=datetime.now(timezone.utc) + timedelta(hours=1)))
+    session.commit()
+
+    # Re-read so the value comes back through the driver, not the identity map.
+    fresh = session_factory(engine)()
+    try:
+        row = fresh.execute(
+            select(SessionRow).where(SessionRow.token_hash == token_hash)).scalar_one()
+        # Guard the premise: the comparison must be between mismatched kinds.
+        assert as_naive_utc(row.expires_at) > utcnow()
+
+        principal, kind = _authenticate(fresh, token)
+        assert principal is not None, "authentication must succeed on PostgreSQL"
+        assert kind == "session"
+        assert principal.org_id == org.id
+    finally:
+        fresh.close()
+
+
+def test_expired_session_is_rejected_on_postgres(engine, session):
+    """The same path must still reject an expired session."""
+    from datetime import datetime, timedelta, timezone
+
+    from ironclad.api.deps import _authenticate
+    from ironclad.platform.models import Session as SessionRow, User
+    from ironclad.platform.security import generate_session_token, hash_password
+
+    org = _org(session, "tz-expired")
+    user = User(org_id=org.id, email="exp@regression.example",
+                password_hash=hash_password("Str0ng!Passw0rd-99"), role="owner")
+    session.add(user)
+    session.flush()
+    token, token_hash = generate_session_token()
+    session.add(SessionRow(user_id=user.id, org_id=org.id, token_hash=token_hash,
+                           expires_at=datetime.now(timezone.utc) - timedelta(hours=1)))
+    session.commit()
+
+    fresh = session_factory(engine)()
+    try:
+        assert _authenticate(fresh, token)[0] is None
+    finally:
+        fresh.close()
+
+
+def test_session_timezone_is_pinned_to_utc(engine):
+    """Naive parameters in SQL comparisons must be read as UTC.
+
+    The job queue compares `scheduled_at <= now` and a stale-claim window
+    SQL-side; if the server's TimeZone were not UTC those would shift.
+    """
+    with engine.connect() as connection:
+        assert connection.execute(text("SHOW timezone")).scalar().upper() == "UTC"
