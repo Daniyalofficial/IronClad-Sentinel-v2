@@ -77,6 +77,44 @@ def _rule_pack_definition_lines(content: str) -> set:
     return skip
 
 
+# Languages where a triple-quoted block is a docstring rather than data.
+_CODE_LANGUAGES = {"python"}
+
+
+def _docstring_lines(lines: List[str]) -> set:
+    """Line numbers that sit inside a Python docstring.
+
+    Regex rules cannot tell prose from code, so a documentation example such
+    as ``SECRET_KEY = 'development key'`` inside a docstring was reported as
+    a live configuration. Found on real code: flask/src/flask/config.py and
+    httpx/httpx/_urls.py both triggered rules from docstring examples.
+
+    Only lines whose opening triple quote starts the line are treated as
+    docstrings, so ``X = <triple-quote>...`` literals are still scanned.
+    """
+    triple_double = '"' * 3
+    triple_single = "'" * 3
+    inside: set = set()
+    open_quote = None
+    for index, raw in enumerate(lines, start=1):
+        stripped = raw.strip()
+        if open_quote is None:
+            for quote in (triple_double, triple_single):
+                if stripped.startswith(quote):
+                    rest = stripped[3:]
+                    if len(rest) >= 3 and rest.endswith(quote):
+                        inside.add(index)  # single-line docstring
+                    else:
+                        open_quote = quote
+                        inside.add(index)
+                    break
+        else:
+            inside.add(index)
+            if open_quote in raw:
+                open_quote = None
+    return inside
+
+
 SEVERITY_MAP = {
     "critical": Severity.CRITICAL,
     "high": Severity.HIGH,
@@ -102,6 +140,7 @@ def scan_file_with_rules(discovered: DiscoveredFile, rules: List[Rule]) -> List[
     findings: List[Finding] = []
     lines = content.splitlines()
     definition_lines = _rule_pack_definition_lines(content)
+    docstring_lines = _docstring_lines(lines) if discovered.language in _CODE_LANGUAGES else set()
 
     for rule in applicable:
         if rule.multiline:
@@ -114,7 +153,7 @@ def scan_file_with_rules(discovered: DiscoveredFile, rules: List[Rule]) -> List[
                 findings.append(_build_finding(rule, discovered.rel_path, start_line, end_line, snippet))
         else:
             for idx, line in enumerate(lines, start=1):
-                if idx in definition_lines:
+                if idx in definition_lines or idx in docstring_lines:
                     continue
                 match = rule.compiled_pattern.search(line)
                 if not match:

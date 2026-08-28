@@ -1,0 +1,152 @@
+# Real-world corpus measurement
+
+The labelled corpus in `tests/security_corpus` is 26 hand-written files.
+Precision 1.00 there means the rules do not fire on their own safe
+counterparts — necessary, but far weaker than "no false positives on real
+code". This document closes that gap with a measurement on real projects.
+
+## Method
+
+Five well-maintained, widely deployed Python libraries, shallow-cloned at
+their default branch:
+
+| Project | Role |
+|---|---|
+| `pallets/flask` | web framework |
+| `pallets/click` | CLI framework |
+| `pallets/jinja` | template engine |
+| `psf/requests` | HTTP client |
+| `encode/httpx` | HTTP client |
+
+**671 files scanned.** Each was scanned with every engine enabled, and every
+finding was classified by hand as a true positive, a defensible finding, or
+a false positive.
+
+This is not a benchmark of the projects' security. They are mature,
+actively reviewed codebases; the point is to measure how much noise
+IronClad generates on code that is largely correct.
+
+## Result
+
+| Stage | Total findings | In production source |
+|---|---:|---:|
+| Before tuning | 182 | 47 |
+| After test/docstring/namespace fixes | 81 | 32 |
+| After `usedforsecurity`, word-boundary and docstring fixes | **73** | **25** |
+
+**A 60% reduction in total findings and a 47% reduction in
+production-source findings, with no loss of detection** — the labelled
+corpus stayed at 12 true positives, 0 false negatives, precision 1.00,
+recall 1.00 throughout, and `ironclad scan ironclad` stayed clean.
+
+## What the noise actually was
+
+Five distinct false-positive classes, each found on real code and each now
+fixed with a regression test:
+
+### 1. `assert` in test files — 86 findings
+
+`PY-AST-ASSERT-SECURITY-CHECK` describes a real risk (the check is stripped
+by `python -O`), but that risk applies to production code. In a test suite
+`assert` *is* the correct idiom. 86 of 87 hits were in test files.
+
+**Fix:** the rule is skipped for test paths. `tests/test_python_flows.py::test_assert_rule_is_skipped_entirely_in_test_files`.
+
+### 2. Substring matching — 1 finding, but a systemic bug
+
+`assert authority_match is not None` in `httpx/httpx/_urlparse.py:306` is a
+URL-parser invariant. It matched because the rule tested `"auth" in text`,
+and "auth" is a substring of "authority".
+
+**Fix:** the keyword list is now matched with word boundaries. This class
+would have silently matched `author`, `authoritative`, `authenticate_or_skip`
+and so on.
+
+### 3. Docstring examples — 4 findings
+
+`flask/src/flask/config.py` documents `from_object` with:
+
+```python
+    """...
+        DEBUG = True
+        SECRET_KEY = 'development key'
+    """
+```
+
+Both lines were reported as live configuration. `httpx/httpx/_urls.py` had
+the same problem with a basic-auth URL inside a docstring.
+
+**Fix:** the regex rule engine and the secrets scanner both skip lines
+inside a docstring. Only lines whose triple quote *starts* the line count,
+so `SIGNING_KEY = """-----BEGIN ...` — an assigned literal — is still
+scanned. `tests/test_python_flows.py::test_docstring_examples_do_not_trigger_rules`.
+
+### 4. Credential-named namespace prefixes — 12 findings
+
+`jinja/src/jinja2/lexer.py` defines a dictionary of token-type names:
+
+```python
+TOKEN_COMMENT_BEGIN: "begin of comment",
+TOKEN_VARIABLE_END: "end of print statement",
+```
+
+Twelve findings, because `TOKEN_COMMENT_BEGIN` contains "TOKEN".
+
+**Fix:** when the sensitive word is the leading segment of a 3+-segment
+name, it is a namespace prefix rather than the subject. `SECRET_KEY` and
+`API_TOKEN` (2 segments) still fire. `test_credential_named_namespace_prefix_is_not_a_secret`.
+
+### 5. `usedforsecurity=False` — 3 findings
+
+`requests/src/requests/auth.py` calls `hashlib.md5(x, usedforsecurity=False)`
+on every digest, because HTTP digest auth is not a security-sensitive use.
+That keyword is CPython's documented escape hatch (it also lets FIPS builds
+permit md5/sha1).
+
+**Fix:** the flag is honoured. `test_usedforsecurity_false_is_not_a_weak_hash`.
+
+## What remains, and why it is defensible
+
+The 25 production-source findings that survived are not noise:
+
+| Count | Rule | Assessment |
+|---:|---|---|
+| 7 | `PY-AST-SILENT-EXCEPTION-SWALLOW` | Low severity, legitimate style finding |
+| 5 | `PY-AST-WEAK-HASH` | Real sha1/md5 uses without the opt-out flag |
+| 4 | `PY-AST-COMPILE-USE` | `flask/cli.py` and `jinja2/environment.py` compile dynamic source |
+| 3 | `PY-AST-EXEC-USE` | Same — inherent to a template engine |
+| 2 | `PY-AST-INSECURE-DESERIALIZATION` | **Genuine.** `jinja2/bccache.py` does `pickle.load` / `marshal.load` on its bytecode cache; Jinja documents that the cache directory must not be attacker-writable |
+| 1 | `PY-AST-PATH-TRAVERSAL` | `flask/cli.py` opens a CLI-supplied startup file |
+| 1 | `PY-AST-EVAL-USE` | Same line as the compile finding |
+| 1 | `PY-AST-SSL-VERIFY-DISABLED` | `httpx/_config.py` sets `CERT_NONE` — this *is* the implementation of its opt-in `verify=False` |
+| 1 | `SHELL-CURL-PIPE-SH` | `.devcontainer/on-create-command.sh` pipes a remote script to a shell |
+
+The `eval`/`exec`/`compile` cluster (8 findings) deserves a note: for a
+*library whose job is to execute generated code*, these are inherent. For an
+*application* repository the same findings would be real. IronClad reports
+them and lets policy decide — `rules.ignore` or `severity_overrides` is the
+intended control, not a scanner that guesses which project you are.
+
+## Reproducing
+
+```bash
+for r in pallets/flask pallets/click pallets/jinja psf/requests encode/httpx; do
+  git clone -q --depth 1 "https://github.com/$r.git" "/tmp/realcorpus/${r##*/}"
+done
+for p in flask click jinja requests httpx; do
+  ironclad scan "/tmp/realcorpus/$p" --quiet --output-dir "/tmp/rc-$p" --format json
+done
+```
+
+## Honest limitations of this measurement
+
+1. **Five projects, one language.** All are Python, so this exercises the
+   AST engine and the Python rule pack. The Java/Go/PHP/Ruby packs are not
+   measured here at all.
+2. **Hand-classified, single reviewer.** The TP/FP calls above are one
+   person's judgement, not a consensus labelling.
+3. **No false-negative measurement.** Finding what the scanner *missed* in
+   671 files would require knowing every real vulnerability in five mature
+   libraries. This document measures noise, not coverage.
+4. **A snapshot.** These are shallow clones of the default branch on the
+   measurement date; results will drift as the projects change.

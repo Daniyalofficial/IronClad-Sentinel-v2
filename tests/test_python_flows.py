@@ -242,3 +242,160 @@ def test_flow_findings_survive_reporting_round_trip():
     for finding in flow_findings:
         assert finding["cwe"]
         assert finding["location"]["file_path"].endswith(".py")
+
+
+# --------------------------------------------------------------------------- #
+# Precision regressions found by scanning five real OSS projects
+# (flask, click, requests, httpx, jinja2 — see docs/REAL_WORLD_CORPUS.md)
+# --------------------------------------------------------------------------- #
+def test_usedforsecurity_false_is_not_a_weak_hash(tmp_path):
+    """`hashlib.md5(x, usedforsecurity=False)` is the stdlib's own escape hatch.
+
+    Found on requests/src/requests/auth.py, which sets the flag on every
+    digest because HTTP digest auth is not a security-sensitive use.
+    """
+    source = (
+        "import hashlib\n"
+        "\n"
+        "\n"
+        "def digest(x):\n"
+        "    return hashlib.md5(x, usedforsecurity=False).hexdigest()\n"
+    )
+    findings = _scan_source(tmp_path, source)
+    assert "PY-AST-WEAK-HASH" not in {f.rule_id for f in findings}
+
+
+def test_weak_hash_without_the_flag_is_still_reported(tmp_path):
+    # WEAK-HASH lives in the structural visitor, so this goes through
+    # scan_python_file rather than the flow scanner.
+    from ironclad.scanners.ast_python import scan_python_file
+
+    source = "import hashlib\n\n\ndef digest(x):\n    return hashlib.md5(x).hexdigest()\n"
+    path = tmp_path / "weak.py"
+    path.write_text(source, encoding="utf-8")
+    assert "PY-AST-WEAK-HASH" in {f.rule_id for f in scan_python_file(str(path), "weak.py")}
+
+
+def test_assert_on_an_authority_identifier_is_not_a_security_check(tmp_path):
+    """A substring test for "auth" matched `authority_match` in httpx.
+
+    httpx/httpx/_urlparse.py:306 is a URL-parser invariant, not an
+    authorization check.
+    """
+    source = (
+        "def parse(url):\n"
+        "    authority_match = match(url)\n"
+        "    assert authority_match is not None\n"
+        "    return authority_match\n"
+    )
+    findings = _scan_source(tmp_path, source)
+    assert "PY-AST-ASSERT-SECURITY-CHECK" not in {f.rule_id for f in findings}
+
+
+def test_genuine_auth_assert_is_still_reported(tmp_path):
+    from ironclad.scanners.ast_python import scan_python_file
+
+    source = (
+        "def handle(user):\n"
+        "    assert user.is_authenticated\n"
+        "    return user\n"
+    )
+    path = tmp_path / "authz.py"
+    path.write_text(source, encoding="utf-8")
+    fired = {f.rule_id for f in scan_python_file(str(path), "authz.py")}
+    assert "PY-AST-ASSERT-SECURITY-CHECK" in fired
+
+
+def test_assert_rule_is_skipped_entirely_in_test_files(tmp_path):
+    """`assert` is the correct idiom in tests; 86 of 87 hits were test files."""
+    test_dir = tmp_path / "tests"
+    test_dir.mkdir()
+    path = test_dir / "test_auth.py"
+    path.write_text("def test_it():\n    assert user_authenticated is True\n", encoding="utf-8")
+    from ironclad.scanners.ast_python import scan_python_file
+
+    assert scan_python_file(str(path), "tests/test_auth.py") == []
+
+
+def test_credential_named_namespace_prefix_is_not_a_secret(tmp_path):
+    """`TOKEN_COMMENT_BEGIN` is a lexer constant, not a credential.
+
+    Found on jinja2/src/jinja2/lexer.py, which produced 12 findings from one
+    dictionary of token-type names.
+    """
+    from ironclad.core.walker import DiscoveredFile
+    from ironclad.scanners.secrets import scan_file_for_secrets
+
+    path = tmp_path / "lexer.py"
+    path.write_text(
+        'TOKEN_COMMENT_BEGIN = "begin of comment"\n'
+        'TOKEN_VARIABLE_END = "end of print statement"\n',
+        encoding="utf-8")
+    discovered = DiscoveredFile(path=str(path), rel_path="lexer.py", language="python",
+                                size_bytes=path.stat().st_size)
+    assert scan_file_for_secrets(discovered) == []
+
+
+def test_real_credential_shaped_name_is_still_reported(tmp_path):
+    from ironclad.core.walker import DiscoveredFile
+    from ironclad.scanners.secrets import scan_file_for_secrets
+
+    path = tmp_path / "cfg.py"
+    path.write_text('API_TOKEN = "Zk9pQ2xR7vN4mT8sW1yB6dF3hJ0aL5e"\n', encoding="utf-8")
+    discovered = DiscoveredFile(path=str(path), rel_path="cfg.py", language="python",
+                                size_bytes=path.stat().st_size)
+    assert scan_file_for_secrets(discovered), "a two-segment credential name must still fire"
+
+
+def test_docstring_examples_do_not_trigger_rules(tmp_path):
+    """Documentation examples are prose, not live configuration.
+
+    Found on flask/src/flask/config.py (DEBUG = True / SECRET_KEY = '...'
+    inside the from_object docstring) and httpx/httpx/_urls.py (a basic-auth
+    URL inside a docstring).
+    """
+    source = (
+        'def from_object(obj):\n'
+        '    """Load configuration from an object.\n'
+        '\n'
+        '    For example::\n'
+        '\n'
+        '        DEBUG = True\n'
+        "        SECRET_KEY = 'development key'\n"
+        '    """\n'
+        '    return obj\n'
+    )
+    path = tmp_path / "config.py"
+    path.write_text(source, encoding="utf-8")
+
+    from ironclad.core.walker import DiscoveredFile
+    from ironclad.rules.schema import load_rule_packs
+    from ironclad.scanners.rule_engine import scan_file_with_rules
+
+    discovered = DiscoveredFile(path=str(path), rel_path="config.py", language="python",
+                                size_bytes=path.stat().st_size)
+    rules = load_rule_packs([str(tmp_path.parent.parent / "IronClad-Sentinel-v2"
+                                 / "ironclad" / "rules" / "packs")])
+    if not rules:  # fall back to the installed package location
+        import ironclad, os
+        rules = load_rule_packs([os.path.join(os.path.dirname(ironclad.__file__), "rules", "packs")])
+    fired = {f.rule_id for f in scan_file_with_rules(discovered, rules)}
+    assert "PY-DJANGO-DEBUG-TRUE" not in fired
+    assert "PY-DJANGO-SECRET-HARDCODED" not in fired
+
+
+def test_live_configuration_outside_a_docstring_is_still_reported(tmp_path):
+    source = "DEBUG = True\nSECRET_KEY = 'a-real-development-key-1234'\n"
+    path = tmp_path / "live.py"
+    path.write_text(source, encoding="utf-8")
+
+    from ironclad.core.walker import DiscoveredFile
+    from ironclad.rules.schema import load_rule_packs
+    from ironclad.scanners.rule_engine import scan_file_with_rules
+    import ironclad, os
+
+    discovered = DiscoveredFile(path=str(path), rel_path="live.py", language="python",
+                                size_bytes=path.stat().st_size)
+    rules = load_rule_packs([os.path.join(os.path.dirname(ironclad.__file__), "rules", "packs")])
+    fired = {f.rule_id for f in scan_file_with_rules(discovered, rules)}
+    assert "PY-DJANGO-DEBUG-TRUE" in fired

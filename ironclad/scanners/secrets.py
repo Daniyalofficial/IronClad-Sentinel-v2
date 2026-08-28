@@ -78,6 +78,70 @@ def _is_self_describing_constant(var_name: str, value: str) -> bool:
     return normalized == value
 
 
+# Extensions that are documentation rather than code. A credential-shaped
+#: line in a changelog is prose, not a leak -- but provider patterns (a real
+#: AWS key pasted into a README) are still reported, so this only gates the
+#: name-based rule.
+DOC_EXTENSIONS = (".md", ".markdown", ".rst", ".txt")
+
+#: Paths that are tests. `assert` is the correct idiom there and fixture
+#: URLs are expected, so the low-precision rules are skipped; high-confidence
+#: provider patterns still run everywhere, because a real key committed to a
+#: test suite is still a leak.
+TEST_PATH_MARKERS = ("/tests/", "/test/", "test_", "_test.", "conftest.")
+
+
+def is_test_path(rel_path: str) -> bool:
+    """True when a path looks like test code or fixtures."""
+    normalized = "/" + str(rel_path).replace("\\", "/").lower()
+    if "/tests/" in normalized or "/test/" in normalized:
+        return True
+    name = normalized.rsplit("/", 1)[-1]
+    return name.startswith("test_") or name.startswith("conftest") or name.endswith("_test.py")
+
+
+def is_docstring_line(lines: List[str], index: int) -> bool:
+    """True when ``lines[index]`` sits inside a docstring.
+
+    A region counts as a docstring only when its opening line *starts* with
+    the triple quote, i.e. nothing precedes it. An assignment such as
+    ``SIGNING_KEY = <triple-quote>-----BEGIN ...`` is a string literal rather
+    than a docstring, so committed key material is still reported -- which is
+    what the corpus fixture asserts.
+    """
+    triple_double = '"' * 3
+    triple_single = "'" * 3
+    open_quote = None
+    for position in range(index + 1):
+        raw = lines[position]
+        stripped = raw.strip()
+        if open_quote is None:
+            for quote in (triple_double, triple_single):
+                if stripped.startswith(quote):
+                    rest = stripped[3:]
+                    # A single-line docstring opens and closes on one line.
+                    if not (len(rest) >= 3 and rest.endswith(quote)):
+                        open_quote = quote
+                    break
+        elif open_quote in raw:
+            open_quote = None
+    return open_quote is not None
+
+
+def _keyword_is_namespace_prefix(var_name: str) -> bool:
+    """True when the sensitive word is a namespace prefix, not the subject.
+
+    ``TOKEN_COMMENT_BEGIN`` is a lexer constant whose name merely starts with
+    TOKEN; ``SECRET_KEY`` and ``API_TOKEN`` are credentials. The distinction
+    is whether the keyword is the leading segment of a 3+-segment name.
+    """
+    segments = [seg for seg in re.split(r"[_\-]", var_name.lower()) if seg]
+    if len(segments) < 3:
+        return False
+    keywords = {"token", "secret", "password", "passwd", "key", "credential"}
+    return segments[0] in keywords
+
+
 #: Patterns that mean "this value comes from configuration", not from source.
 ENV_LOOKUP_HINTS = re.compile(
     r"(?i)(os\.environ|getenv|process\.env|System\.getenv|ENV\[|vault|keyring|"
@@ -119,6 +183,20 @@ def _looks_like_hash_or_uuid(value: str) -> bool:
     return False
 
 
+#: High-confidence provider shapes that are worth reporting even inside a
+#: test suite or a README -- these are recognisable formats, not guesses.
+PROVIDER_SHAPE = re.compile(
+    r"(AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{20,}|"
+    r"sk-[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|"
+    r"-----BEGIN [A-Z ]*PRIVATE KEY-----|"
+    r"AIza[0-9A-Za-z\-_]{35})"
+)
+
+
+def _line_has_provider_shape(line: str) -> bool:
+    return bool(PROVIDER_SHAPE.search(line))
+
+
 def _scan_credential_assignments(discovered: DiscoveredFile, lines: List[str],
                                  findings: List[Finding],
                                  skip_lines: Optional[set] = None) -> set:
@@ -129,8 +207,13 @@ def _scan_credential_assignments(discovered: DiscoveredFile, lines: List[str],
     finding per problem, not two.
     """
     reported: set = set()
+    is_doc = str(discovered.path).lower().endswith(DOC_EXTENSIONS)
     for idx, line in enumerate(lines, start=1):
         if skip_lines and idx in skip_lines:
+            continue
+        if is_doc:
+            continue
+        if is_docstring_line(lines, idx - 1):
             continue
         if ENV_LOOKUP_HINTS.search(line):
             continue
@@ -147,6 +230,8 @@ def _scan_credential_assignments(discovered: DiscoveredFile, lines: List[str],
             if value.strip().lower() == var_name.strip().lower().split(".")[-1]:
                 continue
             if _is_self_describing_constant(var_name, value.strip()):
+                continue
+            if _keyword_is_namespace_prefix(var_name):
                 continue
             if PLACEHOLDER_HINTS.search(value):
                 continue
@@ -200,9 +285,17 @@ def scan_file_for_secrets(discovered: DiscoveredFile, entropy_threshold: float =
     lines = content.splitlines()
     entropy_lines: set = set()
 
+    test_path = is_test_path(discovered.rel_path)
     for idx, line in enumerate(lines, start=1):
         if len(line) > 2000:
             continue  # skip minified/huge lines, handled elsewhere
+        if test_path and not _line_has_provider_shape(line):
+            # Entropy-based detection is the least precise rule; fixture
+            # strings in test suites drown it. Provider patterns below still
+            # run because a real key in a test file is still a leak.
+            continue
+        if is_docstring_line(lines, idx - 1):
+            continue
         for match in ASSIGNMENT_PATTERN.finditer(line):
             var_name = match.group("var")
             value = match.group("value")
