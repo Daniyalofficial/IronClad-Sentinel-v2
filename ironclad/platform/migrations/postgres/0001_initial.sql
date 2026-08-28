@@ -240,17 +240,6 @@ CREATE TABLE audit_events (
     request_id  TEXT NOT NULL DEFAULT '',
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-ALTER TABLE scans ADD CONSTRAINT scans_status_valid
-    CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled'));
-ALTER TABLE findings ADD CONSTRAINT findings_severity_valid
-    CHECK (severity IN ('critical', 'high', 'medium', 'low', 'info'));
-ALTER TABLE findings ADD CONSTRAINT findings_status_valid
-    CHECK (status IN ('open', 'resolved', 'suppressed'));
-ALTER TABLE jobs ADD CONSTRAINT jobs_status_valid
-    CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled'));
-ALTER TABLE users ADD CONSTRAINT users_role_valid
-    CHECK (role IN ('owner', 'admin', 'security', 'developer', 'viewer'));
-
 CREATE INDEX idx_audit_org_time ON audit_events (org_id, created_at);
 CREATE INDEX idx_audit_action ON audit_events (org_id, action);
 
@@ -281,3 +270,18 @@ CREATE TABLE events (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_events_org ON events (org_id, event_type, created_at);
+
+-- CHECK constraints must come last: `jobs` and `events` are defined below
+-- `audit_events`, so an ALTER TABLE placed earlier in the file fails with
+-- "relation does not exist". Found by running this migration against a real
+-- PostgreSQL 16 server -- it had never been executed before.
+ALTER TABLE scans ADD CONSTRAINT scans_status_valid
+    CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled'));
+ALTER TABLE findings ADD CONSTRAINT findings_severity_valid
+    CHECK (severity IN ('critical', 'high', 'medium', 'low', 'info'));
+ALTER TABLE findings ADD CONSTRAINT findings_status_valid
+    CHECK (status IN ('open', 'resolved', 'suppressed'));
+ALTER TABLE jobs ADD CONSTRAINT jobs_status_valid
+    CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled'));
+ALTER TABLE users ADD CONSTRAINT users_role_valid
+    CHECK (role IN ('owner', 'admin', 'security', 'developer', 'viewer'));
