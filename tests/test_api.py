@@ -1082,3 +1082,26 @@ def test_public_target_accepted_and_override_works(monkeypatch):
 
     monkeypatch.setenv("IRONCLAD_ALLOW_PRIVATE_WEBHOOKS", "1")
     assert validate_config("webhook", {"url": "http://127.0.0.1:9999/hook"}) == []
+
+
+def test_api_docs_are_disabled_by_default(monkeypatch):
+    """/docs and /openapi.json enumerate the whole API surface.
+
+    They defaulted to enabled, contradicting the documentation that claimed
+    otherwise -- an insecure default for a security product.
+    """
+    from ironclad.api.app import create_app
+
+    monkeypatch.delenv("IRONCLAD_ENABLE_DOCS", raising=False)
+    client = TestClient(create_app("sqlite://", include_web=False))
+    assert client.get("/docs").status_code == 404
+    assert client.get("/openapi.json").status_code == 404
+
+
+def test_api_docs_can_be_explicitly_enabled(monkeypatch):
+    from ironclad.api.app import create_app
+
+    monkeypatch.setenv("IRONCLAD_ENABLE_DOCS", "1")
+    client = TestClient(create_app("sqlite://", include_web=False))
+    assert client.get("/docs").status_code == 200
+    assert client.get("/openapi.json").status_code == 200

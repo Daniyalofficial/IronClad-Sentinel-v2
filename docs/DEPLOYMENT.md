@@ -156,7 +156,7 @@ defaults**.
 | `IRONCLAD_SCAN_ROOT` | current working directory | Only targets inside this root may be scanned |
 | `IRONCLAD_LOG_LEVEL` | `INFO` | Structured log level |
 | `IRONCLAD_CORS_ORIGINS` | empty | Comma-separated allowlist; unlisted origins get no CORS headers |
-| `IRONCLAD_ENABLE_DOCS` | `1` | Set to `0` to disable `/docs` in production |
+| `IRONCLAD_ENABLE_DOCS` | `0` | Set to `1` to enable `/docs` + `/openapi.json` (development only) |
 | `IRONCLAD_COOKIE_SECURE` | `0` | Set to `1` behind TLS to mark the dashboard cookie `Secure` |
 | `IRONCLAD_ADVISORY_SOURCE` | `bundled` | `bundled` \| `directory` \| `remote` |
 | `IRONCLAD_ADVISORY_PATH` | — | Overlay directory for `directory` |

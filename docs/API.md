@@ -7,8 +7,10 @@ Authentication: `Authorization: Bearer <token>`, where the token is either a
 `POST /auth/tokens`. Every response carries `X-Request-Id`; send your own to
 have it echoed and threaded through the logs.
 
-Interactive docs are served at `/docs` when `IRONCLAD_ENABLE_DOCS=1`
-(**off by default** — do not enable it on a public instance).
+The interactive docs (`/docs`) and the OpenAPI schema (`/openapi.json`) are
+**disabled by default**, because together they enumerate the whole API
+surface. Opt in with `IRONCLAD_ENABLE_DOCS=1` for local development and leave
+it unset in production.
 
 ## Conventions
 

@@ -47,8 +47,9 @@ ironclad serve                # API + dashboard on :8000
 ironclad server worker        # background scan worker (separate process)
 ```
 
-Dashboard at `/ui`, API docs at `/docs` (set `IRONCLAD_ENABLE_DOCS=0` in
-production).
+Dashboard at `/ui`. The interactive API docs at `/docs` (and `/openapi.json`)
+are **disabled by default**; opt in with `IRONCLAD_ENABLE_DOCS=1` while
+developing.
 
 ---
 

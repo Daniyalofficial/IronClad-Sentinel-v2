@@ -71,8 +71,12 @@ def create_app(database_url: Optional[str] = None, *, run_migrations_on_start: b
         title="IronClad Sentinel API",
         version=__version__,
         description="Self-hosted application security platform API. No telemetry, no external calls.",
-        docs_url="/docs" if os.environ.get("IRONCLAD_ENABLE_DOCS", "1") == "1" else None,
+        # Secure by default: the interactive docs and /openapi.json enumerate
+        # the entire API surface, which is useful while developing and useful
+        # to an attacker in production. Opt in with IRONCLAD_ENABLE_DOCS=1.
+        docs_url="/docs" if os.environ.get("IRONCLAD_ENABLE_DOCS", "0") == "1" else None,
         redoc_url=None,
+        openapi_url="/openapi.json" if os.environ.get("IRONCLAD_ENABLE_DOCS", "0") == "1" else None,
     )
 
     engine = build_engine(database_url)
