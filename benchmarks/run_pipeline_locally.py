@@ -19,7 +19,11 @@ import time
 import yaml
 
 PIPELINE = "deploy/ci/verify.yml"
-SKIP_MARKERS = ("PostgreSQL", "wheel")  # no pg server; wheel verified separately
+# Only PostgreSQL is genuinely unavailable here (no server, no Docker).
+# The wheel step DOES run locally, but it force-reinstalls the package over
+# the editable install, so it is restored afterwards to keep the venv usable.
+SKIP_MARKERS = ("PostgreSQL",)
+RESTORE_AFTER = ("wheel",)
 
 
 def main() -> int:
@@ -48,6 +52,9 @@ def main() -> int:
             status = "PASS" if proc.returncode == 0 else "FAIL"
             results.append((job_name, name, status, elapsed))
             print(f"  - {name}: {status} ({elapsed:.1f}s)")
+            if any(marker.lower() in name.lower() for marker in RESTORE_AFTER):
+                subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-e", ".[server,dev]"],
+                               capture_output=True)
             if proc.returncode != 0:
                 tail = (proc.stdout + proc.stderr).strip().splitlines()[-25:]
                 print("    " + "\n    ".join(tail))

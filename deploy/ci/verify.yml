@@ -156,6 +156,13 @@ jobs:
       - name: SQLite migrations apply and are idempotent
         run: |
           export IRONCLAD_DATABASE_URL="sqlite:///./.ironclad/ci.db"
+          # Start from an empty database. `server init` creates an
+          # organization, which is not idempotent by design (a duplicate slug
+          # must be rejected), so a leftover database from a previous run
+          # would fail here. CI gets a fresh checkout, but a local re-run
+          # does not -- and a step that only works on a clean machine is a
+          # step that will confuse whoever debugs it next.
+          rm -f .ironclad/ci.db .ironclad/ci.db-wal .ironclad/ci.db-shm
           ironclad server init --org-name "CI Org" --org-slug ci \
             --admin-email ci@example.com --admin-password 'C1-Strong-Passw0rd'
           ironclad server worker --max-jobs 1
