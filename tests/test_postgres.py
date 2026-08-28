@@ -44,9 +44,28 @@ from ironclad.platform.database import (  # noqa: E402
 )
 
 
+#: This suite drops every table in the target database. Refuse to run unless
+#: the database name marks it as disposable, so pointing it at a real
+#: instance cannot destroy data. Override with
+#: IRONCLAD_TEST_POSTGRES_ALLOW_UNSAFE=1 only if you know what you are doing.
+SAFE_NAME_MARKERS = ("test", "verify", "ci", "scratch", "tmp", "temp")
+
+
 @pytest.fixture(scope="module")
 def engine():
     """A clean database with migrations applied, shared by the module."""
+    from sqlalchemy.engine import make_url
+
+    dbname = (make_url(PG_URL).database or "").lower()
+    allowed = os.environ.get("IRONCLAD_TEST_POSTGRES_ALLOW_UNSAFE") == "1"
+    if not allowed and not any(marker in dbname for marker in SAFE_NAME_MARKERS):
+        pytest.fail(
+            f"refusing to run: this suite DROPS EVERY TABLE in the target database, "
+            f"and {dbname!r} does not look disposable. Use a scratch database, or set "
+            f"IRONCLAD_TEST_POSTGRES_ALLOW_UNSAFE=1 to override.",
+            pytrace=False,
+        )
+
     eng = build_engine(PG_URL)
     with eng.begin() as connection:
         for (table,) in connection.execute(text(

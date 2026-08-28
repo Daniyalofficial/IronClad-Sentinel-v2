@@ -211,6 +211,26 @@ pg_dump -Fc ironclad > ironclad-$(date +%F).dump     # backup
 pg_restore -d ironclad_restored ironclad-2026-08-27.dump
 ```
 
+### Running the PostgreSQL test suite
+
+```bash
+export IRONCLAD_TEST_POSTGRES_URL="postgresql+psycopg2://user:pass@host/ironclad_test"
+pytest tests/test_postgres.py -v
+```
+
+**This suite drops every table in the target database.** It refuses to run
+unless the database name contains `test`, `verify`, `ci`, `scratch`, `tmp` or
+`temp`; override with `IRONCLAD_TEST_POSTGRES_ALLOW_UNSAFE=1` only against a
+database you are happy to lose.
+
+No PostgreSQL instance? The `pgserver` wheel bundles a real server, no Docker
+required:
+
+```bash
+pip install pgserver
+python -c "import pgserver; print(pgserver.get_server('/tmp/pgdata').get_uri())"
+```
+
 Restore is tested by `tests/test_database.py`, which recreates the schema
 from migrations against a fresh database and verifies row counts and
 constraints survive the round trip.
