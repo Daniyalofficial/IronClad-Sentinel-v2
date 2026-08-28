@@ -104,7 +104,11 @@ def _url_problems(url: str, *, required: bool, label: str) -> List[str]:
         return [f"{label} must use http or https"]
     if not parsed.hostname:
         return [f"{label} has no host"]
-    if parsed.scheme == "https" and _is_private_host(parsed.hostname) and not _private_allowed():
+    # The private-host check applies to http AND https. Gating it on https
+    # left the single most important SSRF target wide open: the cloud
+    # metadata endpoint is http://169.254.169.254/, and an integration is
+    # allowed to be handed an attacker-influenced URL.
+    if _is_private_host(parsed.hostname) and not _private_allowed():
         return [f"{label} points at a private/link-local address; set {PRIVATE_ENV_FLAG}=1 to allow it"]
     return []
 

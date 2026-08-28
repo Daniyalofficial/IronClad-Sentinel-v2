@@ -1041,3 +1041,44 @@ def test_scan_of_a_missing_target_marks_the_scan_failed(server, auth, project):
     scan = auth["client"].get(f"/scan/{scan_id}", headers=auth["headers"]).json()
     assert scan["status"] == "failed", scan
     assert scan["error"], "the failure reason must be stored on the scan"
+
+
+# --------------------------------------------------------------------------- #
+# SSRF regression: the private-host guard must cover http, not just https
+# --------------------------------------------------------------------------- #
+def test_metadata_endpoint_rejected_over_plain_http(monkeypatch):
+    """The cloud metadata endpoint is the primary SSRF target, and it is http.
+
+    The guard used to be `if parsed.scheme == "https" and _is_private_host(...)`,
+    so `http://169.254.169.254/latest/meta-data` was accepted outright.
+    """
+    from ironclad.platform.integrations import validate_config
+
+    monkeypatch.delenv("IRONCLAD_ALLOW_PRIVATE_WEBHOOKS", raising=False)
+    problems = validate_config("webhook", {"url": "http://169.254.169.254/latest/meta-data"})
+    assert problems, "the cloud metadata endpoint must be rejected over http too"
+
+
+@pytest.mark.parametrize("url", [
+    "http://127.0.0.1:9999/hook",
+    "https://127.0.0.1/hook",
+    "http://localhost/hook",
+    "http://10.0.0.5/hook",
+    "http://192.168.1.1/hook",
+    "http://169.254.169.254/latest/meta-data",
+])
+def test_private_and_link_local_targets_rejected(monkeypatch, url):
+    from ironclad.platform.integrations import validate_config
+
+    monkeypatch.delenv("IRONCLAD_ALLOW_PRIVATE_WEBHOOKS", raising=False)
+    assert validate_config("webhook", {"url": url}), url
+
+
+def test_public_target_accepted_and_override_works(monkeypatch):
+    from ironclad.platform.integrations import validate_config
+
+    monkeypatch.delenv("IRONCLAD_ALLOW_PRIVATE_WEBHOOKS", raising=False)
+    assert validate_config("webhook", {"url": "https://hooks.slack.com/services/x"}) == []
+
+    monkeypatch.setenv("IRONCLAD_ALLOW_PRIVATE_WEBHOOKS", "1")
+    assert validate_config("webhook", {"url": "http://127.0.0.1:9999/hook"}) == []
