@@ -1105,3 +1105,47 @@ def test_api_docs_can_be_explicitly_enabled(monkeypatch):
     client = TestClient(create_app("sqlite://", include_web=False))
     assert client.get("/docs").status_code == 200
     assert client.get("/openapi.json").status_code == 200
+
+
+# --------------------------------------------------------------------------- #
+# SSRF bypass attempts (found by attacking the parser, not by reading it)
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("url", [
+    "http://169.254.169.254/latest/meta-data",   # AWS/GCP metadata
+    "http://100.64.0.1/",                        # RFC 6598 CGNAT - the real bypass
+    "http://100.127.255.255/",                   # CGNAT upper bound
+    "http://localhost.localdomain/",             # localhost alias
+    "http://foo.localhost/",                     # .localhost suffix
+    "http://0x7f000001/",                        # hex-encoded 127.0.0.1
+    "http://2130706433/",                        # decimal-encoded 127.0.0.1
+    "http://0177.0.0.1/",                        # octal-encoded 127.0.0.1
+    "http://[::1]/",                             # IPv6 loopback
+    "http://[::ffff:127.0.0.1]/",                # IPv4-mapped IPv6 loopback
+    "http://127.1/",                             # shortened 127.0.0.1
+    "http://192.0.0.1/",                         # RFC 6890
+    "http://198.18.0.1/",                        # RFC 2544 benchmarking
+    "http://0.0.0.0/",                           # unspecified
+    "http://255.255.255.255/",                   # broadcast
+    "http://evil.com@169.254.169.254/",          # userinfo trick
+    "http://169.254.169.254#@evil.com/",         # fragment trick
+    "http://169.254.169.254?@evil.com/",         # query trick
+])
+def test_ssrf_bypass_attempts_are_blocked(monkeypatch, url):
+    """RFC 6598 CGNAT was the genuine hole: Python 3.11's ipaddress module
+    returns is_private=False for 100.64.0.0/10, so it passed straight through.
+    """
+    from ironclad.platform.integrations import validate_config
+
+    monkeypatch.delenv("IRONCLAD_ALLOW_PRIVATE_WEBHOOKS", raising=False)
+    assert validate_config("webhook", {"url": url}), f"not blocked: {url}"
+
+
+def test_public_webhook_targets_still_work(monkeypatch):
+    """The guard must not become a deny-all rule."""
+    from ironclad.platform.integrations import validate_config
+
+    monkeypatch.delenv("IRONCLAD_ALLOW_PRIVATE_WEBHOOKS", raising=False)
+    for url in ("https://hooks.slack.com/services/T0/B0/xyz",
+                "https://outlook.office.com/webhook/abc",
+                "https://example.com/hook"):
+        assert validate_config("webhook", {"url": url}) == [], url

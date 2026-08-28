@@ -117,24 +117,74 @@ def _private_allowed() -> bool:
     return os.environ.get(PRIVATE_ENV_FLAG, "").lower() in {"1", "true", "yes"}
 
 
+#: Ranges that are not publicly routable but that `ipaddress` does not report
+#: as private on every supported Python version. RFC 6598 (CGNAT) is the one
+#: that actually mattered: Python 3.11 returns is_private=False for
+#: 100.64.0.0/10, so a webhook aimed at a carrier-grade NAT address sailed
+#: through the guard.
+EXTRA_NON_PUBLIC_NETWORKS = tuple(
+    ipaddress.ip_network(cidr) for cidr in (
+        "100.64.0.0/10",      # RFC 6598 shared address space (CGNAT)
+        "192.0.0.0/24",       # RFC 6890 IETF protocol assignments
+        "198.18.0.0/15",      # RFC 2544 benchmarking
+        "0.0.0.0/8",          # "this" network
+    )
+)
+
+#: Hostnames that mean "this machine" or a cloud metadata service regardless
+#: of what DNS says about them.
+LOCAL_HOSTNAMES = {
+    "localhost", "localhost.localdomain", "ip6-localhost", "ip6-loopback",
+    "metadata.google.internal", "metadata", "instance-data",
+    "metadata.goog", "169.254.169.254",
+}
+
+
 def _is_private_host(hostname: str) -> bool:
-    """True for loopback/private/link-local hosts (SSRF guard)."""
-    if hostname.lower() in {"localhost", "metadata.google.internal"}:
+    """True for loopback/private/link-local/non-public hosts (SSRF guard).
+
+    Note on DNS rebinding: this resolves the name at *validation* time. An
+    attacker-controlled authoritative server can answer with a public
+    address here and a private one when the request is actually made. Closing
+    that fully requires resolving at connect time and pinning the address,
+    which this does not do -- see docs/SECURITY.md.
+    """
+    name = (hostname or "").strip().strip("[]").lower()
+    if name in LOCAL_HOSTNAMES:
         return True
+    # A hostname whose first label is "localhost" is local by convention on
+    # every mainstream resolver, and costs nothing to block.
+    if name == "localhost" or name.endswith(".localhost"):
+        return True
+
     try:
-        infos = socket.getaddrinfo(hostname, None)
+        infos = socket.getaddrinfo(name, None)
     except socket.gaierror:
         # Unresolvable hosts are not "private"; the request will fail loudly.
         return False
     for info in infos:
         address = info[4][0]
         try:
-            ip = ipaddress.ip_address(address)
+            ip = ipaddress.ip_address(address.split("%")[0])
         except ValueError:
             continue
         if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
             return True
+        if any(ip in network for network in EXTRA_NON_PUBLIC_NETWORKS):
+            return True
     return False
+
+
+def _host_is_non_public_literal(hostname: str) -> bool:
+    """Check the literal address without DNS, for when the host *is* an IP."""
+    name = (hostname or "").strip().strip("[]").lower()
+    try:
+        ip = ipaddress.ip_address(name.split("%")[0])
+    except ValueError:
+        return False
+    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+        return True
+    return any(ip in network for network in EXTRA_NON_PUBLIC_NETWORKS)
 
 
 # --------------------------------------------------------------------------- #

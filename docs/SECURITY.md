@@ -164,6 +164,31 @@ origin receives no CORS headers at all — the origin is never reflected.
 grade A+** across 81 files / 14,619 lines. Two real precision bugs were
 found and fixed by doing this — see `CHANGELOG.md`.
 
+## SSRF guard: what it covers and what it does not
+
+Webhook and integration URLs are validated against a non-public-address
+denylist. The following are blocked (each has a regression test):
+
+* `169.254.169.254` and the cloud metadata hostnames
+  (`metadata.google.internal`, `metadata`, `metadata.goog`)
+* RFC 1918 private ranges, loopback (including `[::1]`,
+  `[::ffff:127.0.0.1]`, `127.1`, and the hex/octal/decimal encodings of
+  `127.0.0.1`)
+* link-local, broadcast, `0.0.0.0/8`, RFC 6890, RFC 2544 benchmarking
+* **RFC 6598 CGNAT (`100.64.0.0/10`)** — this was a genuine hole: Python's
+  `ipaddress` module returns `is_private=False` for that range, so it passed
+  the original check
+* `localhost` and any `*.localhost` name, regardless of what DNS says
+* userinfo/fragment/query tricks such as `http://evil.com@169.254.169.254/`
+
+**Not defended: DNS rebinding.** The host is resolved at *validation* time.
+An attacker who controls an authoritative DNS server can answer with a
+public address during validation and a private one when the request is
+actually made. Closing that requires resolving at connect time and pinning
+the address (or egress-filtering at the network layer). Until then, the
+control is `IRONCLAD_ALLOW_PRIVATE_WEBHOOKS` staying unset plus network-level
+egress restrictions on the worker.
+
 ## Known limitations
 
 Stated plainly, because a scanner that overstates its guarantees is worse
