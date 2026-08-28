@@ -149,3 +149,69 @@ def test_a_real_secret_is_still_reported_next_to_placeholders(tmp_path):
     findings = scan_file_for_secrets(d)
     assert findings, "the real secret must still be reported"
     assert all("REPLACE_ME" not in f.location.snippet for f in findings)
+
+
+def test_bare_url_assigned_to_a_credential_name_is_not_a_secret(tmp_path):
+    """A URL is configuration, not a credential.
+
+    Found on real code: rubygems/lib/rubygems/s3_uri_signer.rb sets
+    `EC2_IAM_TOKEN = "http://169.254.169.254/..."`, which is the EC2
+    metadata endpoint, not a secret.
+    """
+    path = tmp_path / "signer.rb"
+    path.write_text('EC2_IAM_TOKEN = "http://169.254.169.254/latest/api/token"\n', encoding="utf-8")
+    d = DiscoveredFile(path=str(path), rel_path="signer.rb", language="ruby",
+                       size_bytes=path.stat().st_size)
+    assert scan_file_for_secrets(d) == []
+
+
+def test_url_with_embedded_credentials_is_still_reported(tmp_path):
+    """The exclusion is for *bare* URLs; user:pass@host must still fire."""
+    from ironclad.scanners.secrets import _is_bare_url
+
+    assert _is_bare_url("https://example.com/path") is True
+    assert _is_bare_url("https://user:pass@host/db") is False
+    assert _is_bare_url("postgres://user:pass@host/db") is False
+    assert _is_bare_url("Zk9pQ2xR7vN4mT8sW1yB6dF3hJ0aL5e") is False
+
+
+def test_comment_lines_do_not_trigger_rules(tmp_path):
+    """Whole-line comments are prose, not code.
+
+    Found on real code: rubygems/lib/rubygems/specification.rb matched
+    RUBY-YAML-LOAD inside the comment
+    "# +input+ can be anything that YAML.load() accepts".
+    """
+    import os
+
+    import ironclad
+    from ironclad.rules.schema import load_rule_packs
+    from ironclad.scanners.rule_engine import scan_file_with_rules
+
+    path = tmp_path / "spec.rb"
+    path.write_text(
+        "# +input+ can be anything that YAML.load() accepts: String or IO.\n"
+        "def load(input)\n"
+        "  parser.parse(input)\n"
+        "end\n",
+        encoding="utf-8")
+    d = DiscoveredFile(path=str(path), rel_path="spec.rb", language="ruby",
+                       size_bytes=path.stat().st_size)
+    rules = load_rule_packs([os.path.join(os.path.dirname(ironclad.__file__), "rules", "packs")])
+    fired = {f.rule_id for f in scan_file_with_rules(d, rules)}
+    assert "RUBY-YAML-LOAD" not in fired
+
+
+def test_live_yaml_load_outside_a_comment_is_still_reported(tmp_path):
+    import os
+
+    import ironclad
+    from ironclad.rules.schema import load_rule_packs
+    from ironclad.scanners.rule_engine import scan_file_with_rules
+
+    path = tmp_path / "live.rb"
+    path.write_text("def load(input)\n  YAML.load(input)\nend\n", encoding="utf-8")
+    d = DiscoveredFile(path=str(path), rel_path="live.rb", language="ruby",
+                       size_bytes=path.stat().st_size)
+    rules = load_rule_packs([os.path.join(os.path.dirname(ironclad.__file__), "rules", "packs")])
+    assert "RUBY-YAML-LOAD" in {f.rule_id for f in scan_file_with_rules(d, rules)}

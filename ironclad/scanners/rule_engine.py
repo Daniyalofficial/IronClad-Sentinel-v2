@@ -115,6 +115,29 @@ def _docstring_lines(lines: List[str]) -> set:
     return inside
 
 
+# Line-comment marker per language. Whole-line comments are prose: a rule
+#: that matches one is reporting documentation, not code. Found on real code
+#: (rubygems/lib/rubygems/specification.rb matched RUBY-YAML-LOAD inside
+#: "# +input+ can be anything that YAML.load() accepts").
+#:
+#: Only lines whose first non-space character is the marker are skipped --
+#: trailing comments are not attempted, because deciding whether a `#` starts
+#: a comment or sits inside a string needs a real lexer.
+LINE_COMMENT = {
+    "python": "#", "ruby": "#", "shell": "#", "yaml": "#",
+    "terraform": "#", "dotenv": "#", "sql": "--",
+    "javascript": "//", "typescript": "//", "java": "//", "go": "//",
+    "c": "//", "cpp": "//", "csharp": "//", "php": "//",
+}
+
+
+def _is_comment_line(line: str, language: str) -> bool:
+    marker = LINE_COMMENT.get(language)
+    if not marker:
+        return False
+    return line.lstrip().startswith(marker)
+
+
 SEVERITY_MAP = {
     "critical": Severity.CRITICAL,
     "high": Severity.HIGH,
@@ -154,6 +177,8 @@ def scan_file_with_rules(discovered: DiscoveredFile, rules: List[Rule]) -> List[
         else:
             for idx, line in enumerate(lines, start=1):
                 if idx in definition_lines or idx in docstring_lines:
+                    continue
+                if _is_comment_line(line, discovered.language):
                     continue
                 match = rule.compiled_pattern.search(line)
                 if not match:

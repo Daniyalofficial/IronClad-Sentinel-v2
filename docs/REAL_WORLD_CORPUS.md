@@ -138,11 +138,37 @@ for p in flask click jinja requests httpx; do
 done
 ```
 
+## Second measurement: other languages
+
+The first measurement was Python-only, so it exercised the AST engine and the
+Python rule pack but none of the Java/Go/Ruby/PHP packs. A second pass covers
+real non-Python code:
+
+| Project | Language | Files | Findings |
+|---|---|---:|---:|
+| `google/uuid` | Go | 29 | 1 |
+| `gorilla/mux` | Go | 23 | 0 |
+| `rubygems/rubygems` | Ruby | 1,944 | 107 → **103** |
+
+Go was essentially clean (one `GO-UNSAFE-POINTER` in `google/uuid`, which is a
+correct finding). Ruby surfaced **two more false-positive classes**, both now
+fixed with regression tests:
+
+| Class | Count | Fix |
+|---|---:|---|
+| Rule matched inside a whole-line comment | 1 in source, 2 in tests | `# +input+ can be anything that YAML.load() accepts` is prose. The rule engine now skips whole-line comments, with the marker chosen per language (`#` for Ruby/Python/shell/YAML/Terraform, `//` for JS/Java/Go/C-family, `--` for SQL). Trailing comments are deliberately *not* attempted — deciding whether a `#` starts a comment or sits inside a string needs a real lexer. |
+| Bare URL assigned to a credential-named variable | 1 in source | `EC2_IAM_TOKEN = "http://169.254.169.254/..."` is the EC2 metadata endpoint, not a secret. Bare `http(s)://` values are excluded; URLs that embed credentials (`user:pass@host`) are still reported. |
+
+Ruby production-source findings fell **18 → 15**. What remains is defensible:
+13 of them are `RUBY-EVAL-USE` in Bundler, which `eval`s Gemfiles and
+gemspecs — inherent to what Bundler does, exactly like the Jinja
+`exec`/`compile` cluster above.
+
 ## Honest limitations of this measurement
 
-1. **Five projects, one language.** All are Python, so this exercises the
-   AST engine and the Python rule pack. The Java/Go/PHP/Ruby packs are not
-   measured here at all.
+1. **Eight projects, three languages.** Python (5 projects), Go (2) and Ruby
+   (1) are measured. The **Java and PHP packs remain unmeasured on real
+   code** — no Java or PHP project has been scanned.
 2. **Hand-classified, single reviewer.** The TP/FP calls above are one
    person's judgement, not a consensus labelling.
 3. **No false-negative measurement.** Finding what the scanner *missed* in

@@ -129,6 +129,17 @@ def is_docstring_line(lines: List[str], index: int) -> bool:
     return open_quote is not None
 
 
+# A bare URL assigned to a credential-named variable is a configuration
+#: value, not a secret -- e.g. rubygems' `EC2_IAM_TOKEN` holds the EC2
+#: metadata endpoint URL. A URL that *embeds* credentials (user:pass@host)
+#: is still reported by the basic-auth rule, so nothing is lost.
+BARE_URL_VALUE = re.compile(r"^https?://[^/\s:@]+(?::\d+)?(?:/|$)")
+
+
+def _is_bare_url(value: str) -> bool:
+    return bool(BARE_URL_VALUE.match(value.strip()))
+
+
 def _keyword_is_namespace_prefix(var_name: str) -> bool:
     """True when the sensitive word is a namespace prefix, not the subject.
 
@@ -233,6 +244,8 @@ def _scan_credential_assignments(discovered: DiscoveredFile, lines: List[str],
             if _is_self_describing_constant(var_name, value.strip()):
                 continue
             if _keyword_is_namespace_prefix(var_name):
+                continue
+            if _is_bare_url(value):
                 continue
             if PLACEHOLDER_HINTS.search(value):
                 continue
