@@ -94,13 +94,36 @@ def database_url(override: Optional[str] = None) -> str:
 def build_engine(url: Optional[str] = None, **kwargs) -> Engine:
     resolved = database_url(url)
     if resolved.startswith("sqlite"):
-        kwargs.setdefault("connect_args", SQLITE_CONNECT_ARGS)
+        connect_args = dict(SQLITE_CONNECT_ARGS)
+        # pysqlite's default behaviour is to issue an implicit COMMIT before
+        # any non-DML statement. That silently breaks transactional DDL: a
+        # migration that failed halfway left every table it had already
+        # created behind while recording nothing as applied, so a retry died
+        # on "table already exists" and the database was unrecoverable
+        # without manual surgery. Handing transaction control to SQLAlchemy
+        # (DBAPI autocommit + an explicit BEGIN) makes DDL roll back like any
+        # other statement.
+        connect_args["isolation_level"] = None
+        kwargs["connect_args"] = connect_args
         engine = create_engine(resolved, future=True, **kwargs)
-        with engine.begin() as connection:
-            # WAL lets the API read while a worker writes; foreign keys are
-            # what make tenant-scoped deletes safe.
-            connection.execute(text("PRAGMA journal_mode=WAL"))
-            connection.execute(text("PRAGMA foreign_keys=ON"))
+
+        @event.listens_for(engine, "connect")
+        def _sqlite_pragmas(dbapi_connection, _record):  # noqa: ANN001
+            # Applied on the raw DBAPI connection, before any transaction
+            # begins: journal_mode cannot be changed from inside one.
+            cursor = dbapi_connection.cursor()
+            try:
+                # WAL lets the API read while a worker writes; foreign keys
+                # are what make tenant-scoped deletes safe.
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute("PRAGMA foreign_keys=ON")
+            finally:
+                cursor.close()
+
+        @event.listens_for(engine, "begin")
+        def _explicit_begin(connection):  # noqa: ANN001 - driver-supplied type
+            connection.exec_driver_sql("BEGIN")
+
         return engine
     kwargs.setdefault("pool_pre_ping", True)
     engine = create_engine(resolved, future=True, **kwargs)
