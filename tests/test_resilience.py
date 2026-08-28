@@ -15,6 +15,14 @@ import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
+
+# The resilience suite exercises the platform layer, which needs the server
+# extra. Guarded the same way as test_api.py / test_database.py so a core-only
+# install skips the module instead of failing collection -- CI installs core
+# only, and an unguarded import here breaks the whole run.
+pytest.importorskip("fastapi", reason="requires the server extra: pip install -e '.[server]'")
+pytest.importorskip("sqlalchemy", reason="requires the server extra: pip install -e '.[server]'")
+
 from fastapi.testclient import TestClient
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError, OperationalError

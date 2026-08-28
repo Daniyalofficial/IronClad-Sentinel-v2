@@ -30,6 +30,23 @@ COMPOSE = os.path.join(ROOT, "docker-compose.yml")
 K8S_DIR = os.path.join(ROOT, "deploy", "k8s")
 
 
+def _server_extra_available() -> bool:
+    try:
+        import sqlalchemy  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+#: The entrypoint runs `ironclad server init` / migrations, so these tests
+#: need the server extra. The Dockerfile and manifest assertions below are
+#: pure file parsing and stay runnable on a core-only install.
+requires_server = pytest.mark.skipif(
+    not _server_extra_available(),
+    reason="entrypoint exercises migrations, which need the server extra",
+)
+
+
 def _run_entrypoint(role, env=None, args=(), timeout=90):
     environment = dict(os.environ)
     environment.setdefault("IRONCLAD_SIGNING_KEY", "test-key-that-is-long-enough-32ch")
@@ -54,6 +71,7 @@ def sqlite_env():
 # --------------------------------------------------------------------------- #
 # Entrypoint behaviour (real execution)
 # --------------------------------------------------------------------------- #
+@requires_server
 def test_entrypoint_migrate_applies_migrations(sqlite_env):
     result = _run_entrypoint("migrate", env=sqlite_env)
     assert result.returncode == 0, result.stderr
@@ -61,6 +79,7 @@ def test_entrypoint_migrate_applies_migrations(sqlite_env):
     assert "0002_scan_policy_document.sql" in result.stdout
 
 
+@requires_server
 def test_entrypoint_migrate_is_idempotent(sqlite_env):
     assert _run_entrypoint("migrate", env=sqlite_env).returncode == 0
     second = _run_entrypoint("migrate", env=sqlite_env)
@@ -68,6 +87,7 @@ def test_entrypoint_migrate_is_idempotent(sqlite_env):
     assert "none (already up to date)" in second.stdout, second.stdout
 
 
+@requires_server
 def test_entrypoint_worker_drains_and_exits(sqlite_env):
     """`worker` must not hang on an empty queue -- it is the container CMD."""
     _run_entrypoint("migrate", env=sqlite_env)
@@ -76,12 +96,14 @@ def test_entrypoint_worker_drains_and_exits(sqlite_env):
     assert "Worker stopped" in result.stdout
 
 
+@requires_server
 def test_entrypoint_unknown_role_exits_2(sqlite_env):
     result = _run_entrypoint("nonsense", env=sqlite_env)
     assert result.returncode == 2, result.returncode
     assert "unknown role" in (result.stdout + result.stderr)
 
 
+@requires_server
 def test_entrypoint_fails_fast_without_a_database_url(sqlite_env):
     env = {k: v for k, v in sqlite_env.items() if k != "IRONCLAD_DATABASE_URL"}
     env["IRONCLAD_DATABASE_URL"] = ""
