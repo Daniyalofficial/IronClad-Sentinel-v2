@@ -164,11 +164,45 @@ Ruby production-source findings fell **18 → 15**. What remains is defensible:
 gemspecs — inherent to what Bundler does, exactly like the Jinja
 `exec`/`compile` cluster above.
 
+## Third measurement: Java and PHP
+
+The Java and PHP packs were the last unmeasured ones. Third pass:
+
+| Project | Language | Files | Findings | Assessment |
+|---|---|---:|---:|---|
+| `square/tape` | Java | 40 | 4 | 3 of 4 are in `website/prettify.js`, a **vendored** copy of Google Code Prettify. The 4th (`rm -rf $DIR` unquoted in `deploy_website.sh`) is a correct finding. |
+| `PHPMailer/PHPMailer` | PHP | 182 | 9 → **5** | All in `examples/` and `test/`. Six of nine were one false-positive class, now fixed. |
+| `guzzle/guzzle` | PHP | 170 | 4 | All in `tests/` — fixture URLs and a deliberately malicious payload string in a cookie-jar test. |
+
+One more false-positive class found and fixed:
+
+**`your<X>` fill-in placeholders (6 findings).** PHPMailer ships examples with
+`$mail->Password = 'yourpassword'` and `$clientSecret = 'yourClientId'`. The
+placeholder list already knew `your_key` and `your_secret` but not the general
+`your<X>` convention. Extended to `your_(password|passwd|pass|pwd|token|email|
+user|username|domain|host|client_id|key|secret)`.
+
+### What was deliberately *not* suppressed
+
+Five PHPMailer findings remain, all credential-shaped literals in example and
+test files (`$clientSecret = 'RA0oTkEwOVQzfm00…'`, a DKIM test key path).
+These look like real secrets and are committed to the repository. Suppressing
+them because they live in `examples/` would also suppress a genuine key
+committed to a test suite, which is the more costly error. They are left
+reported.
+
+The `prettify.js` case is also left as-is. It is a vendored third-party
+library that is not named `*.min.js`, so the minified-file exclusion does not
+catch it. The control is `paths.exclude` in `policy.yaml` — the scanner
+should not guess which directories are vendored.
+
 ## Honest limitations of this measurement
 
-1. **Eight projects, three languages.** Python (5 projects), Go (2) and Ruby
-   (1) are measured. The **Java and PHP packs remain unmeasured on real
-   code** — no Java or PHP project has been scanned.
+1. **Eleven projects, four languages.** Python (5), Go (2), Ruby (1), Java (1)
+   and PHP (2) are now measured. Coverage is still uneven — the Java pack saw
+   one small project, and no Java project large enough to exercise
+   `JAVA-SQL-CONCATENATION` or `JAVA-OBJECT-DESERIALIZATION` was scanned, so
+   those two rules have no real-code evidence either way.
 2. **Hand-classified, single reviewer.** The TP/FP calls above are one
    person's judgement, not a consensus labelling.
 3. **No false-negative measurement.** Finding what the scanner *missed* in

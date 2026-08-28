@@ -35,7 +35,9 @@ ASSIGNMENT_PATTERN = re.compile(
 # Common false-positive substrings we never want to flag even if entropy is high.
 PLACEHOLDER_HINTS = re.compile(
     r"(?i)(example|changeme|change[_-]?me|replace[_-]?me|xxxx|dummy|placeholder|"
-    r"your[_-]?key|your[_-]?secret|test[_-]?value|0000000|1111111|abcdefg|lorem|"
+    r"your[_-]?(key|secret|password|passwd|pass|pwd|token|email|user|username|"
+    r"domain|host|client[_-]?id)|"
+    r"test[_-]?value|0000000|1111111|abcdefg|lorem|"
     r"sample|fixme|todo|<[a-z_]+>)"
 )
 

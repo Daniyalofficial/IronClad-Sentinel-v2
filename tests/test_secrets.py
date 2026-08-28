@@ -215,3 +215,34 @@ def test_live_yaml_load_outside_a_comment_is_still_reported(tmp_path):
                        size_bytes=path.stat().st_size)
     rules = load_rule_packs([os.path.join(os.path.dirname(ironclad.__file__), "rules", "packs")])
     assert "RUBY-YAML-LOAD" in {f.rule_id for f in scan_file_with_rules(d, rules)}
+
+
+def test_your_x_fill_in_placeholders_are_not_reported(tmp_path):
+    """The `your<X>` convention is a fill-in marker, not a leak.
+
+    Found on real code: PHPMailer ships examples/gmail.phps and friends with
+    `$mail->Password = 'yourpassword'`. Six of PHPMailer's nine findings were
+    this one class.
+    """
+    path = tmp_path / "gmail.php"
+    path.write_text(
+        "$mail->Password = 'yourpassword';\n"
+        "$clientSecret = 'yourClientId';\n"
+        "$user = 'youremail@gmail.com';\n",
+        encoding="utf-8")
+    d = DiscoveredFile(path=str(path), rel_path="gmail.php", language="php",
+                       size_bytes=path.stat().st_size)
+    assert scan_file_for_secrets(d) == []
+
+
+def test_credential_shaped_literal_is_still_reported_next_to_fill_ins(tmp_path):
+    path = tmp_path / "mixed.php"
+    path.write_text(
+        "$mail->Password = 'yourpassword';\n"
+        "$api_secret = 'Zk9pQ2xR7vN4mT8sW1yB6dF3hJ0aL5e';\n",
+        encoding="utf-8")
+    d = DiscoveredFile(path=str(path), rel_path="mixed.php", language="php",
+                       size_bytes=path.stat().st_size)
+    findings = scan_file_for_secrets(d)
+    assert findings, "the real secret must still be reported"
+    assert all("yourpassword" not in f.location.snippet for f in findings)
