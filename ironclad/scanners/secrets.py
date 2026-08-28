@@ -34,8 +34,9 @@ ASSIGNMENT_PATTERN = re.compile(
 
 # Common false-positive substrings we never want to flag even if entropy is high.
 PLACEHOLDER_HINTS = re.compile(
-    r"(?i)(example|changeme|xxxx|dummy|placeholder|your[_-]?key|test[_-]?value|"
-    r"0000000|1111111|abcdefg|lorem|sample|fixme|todo)"
+    r"(?i)(example|changeme|change[_-]?me|replace[_-]?me|xxxx|dummy|placeholder|"
+    r"your[_-]?key|your[_-]?secret|test[_-]?value|0000000|1111111|abcdefg|lorem|"
+    r"sample|fixme|todo|<[a-z_]+>)"
 )
 
 BASE64_LIKE = re.compile(r"^[A-Za-z0-9+/=_\-]+$")

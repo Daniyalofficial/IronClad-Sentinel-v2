@@ -118,3 +118,34 @@ def test_one_finding_per_credential_not_two():
         assert findings[0].rule_id == "SECRETS-HIGH-ENTROPY-ASSIGNMENT"
     finally:
         os.unlink(d.path)
+
+
+def test_placeholder_conventions_are_not_reported_as_credentials(tmp_path):
+    """REPLACE_ME / CHANGE_ME / your_secret are placeholders, not leaks.
+
+    Found by scanning this repository: deploy/k8s/20-secret.yaml is a
+    documented template whose value is `REPLACE_ME_WITH_32_PLUS_CHARS`, and
+    it was reported as a hardcoded credential.
+    """
+    path = tmp_path / "template.yaml"
+    path.write_text(
+        'IRONCLAD_SIGNING_KEY: "REPLACE_ME_WITH_32_PLUS_CHARS"\n'
+        'DB_PASSWORD: "CHANGE_ME"\n'
+        'api_token: "your_secret_here"\n',
+        encoding="utf-8")
+    d = DiscoveredFile(path=str(path), rel_path="template.yaml", language="other",
+                       size_bytes=path.stat().st_size)
+    assert scan_file_for_secrets(d) == []
+
+
+def test_a_real_secret_is_still_reported_next_to_placeholders(tmp_path):
+    path = tmp_path / "mixed.py"
+    path.write_text(
+        'SIGNING_KEY = "REPLACE_ME_WITH_32_PLUS_CHARS"\n'
+        'API_TOKEN = "Zk9pQ2xR7vN4mT8sW1yB6dF3hJ0aL5e"\n',
+        encoding="utf-8")
+    d = DiscoveredFile(path=str(path), rel_path="mixed.py", language="python",
+                       size_bytes=path.stat().st_size)
+    findings = scan_file_for_secrets(d)
+    assert findings, "the real secret must still be reported"
+    assert all("REPLACE_ME" not in f.location.snippet for f in findings)
