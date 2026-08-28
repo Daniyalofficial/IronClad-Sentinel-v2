@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -128,13 +129,18 @@ def main() -> int:
     check("bogus token -> 401", status == 401, str(status))
 
     print("\n=== 4. project + policy ===")
+    # Unique per run so the script is idempotent against a database that
+    # already holds a previous run's project (a 409 here would cascade into
+    # a None project_id and fail every later check for the wrong reason).
+    run_tag = str(int(time.time()))[-6:]
+    project_name = f"E2E Payments {run_tag}"
     status, _, body = request("POST", "/projects", token=token,
-                              body={"name": "E2E Payments", "description": "e2e"})
+                              body={"name": project_name, "description": "e2e"})
     check("POST /projects -> 201", status == 201, f"{status} {body}")
     project_id = (body or {}).get("id")
     check("project id returned", bool(project_id))
 
-    status, _, body = request("POST", "/projects", token=token, body={"name": "E2E Payments"})
+    status, _, body = request("POST", "/projects", token=token, body={"name": project_name})
     check("duplicate project -> 409", status == 409, str(status))
     status, _, _ = request("POST", "/projects", token=token, body={"name": ""})
     check("empty name -> 422", status == 422, str(status))
@@ -169,14 +175,16 @@ def main() -> int:
     print("\n=== 6. scan accepted and queued ===")
     status, _, body = request("POST", "/scan", token=token,
                               body={"project_id": project_id, "target": ".",
-                                    "policy_id": policy_id, "idempotency_key": "e2e-run-1"})
+                                    "policy_id": policy_id,
+                                    "idempotency_key": f"e2e-run-{run_tag}"})
     check("POST /scan -> 202", status == 202, f"{status} {body}")
     scan_id = (body or {}).get("id")
     check("scan queued (status=queued)", (body or {}).get("status") == "queued", str(body))
 
     status, _, again = request("POST", "/scan", token=token,
                                body={"project_id": project_id, "target": ".",
-                                     "policy_id": policy_id, "idempotency_key": "e2e-run-1"})
+                                     "policy_id": policy_id,
+                                     "idempotency_key": f"e2e-run-{run_tag}"})
     check("idempotency key replays the same scan", (again or {}).get("id") == scan_id,
           f"{(again or {}).get('id')} vs {scan_id}")
 
