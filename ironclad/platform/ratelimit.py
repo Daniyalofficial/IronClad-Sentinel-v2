@@ -62,6 +62,8 @@ DEFAULT_LOGIN_PER_ACCOUNT_LIMIT = (5, 300)  # per account
 DEFAULT_TOKEN_CREATE_LIMIT = (10, 300)      # per user
 DEFAULT_PASSWORD_CHANGE_LIMIT = (5, 300)    # per user
 DEFAULT_GENERAL_LIMIT = (600, 60)           # per client IP, other API traffic
+DEFAULT_PASSWORD_RESET_REQUEST_LIMIT = (5, 300)   # per client IP
+DEFAULT_PASSWORD_RESET_REDEEM_LIMIT = (10, 300)   # per client IP
 
 _LIMIT_ENV = {
     "login": ("IRONCLAD_RATELIMIT_LOGIN", DEFAULT_LOGIN_LIMIT),
@@ -69,6 +71,10 @@ _LIMIT_ENV = {
     "token_create": ("IRONCLAD_RATELIMIT_TOKEN_CREATE", DEFAULT_TOKEN_CREATE_LIMIT),
     "password_change": ("IRONCLAD_RATELIMIT_PASSWORD_CHANGE", DEFAULT_PASSWORD_CHANGE_LIMIT),
     "general": ("IRONCLAD_RATELIMIT_GENERAL", DEFAULT_GENERAL_LIMIT),
+    "password_reset_request": ("IRONCLAD_RATELIMIT_PASSWORD_RESET_REQUEST",
+                               DEFAULT_PASSWORD_RESET_REQUEST_LIMIT),
+    "password_reset_redeem": ("IRONCLAD_RATELIMIT_PASSWORD_RESET_REDEEM",
+                              DEFAULT_PASSWORD_RESET_REDEEM_LIMIT),
 }
 
 
@@ -292,6 +298,12 @@ class RateLimiter:
     def check_general(self, client_ip: str) -> Decision:
         return self.check(f"api:ip:{client_ip}", *_read_limit("general"))
 
+    def check_password_reset_request(self, client_ip: str) -> Decision:
+        return self.check(f"pwreset:req:ip:{client_ip}", *_read_limit("password_reset_request"))
+
+    def check_password_reset_redeem(self, client_ip: str) -> Decision:
+        return self.check(f"pwreset:use:ip:{client_ip}", *_read_limit("password_reset_redeem"))
+
     def reset_login_account(self, account: str) -> None:
         self.reset(f"login:acct:{account.lower()}")
 
@@ -305,6 +317,8 @@ LOGIN_PER_ACCOUNT_LIMIT = DEFAULT_LOGIN_PER_ACCOUNT_LIMIT
 TOKEN_CREATE_LIMIT = DEFAULT_TOKEN_CREATE_LIMIT
 PASSWORD_CHANGE_LIMIT = DEFAULT_PASSWORD_CHANGE_LIMIT
 GENERAL_LIMIT = DEFAULT_GENERAL_LIMIT
+PASSWORD_RESET_REQUEST_LIMIT = DEFAULT_PASSWORD_RESET_REQUEST_LIMIT
+PASSWORD_RESET_REDEEM_LIMIT = DEFAULT_PASSWORD_RESET_REDEEM_LIMIT
 
 
 def limiter_enabled() -> bool:

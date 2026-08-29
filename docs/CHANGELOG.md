@@ -10,6 +10,38 @@ system in a way it had not been executed before, not by reading it.
 
 ### Added
 
+- **Password reset** (`ironclad/platform/password_reset.py`,
+  `ironclad/platform/mail.py`, migration `0003_password_reset_tokens`). Local
+  authentication previously had no self-service reset path at all.
+
+  Tokens are `secrets.token_urlsafe(32)` (256 bits), stored **only** as a
+  SHA-256 digest, single-use via `used_at` set in the same transaction as the
+  password change, expiring after `IRONCLAD_PASSWORD_RESET_TTL_MINUTES`
+  (default 30, hard-capped at 1440). Requesting a new link invalidates every
+  outstanding token. Success revokes all existing sessions and clears the
+  failed-login counter and lockout.
+
+  Enumeration resistant: identical status, body and message whether or not the
+  address exists, with a dummy PBKDF2 hash on the miss path so timing does not
+  diverge. A mail-transport failure does not change the response, or it would
+  reveal which addresses are real. Redemption always returns HTTP 200 with
+  `ok: false` on failure, so "no such token", "expired" and "already used"
+  stay indistinguishable to a prober.
+
+  Rate limited 5/300s (request) and 10/300s (confirm) per client IP, both
+  tunable.
+
+  Pluggable mail transport via `IRONCLAD_MAIL_TRANSPORT`: `memory` (default —
+  records in-process, so a fresh install needs no SMTP credentials and never
+  opens a socket), `smtp` (configured entirely from `IRONCLAD_SMTP_*`,
+  failures returned rather than raised), and `null` (explicit discard). An
+  unrecognised value falls back to `memory` instead of raising, so a typo
+  cannot stop the API from starting.
+
+  Audit events: `auth.password_reset_requested`, `_completed`, `_expired`,
+  `_reuse_blocked`, `_inactive`. The raw token never appears in audit
+  metadata.
+
 - **Audit export and retention** (`ironclad/platform/audit.py`). The paged
   `GET /audit` caps at 200 records, which is not usable as compliance
   evidence and gave no way to define a retention period — both are required
@@ -63,6 +95,14 @@ system in a way it had not been executed before, not by reading it.
 - **The WAL/foreign-key pragmas** moved to the connect event, since
   `journal_mode` cannot be changed from inside a transaction once DDL is
   transactional.
+- **A pre-authentication audit write violated a foreign key.** Requesting a
+  reset for an unknown address tried to record `audit_events.org_id = 0`,
+  which fails the constraint — there is no tenant before authentication. The
+  event is now logged and counted instead. (Same class of bug as the pre-auth
+  rate limiter.)
+- **`test_resilience.py` hardcoded the schema version as `"0002"`**, so adding
+  any migration broke it. It now derives the expected version from the newest
+  migration file on disk.
 - **Rate-limit fallback loop** — an unrecognised `IRONCLAD_RATELIMIT_BACKEND`
   was caught and then re-raised, because the fallback called `build_limiter()`
   again, which re-read the same bad environment value. Now falls back to the

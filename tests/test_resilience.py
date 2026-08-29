@@ -110,7 +110,13 @@ def test_migration_rerun_after_a_partial_failure_recovers(db):
     """
     from ironclad.platform import database
 
-    assert current_schema_version(db) == "0002"
+    # Assert against the newest migration actually on disk rather than a
+    # hardcoded version string, so adding a migration does not silently break
+    # this test.
+    from ironclad.platform import database
+
+    expected = sorted(os.listdir(os.path.join(database.MIGRATION_DIR, "sqlite")))[-1].split("_")[0]
+    assert current_schema_version(db) == expected, expected
 
     staged = os.path.join(tempfile.mkdtemp(), "migrations", "sqlite")
     os.makedirs(staged)

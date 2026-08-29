@@ -170,6 +170,18 @@ defaults**.
 | `IRONCLAD_RATELIMIT_PASSWORD_CHANGE` | `5:300` | Per-user password-change limit |
 | `IRONCLAD_RATELIMIT_GENERAL` | `600:60` | Per-IP limit for other API traffic |
 | `IRONCLAD_TRUST_PROXY` | unset | Trust `X-Forwarded-For` (only behind a proxy you control) |
+| `IRONCLAD_MAIL_TRANSPORT` | `memory` | `memory` \| `smtp` \| `null` |
+| `IRONCLAD_MAIL_FROM` | `IronClad Sentinel <no-reply@ironclad.local>` | From address for transactional mail |
+| `IRONCLAD_SMTP_HOST` | unset | SMTP host (required for `smtp`) |
+| `IRONCLAD_SMTP_PORT` | `587` | SMTP port |
+| `IRONCLAD_SMTP_USERNAME` / `_PASSWORD` | unset | SMTP credentials |
+| `IRONCLAD_SMTP_STARTTLS` | `1` | Use STARTTLS |
+| `IRONCLAD_SMTP_SSL` | `0` | Use implicit TLS (SMTPS) |
+| `IRONCLAD_SMTP_TIMEOUT` | `15` | SMTP timeout, seconds |
+| `IRONCLAD_PASSWORD_RESET_TTL_MINUTES` | `30` | Reset link lifetime, max 1440 |
+| `IRONCLAD_PASSWORD_RESET_URL_BASE` | unset | Dashboard base URL used to build reset links |
+| `IRONCLAD_RATELIMIT_PASSWORD_RESET_REQUEST` | `5:300` | Per-IP reset-request limit |
+| `IRONCLAD_RATELIMIT_PASSWORD_RESET_REDEEM` | `10:300` | Per-IP reset-confirm limit |
 | `IRONCLAD_BIND_HOST` / `IRONCLAD_PORT` | `0.0.0.0` / `8000` | Container bind address |
 | `IRONCLAD_API_WORKERS` | `1` | uvicorn worker count |
 
@@ -218,6 +230,26 @@ repository.
 pg_dump -Fc ironclad > ironclad-$(date +%F).dump     # backup
 pg_restore -d ironclad_restored ironclad-2026-08-27.dump
 ```
+
+### Password reset mail
+
+The default transport is `memory`, which records messages in-process and
+sends nothing — so a fresh install works with no SMTP credentials. For real
+delivery:
+
+```bash
+export IRONCLAD_MAIL_TRANSPORT=smtp
+export IRONCLAD_SMTP_HOST=smtp.internal.example.com
+export IRONCLAD_SMTP_PORT=587
+export IRONCLAD_SMTP_USERNAME=ironclad
+export IRONCLAD_SMTP_PASSWORD="$SMTP_PASSWORD"
+export IRONCLAD_MAIL_FROM="IronClad Sentinel <no-reply@example.com>"
+export IRONCLAD_PASSWORD_RESET_URL_BASE="https://sec.example.com"
+```
+
+`IRONCLAD_PASSWORD_RESET_URL_BASE` must point at your own deployment; without
+it the mail contains the bare token rather than a clickable link. SMTP
+credentials belong in your secret manager, never in a config file.
 
 ### Running the PostgreSQL test suite
 

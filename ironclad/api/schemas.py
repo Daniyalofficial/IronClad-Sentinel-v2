@@ -359,6 +359,27 @@ class HealthOut(StrictModel):
     checks: Dict[str, str]
 
 
+class PasswordResetRequestIn(StrictModel):
+    email: EmailStr
+
+
+class PasswordResetRequestOut(StrictModel):
+    """Deliberately identical whether or not the account exists."""
+
+    accepted: bool
+    message: str
+
+
+class PasswordResetConfirmIn(StrictModel):
+    token: str = Field(min_length=20, max_length=200)
+    new_password: str = Field(min_length=12, max_length=512)
+
+
+class PasswordResetConfirmOut(StrictModel):
+    ok: bool
+    message: str
+
+
 class AuditExportMeta(StrictModel):
     org_id: int
     format: str

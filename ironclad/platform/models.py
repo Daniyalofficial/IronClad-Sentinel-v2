@@ -116,6 +116,36 @@ class Session(Base):
     user_agent: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
 
+class PasswordResetToken(Base):
+    """A single-use password reset token.
+
+    Only the SHA-256 digest is stored. ``used_at`` is set the moment the token
+    is redeemed, which is what makes reuse impossible: a token that has
+    already been used is rejected rather than silently accepted again.
+    """
+
+    __tablename__ = "password_reset_tokens"
+    __table_args__ = (Index("idx_password_reset_user", "user_id", "used_at"),
+                      Index("idx_password_reset_expiry", "expires_at"))
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    token_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    created_at: Mapped[datetime] = mapped_column(Timestamp, nullable=False, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(Timestamp, nullable=False)
+    used_at: Mapped[Optional[datetime]] = mapped_column(Timestamp)
+    request_ip: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    redeemed_ip: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+    @property
+    def is_used(self) -> bool:
+        return self.used_at is not None
+
+    def is_expired(self, now: Optional[datetime] = None) -> bool:
+        return as_naive_utc(self.expires_at) < (now or utcnow())
+
+
 class ApiToken(Base):
     __tablename__ = "api_tokens"
     __table_args__ = (Index("idx_api_tokens_org", "org_id"),)

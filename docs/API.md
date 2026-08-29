@@ -63,6 +63,8 @@ it unset in production.
 | GET | `/auth/me` | Current user |
 | GET | `/auth/permissions` | Role → permission matrix |
 | POST | `/auth/password` | Change password; revokes all other sessions |
+| POST | `/auth/password-reset/request` | **Unauthenticated.** Request a reset link. Rate limited 5/300s per IP. Response is identical whether or not the account exists. |
+| POST | `/auth/password-reset/confirm` | **Unauthenticated.** Redeem a token. Rate limited 10/300s per IP. Always returns 200; `ok` carries the result so failure modes stay indistinguishable. |
 | POST | `/auth/tokens` | Create an API token — plaintext returned **once** |
 | GET | `/auth/tokens` | List tokens (prefix only, never plaintext) |
 | DELETE | `/auth/tokens/{id}` | Revoke |

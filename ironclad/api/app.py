@@ -36,6 +36,7 @@ from ironclad.api.deps import cors_allowed_origins
 from ironclad.platform.database import build_engine, run_migrations, session_factory, session_scope
 from ironclad.platform.events import default_bus
 from ironclad.platform.jobs import JobQueue
+from ironclad.platform.mail import build_transport_from_env
 from ironclad.platform.ratelimit import InMemoryStore, RateLimiter, build_limiter, limiter_enabled
 from ironclad.platform.observability import (
     API_LATENCY,
@@ -89,6 +90,11 @@ def create_app(database_url: Optional[str] = None, *, run_migrations_on_start: b
     queue = JobQueue()
     register_job_handlers(queue, engine)
     app.state.queue = queue
+
+    # Mail transport for password resets. Defaults to in-memory so a fresh
+    # install never attempts a network connection; set IRONCLAD_MAIL_TRANSPORT
+    # to smtp for real delivery.
+    app.state.mail = build_transport_from_env()
 
     # Rate limiting. The store is per-process by default; opt into the shared
     # database backend with IRONCLAD_RATELIMIT_BACKEND=database when running

@@ -35,6 +35,7 @@ from ironclad.platform import audit, events
 from ironclad.platform.jobs import JobQueue, JobSpec
 from ironclad.platform.observability import registry
 from ironclad.platform.observability import RATE_LIMITED
+from ironclad.platform import password_reset
 from ironclad.platform.ratelimit import Decision, client_ip
 from ironclad.platform.models import (
     ApiToken,
@@ -308,6 +309,49 @@ def change_password(body: schemas.PasswordChangeRequest, request: Request,
     context.audit("auth.password_changed", target_type="user", target_id=str(user.id))
     session.commit()
     return None
+
+
+@auth_router.post("/password-reset/request", response_model=schemas.PasswordResetRequestOut)
+def request_password_reset(body: schemas.PasswordResetRequestIn, request: Request,
+                           session: DbSession = Depends(get_db)):
+    """Request a password reset link.
+
+    Unauthenticated by design. The response is identical whether or not the
+    address exists, and the unknown-address path burns comparable time, so
+    this endpoint cannot be used to enumerate accounts.
+    """
+    limiter = request.app.state.limiter
+    ip = client_ip(request)
+    decision = limiter.check_password_reset_request(ip)
+    if not decision.allowed:
+        raise _too_many_requests(decision, "password reset requests from this address")
+
+    outcome = password_reset.request_reset(
+        session, email=body.email, transport=request.app.state.mail, request_ip=ip)
+    session.commit()
+    # `outcome.token` is never returned -- it exists only for tests and local
+    # development via reveal_token, which this endpoint never sets.
+    return schemas.PasswordResetRequestOut(accepted=outcome.accepted, message=outcome.message)
+
+
+@auth_router.post("/password-reset/confirm", response_model=schemas.PasswordResetConfirmOut)
+def confirm_password_reset(body: schemas.PasswordResetConfirmIn, request: Request,
+                           session: DbSession = Depends(get_db)):
+    """Redeem a reset token. Always returns 200; `ok` carries the result.
+
+    Returning 200 with ok=false rather than a 4xx keeps every failure mode --
+    unknown, expired, reused -- indistinguishable to a caller probing tokens.
+    """
+    limiter = request.app.state.limiter
+    ip = client_ip(request)
+    decision = limiter.check_password_reset_redeem(ip)
+    if not decision.allowed:
+        raise _too_many_requests(decision, "password reset confirmations from this address")
+
+    outcome = password_reset.redeem_reset(
+        session, token=body.token, new_password=body.new_password, request_ip=ip)
+    session.commit()
+    return schemas.PasswordResetConfirmOut(ok=outcome.ok, message=outcome.message)
 
 
 @auth_router.post("/tokens", response_model=schemas.ApiTokenSecret, status_code=status.HTTP_201_CREATED)

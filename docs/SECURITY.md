@@ -183,6 +183,44 @@ Compliance evidence requires the *full* trail, not a 200-record page:
 Both are tenant-scoped: an export or purge can never reach another
 organization's records.
 
+## Password reset
+
+Local authentication includes a self-service reset flow with no external
+dependency required to install or test it.
+
+| Property | How it is enforced |
+|---|---|
+| Token strength | `secrets.token_urlsafe(32)` — 256 bits of entropy |
+| Storage | SHA-256 digest only; the raw token is never persisted, so a database leak yields no usable links |
+| Single use | `used_at` is set in the **same transaction** as the password change; a used token is rejected. No code path clears it |
+| Expiry | `IRONCLAD_PASSWORD_RESET_TTL_MINUTES`, default 30, hard-capped at 1440 |
+| Rotation | Requesting a new link invalidates every outstanding token, so only the most recent is redeemable |
+| Enumeration resistance | Identical status, body and message whether or not the address exists, and the miss path burns a dummy PBKDF2 hash so timing does not diverge |
+| Rate limiting | 5 requests / 300s and 10 confirmations / 300s per client IP, both tunable |
+| On success | Every existing session is revoked and the failed-login counter/lockout cleared |
+| Audit | `password_reset_requested`, `_completed`, `_expired`, `_reuse_blocked`, `_inactive` |
+
+**Redemption always returns HTTP 200 with `ok: false` on failure.** Returning
+a 4xx would let a caller distinguish "no such token" from "expired" from
+"already used" and probe which tokens exist.
+
+A mail-transport failure does **not** change the response — otherwise a
+delivery error would reveal that the address is real.
+
+**Pluggable transport** (`IRONCLAD_MAIL_TRANSPORT`):
+
+* `memory` (default) — records messages in-process. A fresh install never
+  attempts a network connection, and the test suite asserts on recorded
+  messages rather than on a mock that claims delivery happened.
+* `smtp` — real delivery, configured entirely from `IRONCLAD_SMTP_*`. No
+  credentials live in code or config files. Failures are returned, not
+  raised.
+* `null` — accepts and discards, for deployments that wire reset to an
+  external identity flow. Explicit, unlike simply not configuring one.
+
+An unrecognised value falls back to `memory` rather than raising, so a typo
+cannot stop the API from starting.
+
 ## Brute-force protection
 
 Account lockout alone is not brute-force protection: it is *per account*, so
