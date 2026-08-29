@@ -164,6 +164,47 @@ origin receives no CORS headers at all — the origin is never reflected.
 grade A+** across 81 files / 14,619 lines. Two real precision bugs were
 found and fixed by doing this — see `CHANGELOG.md`.
 
+## Brute-force protection
+
+Account lockout alone is not brute-force protection: it is *per account*, so
+an attacker guessing across an organization got `MAX_FAILED_LOGINS` attempts
+against **every** address with nothing limiting the rate. Measured before
+rate limiting existed: **25 credential guesses across 5 accounts in 1.9s
+(~13/sec), no 429 ever returned**.
+
+Three layers now apply:
+
+| Layer | Default | Scope |
+|---|---|---|
+| Rate limit | 10 requests / 60s | per client IP, `/auth/login` |
+| Volume limit | 5 requests / 300s | per account, `/auth/login` |
+| Account lockout | 5 failures → 15 min | per account, self-clearing |
+
+Plus 10 / 300s on API-token creation and 5 / 300s on password change.
+
+After the change the same attack yields **10 guesses from one IP**, then
+`429` with `Retry-After: 60` and `X-RateLimit-Limit` / `X-RateLimit-Remaining`
+headers.
+
+Every limit is operator-tunable (`IRONCLAD_RATELIMIT_*`, `LIMIT:WINDOW_SECONDS`,
+`0` disables that check), because the right value depends on how many humans
+and CI runners sit behind one IP.
+
+**Multi-process caveat, stated plainly:** the default in-memory store is
+per process, so with N uvicorn workers or N replicas the effective limit is
+`limit × N`. Set `IRONCLAD_RATELIMIT_BACKEND=database` to share counters
+across processes (costs a write per checked request), or terminate rate
+limiting at your ingress/WAF.
+
+`X-Forwarded-For` is trusted **only** when `IRONCLAD_TRUST_PROXY=1`; otherwise
+an attacker could set the header and get a fresh budget per request.
+
+A limiter whose store errors **fails open** and increments a counter — a rate
+limiter that takes the API down when its own backend hiccups is worse than no
+rate limiter. Volume rejections are observable via
+`ironclad_rate_limited_total`, not the tenant-scoped audit log, because they
+happen before authentication and have no tenant to attribute to.
+
 ## SSRF guard: what it covers and what it does not
 
 Webhook and integration URLs are validated against a non-public-address

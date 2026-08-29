@@ -8,6 +8,29 @@ versioning is [SemVer](https://semver.org/).
 Verification-driven hardening. Every fix below was found by *executing* the
 system in a way it had not been executed before, not by reading it.
 
+### Added
+
+- **Rate limiting** (`ironclad/platform/ratelimit.py`). Account lockout alone
+  was not brute-force protection — it is per account, so an attacker got
+  `MAX_FAILED_LOGINS` guesses against *every* address with nothing limiting
+  the rate. Measured before this change: 25 credential guesses across 5
+  accounts in 1.9s (~13/sec), no `429` ever returned.
+
+  Sliding-window limiter with three layers on `/auth/login`: per-IP
+  (10/60s), per-account volume (5/300s), and the existing account lockout.
+  Also 10/300s on API-token creation and 5/300s on password change. The same
+  attack now yields 10 guesses from one IP, then `429` with `Retry-After` and
+  `X-RateLimit-Limit`/`X-RateLimit-Remaining`.
+
+  Storage is pluggable: `InMemoryStore` (default, per process) and
+  `DatabaseStore` (`IRONCLAD_RATELIMIT_BACKEND=database`, shares counters
+  across processes at the cost of a write per checked request). Every limit
+  is operator-tunable via `IRONCLAD_RATELIMIT_*` as `LIMIT:WINDOW_SECONDS`,
+  with `0` disabling that check. Fails **open** on a store error and counts
+  it — a limiter that takes the API down when its backend hiccups is worse
+  than no limiter. `X-Forwarded-For` is honoured only with
+  `IRONCLAD_TRUST_PROXY=1`.
+
 ### Fixed
 
 - **Migrations were not atomic.** pysqlite implicitly commits before DDL, so
@@ -24,6 +47,15 @@ system in a way it had not been executed before, not by reading it.
 - **The WAL/foreign-key pragmas** moved to the connect event, since
   `journal_mode` cannot be changed from inside a transaction once DDL is
   transactional.
+- **Rate-limit fallback loop** — an unrecognised `IRONCLAD_RATELIMIT_BACKEND`
+  was caught and then re-raised, because the fallback called `build_limiter()`
+  again, which re-read the same bad environment value. Now falls back to the
+  in-memory store explicitly and logs a warning.
+- **Pre-auth rate limiting must not write a tenant-scoped audit row.**
+  `audit_events.org_id` is a foreign key and there is no tenant before
+  authentication; the first implementation inserted `org_id=0` and failed the
+  constraint on every throttled request. Volume rejections are now counted in
+  `ironclad_rate_limited_total` instead.
 
 ### Added
 

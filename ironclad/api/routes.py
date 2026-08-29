@@ -33,6 +33,9 @@ from ironclad.api.deps import (
 from ironclad.core.policy import Policy, PolicyError
 from ironclad.platform import audit, events
 from ironclad.platform.jobs import JobQueue, JobSpec
+from ironclad.platform.observability import registry
+from ironclad.platform.observability import RATE_LIMITED
+from ironclad.platform.ratelimit import Decision, client_ip
 from ironclad.platform.models import (
     ApiToken,
     Baseline as BaselineRow,
@@ -106,6 +109,15 @@ integration_router = APIRouter(prefix="/integrations", tags=["integrations"])
 audit_router = APIRouter(prefix="/audit", tags=["audit"])
 
 
+def _too_many_requests(decision: Decision, what: str) -> HTTPException:
+    """A 429 that tells the client what to do, with standard headers."""
+    return HTTPException(
+        status.HTTP_429_TOO_MANY_REQUESTS,
+        f"too many {what}; retry in {decision.retry_after}s",
+        headers=decision.headers(),
+    )
+
+
 def _iso(value: Optional[datetime]) -> Optional[str]:
     return value.isoformat() if value else None
 
@@ -160,6 +172,25 @@ def _require_project(session: DbSession, org_id: int, project_id: int) -> Projec
 # --------------------------------------------------------------------------- #
 @auth_router.post("/login", response_model=schemas.TokenResponse)
 def login(body: schemas.LoginRequest, request: Request, session: DbSession = Depends(get_db)):
+    limiter = request.app.state.limiter
+    ip_decision = limiter.check_login(client_ip(request))
+    if not ip_decision.allowed:
+        # Deliberately NOT written to the audit log: this happens before
+        # authentication, so there is no tenant to attribute it to, and
+        # audit_events.org_id is a foreign key. Volume-based rejection is
+        # observable through the limiter counter and the metrics endpoint
+        # instead. Account-level lockout below *does* have an org and is
+        # audited there.
+        registry.inc(RATE_LIMITED, 1, "Requests rejected by rate limiting")
+        raise _too_many_requests(ip_decision, "login attempts from this address")
+
+    # Per-account volume limit, so an attacker cannot spend the full per-IP
+    # budget guessing against one address either. Checked before the password
+    # comparison so it costs the server nothing to reject.
+    account_decision = limiter.check_login_account(body.email)
+    if not account_decision.allowed:
+        raise _too_many_requests(account_decision, "login attempts for this account")
+
     user = session.execute(
         select(User).where(User.email == body.email.lower())
     ).scalars().first()
@@ -197,6 +228,7 @@ def login(body: schemas.LoginRequest, request: Request, session: DbSession = Dep
     user.failed_logins = 0
     user.locked_until = None
     user.last_login_at = utcnow()
+    limiter.reset_login_account(user.email)
     audit.record(session, org_id=user.org_id, action="auth.login", actor=user.email, actor_id=user.id)
     events.default_bus.publish(session, events.AUTH_LOGIN, user.org_id, {"user_id": user.id})
     session.commit()
@@ -247,7 +279,7 @@ def permissions(context: RequestContext = Depends(require_principal)):
 
 
 @auth_router.post("/password", status_code=status.HTTP_204_NO_CONTENT)
-def change_password(body: schemas.PasswordChangeRequest,
+def change_password(body: schemas.PasswordChangeRequest, request: Request,
                     context: RequestContext = Depends(require_principal),
                     session: DbSession = Depends(get_db)):
     from ironclad.platform.security import hash_password, needs_rehash
@@ -255,6 +287,9 @@ def change_password(body: schemas.PasswordChangeRequest,
     user = session.get(User, context.principal.user_id)
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "user not found")
+    pw_decision = request.app.state.limiter.check_password_change(user.id)
+    if not pw_decision.allowed:
+        raise _too_many_requests(pw_decision, "password change attempts")
     if not verify_password(body.current_password, user.password_hash):
         context.audit("auth.password_change_failed", target_type="user", target_id=str(user.id))
         session.commit()
@@ -276,10 +311,13 @@ def change_password(body: schemas.PasswordChangeRequest,
 
 
 @auth_router.post("/tokens", response_model=schemas.ApiTokenSecret, status_code=status.HTTP_201_CREATED)
-def create_api_token(body: schemas.ApiTokenCreate,
+def create_api_token(body: schemas.ApiTokenCreate, request: Request,
                      context: RequestContext = Depends(require_principal),
                      session: DbSession = Depends(get_db)):
     context.require(TOKEN_MANAGE)
+    token_decision = request.app.state.limiter.check_token_create(context.principal.user_id)
+    if not token_decision.allowed:
+        raise _too_many_requests(token_decision, "API tokens created")
     token, token_hash, prefix = generate_api_token(body.name)
     requested = [normalize_scope(scope) for scope in body.scopes]
     unknown = sorted({scope for scope in requested if scope not in ALL_PERMISSIONS})

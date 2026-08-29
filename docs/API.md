@@ -36,7 +36,7 @@ it unset in production.
 | 404 | Not found **or** owned by another organization |
 | 409 | Conflict (duplicate slug, cancelling a finished scan) |
 | 422 | Validation failure |
-| 429 | Too many failed login attempts |
+| 429 | Rate limit or account lockout. Rate-limit responses carry `Retry-After`, `X-RateLimit-Limit` and `X-RateLimit-Remaining` |
 | 500 | Internal error (detail is never leaked; it goes to the log) |
 
 ## Health and operations

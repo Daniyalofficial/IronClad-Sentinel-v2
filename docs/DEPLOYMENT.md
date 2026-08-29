@@ -162,6 +162,14 @@ defaults**.
 | `IRONCLAD_ADVISORY_PATH` | — | Overlay directory for `directory` |
 | `IRONCLAD_ADVISORY_ENDPOINT` | — | OSV-compatible HTTPS endpoint for `remote` |
 | `IRONCLAD_ALLOW_PRIVATE_WEBHOOKS` | `0` | Allow webhook URLs pointing at private/link-local hosts |
+| `IRONCLAD_RATELIMIT_ENABLED` | `1` | Set to `0` to disable rate limiting entirely |
+| `IRONCLAD_RATELIMIT_BACKEND` | `memory` | `database` shares counters across processes |
+| `IRONCLAD_RATELIMIT_LOGIN` | `10:60` | Per-IP login limit, `LIMIT:WINDOW_SECONDS` (`0` disables) |
+| `IRONCLAD_RATELIMIT_LOGIN_ACCOUNT` | `5:300` | Per-account login volume limit |
+| `IRONCLAD_RATELIMIT_TOKEN_CREATE` | `10:300` | Per-user API-token creation limit |
+| `IRONCLAD_RATELIMIT_PASSWORD_CHANGE` | `5:300` | Per-user password-change limit |
+| `IRONCLAD_RATELIMIT_GENERAL` | `600:60` | Per-IP limit for other API traffic |
+| `IRONCLAD_TRUST_PROXY` | unset | Trust `X-Forwarded-For` (only behind a proxy you control) |
 | `IRONCLAD_BIND_HOST` / `IRONCLAD_PORT` | `0.0.0.0` / `8000` | Container bind address |
 | `IRONCLAD_API_WORKERS` | `1` | uvicorn worker count |
 

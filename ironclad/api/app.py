@@ -36,6 +36,7 @@ from ironclad.api.deps import cors_allowed_origins
 from ironclad.platform.database import build_engine, run_migrations, session_factory, session_scope
 from ironclad.platform.events import default_bus
 from ironclad.platform.jobs import JobQueue
+from ironclad.platform.ratelimit import InMemoryStore, RateLimiter, build_limiter, limiter_enabled
 from ironclad.platform.observability import (
     API_LATENCY,
     API_REQUESTS,
@@ -88,6 +89,20 @@ def create_app(database_url: Optional[str] = None, *, run_migrations_on_start: b
     queue = JobQueue()
     register_job_handlers(queue, engine)
     app.state.queue = queue
+
+    # Rate limiting. The store is per-process by default; opt into the shared
+    # database backend with IRONCLAD_RATELIMIT_BACKEND=database when running
+    # more than one worker or replica.
+    try:
+        app.state.limiter = build_limiter(engine)
+    except ValueError as exc:
+        # An unrecognised backend must not stop the API from starting. Fall
+        # back to the in-memory store explicitly -- re-calling build_limiter()
+        # would just re-read the same bad environment value and raise again.
+        app.state.limiter = RateLimiter(store=InMemoryStore(), enabled=limiter_enabled())
+        configure_logging(os.environ.get("IRONCLAD_LOG_LEVEL", "INFO"))
+        get_logger("api").warning("rate limit backend unavailable, using in-memory",
+                                  extra={"fields": {"error": str(exc)}})
     app.state.event_bus = default_bus
 
     origins = cors_allowed_origins()
