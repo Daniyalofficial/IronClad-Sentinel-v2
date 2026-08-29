@@ -279,6 +279,49 @@ denylist. The following are blocked (each has a regression test):
 * `localhost` and any `*.localhost` name, regardless of what DNS says
 * userinfo/fragment/query tricks such as `http://evil.com@169.254.169.254/`
 
+### Outbound egress allowlist
+
+The SSRF guard is deny-by-*range*: it stops reach into internal addresses,
+but it cannot constrain egress to a known set of endpoints. An operator who
+wants that sets:
+
+```bash
+export IRONCLAD_EGRESS_ALLOWLIST=hooks.slack.com,api.github.com,*.webhooks.internal.example.com
+```
+
+Enforced inside `resolve_target()` **before DNS**, so an unlisted host is
+never resolved and no socket is ever opened to it. Because `resolve_target()`
+is called for the initial destination *and* every redirect hop, the allowlist
+applies consistently to both. An unlisted redirect destination is refused.
+
+**Exact matching semantics** — deliberately narrow:
+
+| Entry | Matches | Does NOT match |
+|---|---|---|
+| `github.com` | `github.com`, `GITHUB.COM` (case-insensitive, trimmed) | `api.github.com`, `evilgithub.com`, `github.com.evil.net` |
+| `*.github.com` | `api.github.com`, `a.b.github.com` | `github.com` (apex excluded), `evilgithub.com`, `github.com.evil.net` |
+| `93.184.216.34` | that literal address only | any other address |
+
+**There is no implicit suffix matching anywhere.** A bare suffix match is
+precisely how `evilgithub.com` would slip past `github.com`; the wildcard
+must be an explicit leading `*.` and is anchored to a label boundary, so the
+character before the suffix must be a dot.
+
+**Behaviour when unset:** unchanged. `IRONCLAD_EGRESS_ALLOWLIST` unset,
+empty, or blank is treated as "no allowlist configured" — *not* as "deny
+everything" — so a stray empty environment variable cannot silently break
+every integration. The existing SSRF controls remain the primary control.
+
+**The allowlist does not weaken or bypass anything:**
+
+* Private/IP-literal destinations remain governed by the SSRF rules. Putting
+  `169.254.169.254` on the allowlist does **not** make it reachable.
+* Non-http(s) schemes are still refused even for an allowlisted host.
+* DNS-rebinding protection is unaffected: an allowlisted host that rebinds to
+  a private address is still refused by IP validation.
+* Redirect validation, IP pinning, retry behaviour and HMAC signing are
+  unchanged. A blocked destination is not retried.
+
 ### DNS rebinding is closed by IP pinning
 
 The original guard resolved the hostname at *validation* time, and

@@ -79,6 +79,27 @@ system in a way it had not been executed before, not by reading it.
   than no limiter. `X-Forwarded-For` is honoured only with
   `IRONCLAD_TRUST_PROXY=1`.
 
+### Added
+
+- **Optional outbound egress allowlist** (`IRONCLAD_EGRESS_ALLOWLIST`).
+  Restricts outbound integration delivery to explicitly listed hostnames,
+  enforced inside `resolve_target()` **before DNS** so an unlisted host is
+  never resolved and no socket is opened to it. Because `resolve_target()`
+  runs for the initial destination and every redirect hop, the allowlist
+  applies consistently to both.
+
+  Matching is exact and case-insensitive, with an explicit leading `*.` for
+  subdomains anchored to a label boundary. There is deliberately no implicit
+  suffix matching: `evilgithub.com` can never match `github.com`, and
+  `github.com.evil.net` cannot match `github.com` either.
+
+  Unset, empty or blank means "no allowlist configured" rather than "deny
+  everything", so a stray empty environment variable cannot silently break
+  every integration. Existing SSRF controls, DNS-rebinding protection, IP
+  pinning, redirect validation, retry behaviour, HMAC signing and the
+  private-webhook escape hatch are all unchanged; being allowlisted does not
+  exempt a host from the SSRF rules.
+
 ### Security
 
 - **DNS rebinding in the SSRF guard is closed.** The guard resolved the

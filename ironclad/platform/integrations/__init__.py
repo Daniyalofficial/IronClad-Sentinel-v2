@@ -22,6 +22,13 @@ Design constraints, all of which are deliberate:
   Validation and connection therefore cannot disagree, which closes DNS
   rebinding. Every redirect destination is resolved and validated again,
   so a public URL cannot redirect into the internal network.
+* **Optional egress allowlist.** ``IRONCLAD_EGRESS_ALLOWLIST`` restricts
+  outbound delivery to explicitly listed hostnames, enforced before DNS so
+  an unlisted host is never resolved or connected to. Matching is exact and
+  case-insensitive, with an explicit leading ``*.`` for subdomains; there is
+  no implicit suffix matching, so ``evilgithub.com`` can never match
+  ``github.com``. Unset means the existing SSRF controls are the only
+  control, and behaviour is unchanged.
 """
 from __future__ import annotations
 
@@ -48,10 +55,19 @@ _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 USER_AGENT = "ironclad-sentinel"
 
 PRIVATE_ENV_FLAG = "IRONCLAD_ALLOW_PRIVATE_WEBHOOKS"
+EGRESS_ALLOWLIST_ENV = "IRONCLAD_EGRESS_ALLOWLIST"
 
 
 class IntegrationError(RuntimeError):
     """Raised for a misconfigured integration."""
+
+
+class EgressBlocked(IntegrationError):
+    """Raised when a destination is not on the egress allowlist.
+
+    Raised before any DNS resolution, so a rejected host is never resolved
+    and no socket is ever opened to it.
+    """
 
 
 class SsrfBlocked(IntegrationError):
@@ -127,6 +143,53 @@ def _url_problems(url: str, *, required: bool, label: str) -> List[str]:
     if _is_private_host(parsed.hostname) and not _private_allowed():
         return [f"{label} points at a private/link-local address; set {PRIVATE_ENV_FLAG}=1 to allow it"]
     return []
+
+
+def egress_allowlist() -> Optional[frozenset]:
+    """Parse ``IRONCLAD_EGRESS_ALLOWLIST`` into a set of normalised entries.
+
+    Returns ``None`` when unset or empty, meaning "no allowlist configured,
+    existing SSRF controls are the only control". An empty value is treated
+    as unset rather than as "deny everything", so a stray empty environment
+    variable cannot silently break every integration.
+    """
+    raw = os.environ.get(EGRESS_ALLOWLIST_ENV)
+    if raw is None:
+        return None
+    entries = {e.strip().lower() for e in raw.split(",") if e.strip()}
+    return frozenset(entries) if entries else None
+
+
+def host_allowed_by_allowlist(hostname: str, allowlist: Optional[frozenset]) -> bool:
+    """Exact, security-safe hostname matching against the allowlist.
+
+    Semantics, deliberately narrow:
+
+    * ``github.com`` matches **only** ``github.com`` -- case-insensitively.
+      It does NOT match subdomains and, critically, does NOT match
+      ``evilgithub.com``. There is no implicit suffix matching anywhere: a
+      bare suffix match is precisely how ``evilgithub.com`` would slip past.
+    * ``*.github.com`` matches ``api.github.com`` and ``a.b.github.com``, but
+      NOT ``github.com`` itself and NOT ``evilgithub.com``. The wildcard must
+      be an explicit leading ``*.`` and is anchored to a label boundary.
+    * Matching is on the full lowercased hostname; ports are not part of the
+      hostname and are not considered.
+    """
+    if allowlist is None:
+        return True
+    host = (hostname or "").strip().strip("[]").lower()
+    if not host:
+        return False
+    if host in allowlist:
+        return True
+    for entry in allowlist:
+        if entry.startswith("*."):
+            suffix = entry[1:]  # keeps the leading dot: ".github.com"
+            # Requires a label boundary, so "evilgithub.com" cannot match
+            # ".github.com" -- the character before the suffix must be a dot.
+            if host.endswith(suffix) and len(host) > len(suffix):
+                return True
+    return False
 
 
 def _private_allowed() -> bool:
@@ -256,6 +319,14 @@ def resolve_target(url: str) -> ResolvedTarget:
         raise SsrfBlocked("URL has no host")
 
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
+
+    # Egress allowlist, enforced BEFORE DNS so a rejected host is never even
+    # resolved. This runs for the initial destination and for every redirect
+    # hop, because resolve_target() is called for each one.
+    allowlist = egress_allowlist()
+    if not host_allowed_by_allowlist(hostname, allowlist):
+        raise EgressBlocked(
+            f"{hostname} is not on {EGRESS_ALLOWLIST_ENV}; refusing to resolve it")
 
     # A literal IP still needs the non-public check, but needs no DNS.
     if _host_is_non_public_literal(hostname):
@@ -426,8 +497,8 @@ def _post(url: str, payload: bytes, headers: Dict[str, str],
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
             outcome = _request(url, payload, headers, timeout)
-        except SsrfBlocked as exc:
-            # A blocked connection is not a transient failure: do not retry.
+        except (SsrfBlocked, EgressBlocked) as exc:
+            # A blocked destination is not a transient failure: do not retry.
             return DeliveryOutcome(False, 0, attempt, f"blocked: {exc}")
 
         status_code = outcome.status_code

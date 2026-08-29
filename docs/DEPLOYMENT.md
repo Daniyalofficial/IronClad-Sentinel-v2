@@ -180,6 +180,7 @@ defaults**.
 | `IRONCLAD_SMTP_TIMEOUT` | `15` | SMTP timeout, seconds |
 | `IRONCLAD_PASSWORD_RESET_TTL_MINUTES` | `30` | Reset link lifetime, max 1440 |
 | `IRONCLAD_PASSWORD_RESET_URL_BASE` | unset | Dashboard base URL used to build reset links |
+| `IRONCLAD_EGRESS_ALLOWLIST` | unset | Comma-separated hostnames permitted for outbound integration delivery. Exact match, case-insensitive; `*.` prefix allows subdomains. Unset means no allowlist and existing SSRF controls apply |
 | `IRONCLAD_RATELIMIT_PASSWORD_RESET_REQUEST` | `5:300` | Per-IP reset-request limit |
 | `IRONCLAD_RATELIMIT_PASSWORD_RESET_REDEEM` | `10:300` | Per-IP reset-confirm limit |
 | `IRONCLAD_BIND_HOST` / `IRONCLAD_PORT` | `0.0.0.0` / `8000` | Container bind address |
@@ -230,6 +231,24 @@ repository.
 pg_dump -Fc ironclad > ironclad-$(date +%F).dump     # backup
 pg_restore -d ironclad_restored ironclad-2026-08-27.dump
 ```
+
+### Restricting outbound egress
+
+By default integrations may reach any public host; the SSRF guard blocks
+internal and non-public addresses. To constrain egress to known endpoints:
+
+```bash
+export IRONCLAD_EGRESS_ALLOWLIST=hooks.slack.com,api.github.com,gitlab.example.com
+```
+
+Matching is exact and case-insensitive. A leading `*.` allows subdomains
+(`*.webhooks.internal.example.com` matches `a.webhooks.internal.example.com`
+but not `webhooks.internal.example.com` itself). There is no implicit suffix
+matching, so `evilgithub.com` can never match `github.com`.
+
+The check runs before DNS, so an unlisted host is never resolved or connected
+to, and it applies to every redirect hop. Leaving it unset preserves the
+existing behaviour exactly.
 
 ### Password reset mail
 
