@@ -293,3 +293,87 @@ def test_dashboard_and_api_triage_share_one_implementation():
     assert "triage.apply_triage" in api_source, "the API must use the shared service"
     assert "triage.apply_triage" in web_source, "the dashboard must use the shared service"
     assert triage.VALID_STATUSES == ("open", "resolved", "suppressed")
+
+
+# --------------------------------------------------------------------------- #
+# Every rendered form must actually submit somewhere that exists
+# --------------------------------------------------------------------------- #
+def _rendered_pages(env):
+    """Render every dashboard page and return (path, html) pairs."""
+    owner = env["owner"]
+    return [
+        ("/ui/login", TestClient(env["app"], follow_redirects=False).get("/ui/login").text),
+        ("/ui/", owner.get("/ui/").text),
+        ("/ui/projects", owner.get("/ui/projects").text),
+        ("/ui/projects/1", owner.get("/ui/projects/1").text),
+        ("/ui/findings", owner.get("/ui/findings").text),
+        ("/ui/findings/1", owner.get("/ui/findings/1").text),
+        ("/ui/policies", owner.get("/ui/policies").text),
+        ("/ui/integrations", owner.get("/ui/integrations").text),
+        ("/ui/audit", owner.get("/ui/audit").text),
+        ("/ui/settings", owner.get("/ui/settings").text),
+    ]
+
+
+def _form_actions(html):
+    """Extract every (method, action) pair from rendered HTML."""
+    import re
+
+    found = []
+    for form in re.findall(r"<form\b[^>]*>", html):
+        action = re.search(r'action="([^"]*)"', form)
+        method = re.search(r'method="([^"]*)"', form)
+        found.append(((method.group(1) if method else "get").upper(),
+                      action.group(1) if action else ""))
+    return found
+
+
+def test_every_rendered_form_action_resolves_to_a_real_route(env):
+    """Two dead controls were found this way: the login form posted to
+    /login (404) and the triage form posted to the JSON API route (405).
+
+    A form that submits nowhere is a broken feature that looks implemented,
+    so every form action rendered by the dashboard is POSTed/GETed and must
+    not return 404 or 405.
+    """
+    client = env["owner"]
+    checked = 0
+    problems = []
+    for page_path, html in _rendered_pages(env):
+        for method, action in _form_actions(html):
+            assert action, f"{page_path} renders a form with no action"
+            assert action.startswith("/ui/"), (
+                f"{page_path} renders a form posting to {action!r}, outside the "
+                f"dashboard namespace -- dashboard forms must post to /ui/ routes")
+            if method == "POST":
+                response = client.post(action, data={"status": "open", "reason": "probe",
+                                                     "email": "probe@example.com",
+                                                     "password": "probe-password"})
+            else:
+                response = client.get(action)
+            checked += 1
+            if response.status_code in (404, 405):
+                problems.append(f"{page_path} -> {method} {action} -> {response.status_code}")
+    assert checked >= 3, f"expected several forms, found {checked}"
+    assert not problems, "dead form controls: " + "; ".join(problems)
+
+
+def test_login_form_posts_to_the_login_route(env):
+    """The login form specifically -- it posted to /login and returned 404."""
+    anonymous = TestClient(env["app"], follow_redirects=False)
+    html = anonymous.get("/ui/login").text
+    actions = _form_actions(html)
+    assert ("POST", "/ui/login") in actions, actions
+
+    response = anonymous.post("/ui/login", data={"email": "owner@dash-corp.com",
+                                                 "password": PASSWORD})
+    assert response.status_code == 303
+    assert response.headers["location"] == "/ui/"
+
+
+def test_login_form_rejects_bad_credentials(env):
+    anonymous = TestClient(env["app"], follow_redirects=False)
+    response = anonymous.post("/ui/login", data={"email": "owner@dash-corp.com",
+                                                 "password": "wrong-password"})
+    assert response.status_code == 303
+    assert "error" in response.headers["location"]
