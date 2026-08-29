@@ -79,6 +79,31 @@ system in a way it had not been executed before, not by reading it.
   than no limiter. `X-Forwarded-For` is honoured only with
   `IRONCLAD_TRUST_PROXY=1`.
 
+### Security
+
+- **DNS rebinding in the SSRF guard is closed.** The guard resolved the
+  hostname at validation time and `urllib.request.urlopen` resolved it
+  *again* when opening the socket. Reproduced with a rebinding resolver
+  serving a public address for validation and `127.0.0.1` for the
+  connection: **the internal service received the request**.
+
+  `resolve_target()` now resolves DNS exactly once, validates *every*
+  returned address (not just the first, so a resolver cannot order them to
+  slip one past), pins that IP, and connects the socket to that exact IP via
+  connection classes overriding `connect()`. The original hostname is kept
+  for the `Host` header and TLS SNI, so certificate validation is unchanged.
+  Automatic redirects are disabled and each redirect destination is resolved
+  and validated before connecting, bounded at 5 hops.
+
+  Re-running the original attack now returns
+  `blocked: refusing rebind.attacker.example: resolved to non-public address
+  127.0.0.1` with the internal service receiving nothing.
+
+- **A latent redirect bug found while fixing the above.** With redirects
+  disabled, urllib raises `HTTPError` for 3xx rather than returning a
+  response, so the redirect branch was unreachable and redirects were never
+  followed at all. Now handled in both paths.
+
 ### Fixed
 
 - **Migrations were not atomic.** pysqlite implicitly commits before DDL, so

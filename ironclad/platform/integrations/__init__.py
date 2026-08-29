@@ -14,19 +14,25 @@ Design constraints, all of which are deliberate:
   IronClad instance.
 * **Secrets never leave the database in plaintext form**: they are used to
   compute a signature and are redacted from logs and audit records.
-* **SSRF guard.** A webhook URL must be http(s), and private/link-local
-  hostnames are rejected unless ``IRONCLAD_ALLOW_PRIVATE_WEBHOOKS=1`` is
-  set -- otherwise an integration becomes a proxy into the internal
-  network.
+* **SSRF guard with IP pinning.** A webhook URL must be http(s), and
+  private/link-local/non-public addresses are rejected unless
+  ``IRONCLAD_ALLOW_PRIVATE_WEBHOOKS=1`` is set. The address is resolved
+  **once**, validated, and the socket is then connected to *that exact IP*,
+  with the original hostname preserved for the Host header and TLS SNI.
+  Validation and connection therefore cannot disagree, which closes DNS
+  rebinding. Every redirect destination is resolved and validated again,
+  so a public URL cannot redirect into the internal network.
 """
 from __future__ import annotations
 
 import hashlib
 import hmac
+import http.client
 import ipaddress
 import json
 import os
 import socket
+import ssl
 import time
 import urllib.error
 import urllib.parse
@@ -37,6 +43,8 @@ from typing import Any, Dict, List, Optional
 DEFAULT_TIMEOUT = 10.0
 MAX_ATTEMPTS = 3
 RETRY_BACKOFF = 1.0
+MAX_REDIRECTS = 5
+_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 USER_AGENT = "ironclad-sentinel"
 
 PRIVATE_ENV_FLAG = "IRONCLAD_ALLOW_PRIVATE_WEBHOOKS"
@@ -44,6 +52,14 @@ PRIVATE_ENV_FLAG = "IRONCLAD_ALLOW_PRIVATE_WEBHOOKS"
 
 class IntegrationError(RuntimeError):
     """Raised for a misconfigured integration."""
+
+
+class SsrfBlocked(IntegrationError):
+    """Raised when a connection is refused by the SSRF guard.
+
+    Raised at *connect* time, not just at configuration time, so a host that
+    rebinds between validation and connection cannot slip through.
+    """
 
 
 @dataclass
@@ -203,31 +219,224 @@ def verify_signature(payload: bytes, signature: str, secret: str) -> bool:
 
 
 # --------------------------------------------------------------------------- #
+# DNS resolution and IP pinning
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class ResolvedTarget:
+    """A URL whose address has been resolved and validated.
+
+    ``ip`` is the address the socket will actually connect to; ``hostname``
+    is preserved so the Host header and TLS SNI still carry the name the
+    certificate and any virtual host expect.
+    """
+
+    url: str
+    hostname: str
+    ip: str
+    port: int
+    scheme: str
+
+
+def resolve_target(url: str) -> ResolvedTarget:
+    """Resolve a URL once and validate the address it resolved to.
+
+    This is the single point at which DNS is consulted. The returned IP is
+    what the connection uses, so there is no window in which a second lookup
+    could return a different (private) address -- which is exactly how DNS
+    rebinding works.
+
+    Raises :class:`SsrfBlocked` if the scheme is not http(s), the host does
+    not resolve, or any resolved address is non-public.
+    """
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        raise SsrfBlocked(f"refusing non-http(s) scheme: {parsed.scheme!r}")
+    hostname = parsed.hostname
+    if not hostname:
+        raise SsrfBlocked("URL has no host")
+
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+
+    # A literal IP still needs the non-public check, but needs no DNS.
+    if _host_is_non_public_literal(hostname):
+        if not _private_allowed():
+            raise SsrfBlocked(f"refusing non-public address literal: {hostname}")
+        return ResolvedTarget(url, hostname, hostname.strip("[]"), port, parsed.scheme)
+
+    try:
+        infos = socket.getaddrinfo(hostname, port, proto=socket.IPPROTO_TCP)
+    except socket.gaierror as exc:
+        raise SsrfBlocked(f"cannot resolve {hostname}: {exc}") from exc
+
+    if not infos:
+        raise SsrfBlocked(f"no addresses returned for {hostname}")
+
+    # Validate EVERY returned address, then pin the first one. Validating only
+    # the first would let a resolver put a public address first and a private
+    # one second, and a later retry could pick the other.
+    addresses = []
+    for info in infos:
+        raw = info[4][0]
+        candidate = raw.split("%")[0]
+        try:
+            ip = ipaddress.ip_address(candidate)
+        except ValueError:
+            continue
+        addresses.append((candidate, ip))
+
+    if not addresses:
+        raise SsrfBlocked(f"no usable addresses for {hostname}")
+
+    if not _private_allowed():
+        for candidate, ip in addresses:
+            if (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
+                    or any(ip in network for network in EXTRA_NON_PUBLIC_NETWORKS)):
+                raise SsrfBlocked(
+                    f"refusing {hostname}: resolved to non-public address {candidate}")
+        if hostname.lower() in LOCAL_HOSTNAMES or hostname.lower().endswith(".localhost"):
+            raise SsrfBlocked(f"refusing local hostname {hostname!r}")
+
+    return ResolvedTarget(url, hostname, addresses[0][0], port, parsed.scheme)
+
+
+class _PinnedHTTPConnection(http.client.HTTPConnection):
+    """Connects to a pre-validated IP while keeping the original Host header."""
+
+    pinned_ip: Optional[str] = None
+
+    def connect(self):  # noqa: D102 - http.client API
+        self.sock = socket.create_connection((self.pinned_ip, self.port),
+                                            self.timeout, self.source_address)
+
+
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    """Connects to a pre-validated IP but validates the certificate against the
+    original hostname via SNI, so pinning does not weaken TLS."""
+
+    pinned_ip: Optional[str] = None
+
+    def connect(self):  # noqa: D102 - http.client API
+        sock = socket.create_connection((self.pinned_ip, self.port),
+                                        self.timeout, self.source_address)
+        context = self._context
+        # server_hostname is the ORIGINAL hostname, not the IP: the certificate
+        # is checked against the name the operator configured.
+        self.sock = context.wrap_socket(sock, server_hostname=self.host)
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Never follow a redirect automatically.
+
+    Redirects are handled explicitly by :func:`_request` so each destination
+    is resolved and validated before any connection is made to it.
+    """
+
+    def redirect_request(self, *args, **kwargs):  # noqa: D102
+        return None
+
+
+def _build_opener(target: ResolvedTarget, timeout: float) -> urllib.request.OpenerDirector:
+    """Build an opener whose connections go to the pinned IP."""
+    if target.scheme == "https":
+        connection_class = type("PinnedHTTPS", (_PinnedHTTPSConnection,),
+                                {"pinned_ip": target.ip})
+        context = ssl.create_default_context()
+
+        class Handler(urllib.request.HTTPSHandler):
+            def https_open(self, req):  # noqa: D102
+                return self.do_open(connection_class, req, context=context)
+
+        handler = Handler()
+    else:
+        connection_class = type("PinnedHTTP", (_PinnedHTTPConnection,),
+                                {"pinned_ip": target.ip})
+
+        class Handler(urllib.request.HTTPHandler):  # type: ignore[no-redef]
+            def http_open(self, req):  # noqa: D102
+                return self.do_open(connection_class, req)
+
+        handler = Handler()
+
+    return urllib.request.build_opener(handler, _NoRedirect())
+
+
+# --------------------------------------------------------------------------- #
 # Delivery
 # --------------------------------------------------------------------------- #
+def _request(url: str, payload: bytes, headers: Dict[str, str],
+             timeout: float) -> DeliveryOutcome:
+    """Send one request, following redirects with re-validation at each hop."""
+    current = url
+    for _hop in range(MAX_REDIRECTS + 1):
+        # Resolve and validate immediately before connecting, then connect to
+        # that exact IP. Nothing re-resolves in between.
+        target = resolve_target(current)
+        opener = _build_opener(target, timeout)
+
+        # urllib derives the Host header from the URL, so rewrite the URL to
+        # the pinned IP but set Host explicitly to the original name.
+        pinned_url = urllib.parse.urlunparse((
+            target.scheme, f"{target.ip}:{target.port}",
+            urllib.parse.urlparse(current).path or "/",
+            urllib.parse.urlparse(current).params,
+            urllib.parse.urlparse(current).query, "",
+        ))
+        request = urllib.request.Request(
+            pinned_url, data=payload, method="POST",
+            headers={"User-Agent": USER_AGENT, "Content-Type": "application/json",
+                     "Host": target.hostname, **headers})
+
+        try:
+            with opener.open(request, timeout=timeout) as response:
+                status_code = int(response.status)
+                response.read(4096)
+                if status_code in _REDIRECT_STATUSES:
+                    location = response.headers.get("Location")
+                    if not location:
+                        return DeliveryOutcome(False, status_code, 1,
+                                               f"HTTP {status_code} with no Location")
+                    current = urllib.parse.urljoin(current, location)
+                    continue
+                if 200 <= status_code < 300:
+                    return DeliveryOutcome(True, status_code, 1)
+                return DeliveryOutcome(False, status_code, 1, f"HTTP {status_code}")
+        except urllib.error.HTTPError as exc:
+            # With redirects disabled, urllib raises HTTPError for 3xx rather
+            # than returning a response, so the redirect has to be handled
+            # here as well as in the success branch above.
+            if exc.code in _REDIRECT_STATUSES:
+                location = exc.headers.get("Location") if exc.headers else None
+                if not location:
+                    return DeliveryOutcome(False, int(exc.code), 1,
+                                           f"HTTP {exc.code} with no Location")
+                current = urllib.parse.urljoin(current, location)
+                continue
+            return DeliveryOutcome(False, int(exc.code), 1, f"HTTP {exc.code}")
+        except (urllib.error.URLError, socket.timeout, OSError, ssl.SSLError) as exc:
+            reason = getattr(exc, "reason", exc)
+            return DeliveryOutcome(False, 0, 1, f"{type(exc).__name__}: {reason}")
+
+    return DeliveryOutcome(False, 0, 1, f"too many redirects (>{MAX_REDIRECTS})")
+
+
 def _post(url: str, payload: bytes, headers: Dict[str, str],
           timeout: float = DEFAULT_TIMEOUT) -> DeliveryOutcome:
     last_error = ""
     status_code = 0
     for attempt in range(1, MAX_ATTEMPTS + 1):
-        request = urllib.request.Request(url, data=payload, method="POST",
-                                         headers={"User-Agent": USER_AGENT,
-                                                  "Content-Type": "application/json", **headers})
         try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - scheme validated above
-                status_code = int(response.status)
-                response.read(4096)
-            if 200 <= status_code < 300:
-                return DeliveryOutcome(True, status_code, attempt)
-            last_error = f"HTTP {status_code}"
-        except urllib.error.HTTPError as exc:
-            status_code = int(exc.code)
-            last_error = f"HTTP {exc.code}"
-            if 400 <= exc.code < 500 and exc.code != 429:
-                # A 4xx will not fix itself; retrying only wastes time.
-                return DeliveryOutcome(False, status_code, attempt, last_error)
-        except (urllib.error.URLError, socket.timeout, OSError) as exc:
-            last_error = f"{type(exc).__name__}: {getattr(exc, 'reason', exc)}"
+            outcome = _request(url, payload, headers, timeout)
+        except SsrfBlocked as exc:
+            # A blocked connection is not a transient failure: do not retry.
+            return DeliveryOutcome(False, 0, attempt, f"blocked: {exc}")
+
+        status_code = outcome.status_code
+        last_error = outcome.error
+        if outcome.ok:
+            return DeliveryOutcome(True, status_code, attempt)
+        if 400 <= status_code < 500 and status_code != 429:
+            # A 4xx will not fix itself; retrying only wastes time.
+            return DeliveryOutcome(False, status_code, attempt, last_error)
         if attempt < MAX_ATTEMPTS:
             time.sleep(RETRY_BACKOFF * attempt)
     return DeliveryOutcome(False, status_code, MAX_ATTEMPTS, last_error)

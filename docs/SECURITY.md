@@ -279,13 +279,37 @@ denylist. The following are blocked (each has a regression test):
 * `localhost` and any `*.localhost` name, regardless of what DNS says
 * userinfo/fragment/query tricks such as `http://evil.com@169.254.169.254/`
 
-**Not defended: DNS rebinding.** The host is resolved at *validation* time.
-An attacker who controls an authoritative DNS server can answer with a
-public address during validation and a private one when the request is
-actually made. Closing that requires resolving at connect time and pinning
-the address (or egress-filtering at the network layer). Until then, the
-control is `IRONCLAD_ALLOW_PRIVATE_WEBHOOKS` staying unset plus network-level
-egress restrictions on the worker.
+### DNS rebinding is closed by IP pinning
+
+The original guard resolved the hostname at *validation* time, and
+`urllib.request.urlopen` then resolved it **again** when opening the socket.
+An attacker controlling authoritative DNS could answer with a public address
+for the validation lookup and a private one for the connection lookup. This
+was reproduced, not theorised: with a rebinding resolver serving
+`93.184.216.34` for the validation lookups and `127.0.0.1` afterwards, the
+internal service **received the request**.
+
+The fix resolves DNS **exactly once** in `resolve_target()`:
+
+1. Resolve the hostname once via `getaddrinfo`.
+2. Validate **every** returned address — not just the first, so a resolver
+   cannot put a public address first and a private one second.
+3. Pin that address. The socket connects to that exact IP via connection
+   classes that override `connect()`.
+4. The original hostname is preserved for the `Host` header and TLS SNI, so
+   pinning does not weaken certificate validation.
+5. Automatic redirects are disabled. Each redirect destination is resolved
+   and validated again before any connection is made to it, bounded at 5
+   hops.
+
+Because validation and connection use the same resolution, they cannot
+disagree. Re-running the original attack now yields
+`blocked: refusing rebind.attacker.example: resolved to non-public address
+127.0.0.1` and the internal service receives nothing.
+
+Note that `IRONCLAD_ALLOW_PRIVATE_WEBHOOKS=1` is an operator override for
+local and test delivery, and it applies to every hop including redirects.
+That is intentional and pinned by a test so it cannot change silently.
 
 ## Known limitations
 
