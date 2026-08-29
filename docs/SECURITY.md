@@ -164,6 +164,25 @@ origin receives no CORS headers at all — the origin is never reflected.
 grade A+** across 81 files / 14,619 lines. Two real precision bugs were
 found and fixed by doing this — see `CHANGELOG.md`.
 
+## Audit export and retention
+
+Compliance evidence requires the *full* trail, not a 200-record page:
+
+* `GET /audit/export` streams the whole trail as newline-delimited JSON or
+  CSV, chunked (1000 records) with keyset pagination so a large trail does
+  not get quadratically slower. Chronological oldest-first, tenant-scoped.
+* CSV output defuses spreadsheet formula injection (`=`, `+`, `-`, `@`
+  prefixed with a quote) — an auditor opening an export must not execute a
+  formula that arrived via audit data.
+* `GET /audit/retention?retention_days=N` previews the consequence without
+  deleting anything.
+* `POST /audit/retention/purge` requires the **admin** role and writes an
+  `audit.purged` record **before** the delete, so the removal is permanently
+  recorded.
+
+Both are tenant-scoped: an export or purge can never reach another
+organization's records.
+
 ## Brute-force protection
 
 Account lockout alone is not brute-force protection: it is *per account*, so

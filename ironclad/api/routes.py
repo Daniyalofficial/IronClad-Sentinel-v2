@@ -1027,6 +1027,98 @@ def test_integration(integration_id: int, context: RequestContext = Depends(requ
 # --------------------------------------------------------------------------- #
 # Audit / jobs
 # --------------------------------------------------------------------------- #
+@audit_router.get("/export")
+def export_audit(format: str = Query(default="jsonl", pattern="^(jsonl|csv)$"),
+                 action: Optional[str] = None,
+                 actor: Optional[str] = None,
+                 since: Optional[str] = None,
+                 until: Optional[str] = None,
+                 context: RequestContext = Depends(require_principal),
+                 session: DbSession = Depends(get_db)):
+    """Export the full audit trail for an auditor.
+
+    The paged listing caps at 200 records, which is unusable as compliance
+    evidence. This streams the whole trail as newline-delimited JSON or CSV.
+    """
+    context.require(AUDIT_READ)
+
+    parsed_since = _parse_iso_filter(since, "since")
+    parsed_until = _parse_iso_filter(until, "until")
+    if parsed_since and parsed_until and parsed_since > parsed_until:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "'since' is after 'until'")
+
+    filters = {"action": action, "actor": actor, "since": parsed_since, "until": parsed_until}
+    if format == "csv":
+        body = audit.export_csv(session, context.org_id, **filters)
+        media = "text/csv; charset=utf-8"
+        extension = "csv"
+    else:
+        body = audit.export_json_lines(session, context.org_id, **filters)
+        media = "application/x-ndjson; charset=utf-8"
+        extension = "jsonl"
+
+    records = body.count("\n") if body else 0
+    context.audit("audit.exported", target_type="audit_events",
+                  metadata={"format": format, "records": records})
+    session.commit()
+
+    from fastapi.responses import Response
+
+    return Response(
+        content=body,
+        media_type=media,
+        headers={
+            "Content-Disposition": f'attachment; filename="ironclad-audit.{extension}"',
+            "X-Audit-Records": str(records),
+        },
+    )
+
+
+@audit_router.get("/retention", response_model=schemas.RetentionPreview)
+def audit_retention_preview(retention_days: int = Query(ge=0, le=36500),
+                            context: RequestContext = Depends(require_principal),
+                            session: DbSession = Depends(get_db)):
+    """Preview what a retention policy would remove. Nothing is deleted."""
+    context.require(AUDIT_READ)
+    return schemas.RetentionPreview(
+        **audit.retention_summary(session, context.org_id, retention_days=retention_days))
+
+
+@audit_router.post("/retention/purge", response_model=schemas.RetentionPreview)
+def audit_retention_purge(body: schemas.RetentionPurgeRequest, request: Request,
+                          context: RequestContext = Depends(require_principal),
+                          session: DbSession = Depends(get_db)):
+    """Delete audit records older than the retention window.
+
+    Irreversible, so it requires the strongest audit permission and the purge
+    is itself audited before the delete runs.
+    """
+    context.require(AUDIT_READ)
+    if not role_at_least(context.principal.role, "admin"):
+        raise HTTPException(status.HTTP_403_FORBIDDEN,
+                            "purging audit history requires the admin role")
+    summary = audit.purge_expired(session, context.org_id,
+                                  retention_days=body.retention_days,
+                                  actor=context.principal.email,
+                                  request_id=context.request_id)
+    session.commit()
+    return schemas.RetentionPreview(**summary)
+
+
+def _parse_iso_filter(value: Optional[str], name: str):
+    if not value:
+        return None
+    from datetime import datetime
+
+    for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(value, fmt)
+        except ValueError:
+            continue
+    raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        f"'{name}' must be YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS")
+
+
 @audit_router.get("", response_model=List[schemas.AuditOut])
 def list_audit(action: Optional[str] = None,
                limit: int = Query(default=100, ge=1, le=schemas.MAX_PAGE_SIZE),

@@ -193,10 +193,26 @@ private/link-local address is rejected unless
 
 | Method | Path | Permission |
 |---|---|---|
-| GET | `/audit` | `audit.read` — filter `action`, paginated |
+| GET | `/audit` | `audit.read` — filter `action`, paginated (max 200) |
+| GET | `/audit/export` | `audit.read` — **full trail** as newline-delimited JSON (`?format=jsonl`, default) or CSV (`?format=csv`); filters `action`, `actor`, `since`, `until` (`YYYY-MM-DD` or `YYYY-MM-DDTHH:MM:SS`). Streams in chunks, chronological oldest-first, returns `X-Audit-Records`. |
+| GET | `/audit/retention` | `audit.read` — preview what a retention window would remove. Deletes nothing. |
+| POST | `/audit/retention/purge` | `audit.read` **+ admin role** — delete records older than `retention_days`. Irreversible; the purge is itself audited *before* the delete runs. |
 
 Records are append-only: no endpoint updates or deletes them, and
 credential-shaped metadata keys are redacted before they are stored.
+
+The one exception is `POST /audit/retention/purge`, which exists because
+compliance frameworks require a *defined* retention period. It requires the
+admin role, and it writes an `audit.purged` record **before** deleting, so
+the fact that audit history was removed — how much, and against what cutoff —
+is itself permanent. Deleting the record of a deletion would defeat the
+purpose of an audit log.
+
+The paged `GET /audit` caps at 200 records, which is not usable as compliance
+evidence; use `/audit/export` for that. CSV exports prefix values beginning
+with `=`, `+`, `-` or `@` with a single quote to prevent spreadsheet formula
+injection, so an auditor opening an export cannot execute a formula that
+arrived via audit data.
 
 ## Dashboard
 

@@ -10,6 +10,22 @@ system in a way it had not been executed before, not by reading it.
 
 ### Added
 
+- **Audit export and retention** (`ironclad/platform/audit.py`). The paged
+  `GET /audit` caps at 200 records, which is not usable as compliance
+  evidence and gave no way to define a retention period — both are required
+  by SOC 2 / ISO 27001.
+
+  `GET /audit/export` streams the full trail as newline-delimited JSON or
+  CSV, chunked at 1000 records with keyset pagination (OFFSET would get
+  quadratically slower on a large trail), chronological oldest-first, with
+  `action`/`actor`/`since`/`until` filters and an `X-Audit-Records` header.
+  CSV output defuses spreadsheet formula injection.
+
+  `GET /audit/retention` previews a retention window without deleting.
+  `POST /audit/retention/purge` requires the admin role and writes an
+  `audit.purged` record **before** the delete, so the removal — how much and
+  against what cutoff — is itself permanent.
+
 - **Rate limiting** (`ironclad/platform/ratelimit.py`). Account lockout alone
   was not brute-force protection — it is per account, so an attacker got
   `MAX_FAILED_LOGINS` guesses against *every* address with nothing limiting

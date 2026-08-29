@@ -359,6 +359,25 @@ class HealthOut(StrictModel):
     checks: Dict[str, str]
 
 
+class AuditExportMeta(StrictModel):
+    org_id: int
+    format: str
+    records: int
+    filters: Dict[str, Any] = Field(default_factory=dict)
+
+
+class RetentionPreview(StrictModel):
+    retention_days: int
+    cutoff: str
+    total_records: int
+    expiring_records: int
+    retained_records: int
+
+
+class RetentionPurgeRequest(StrictModel):
+    retention_days: int = Field(ge=0, le=36500)
+
+
 class JobOut(StrictModel):
     id: int
     kind: str
