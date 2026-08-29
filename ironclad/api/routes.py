@@ -35,7 +35,7 @@ from ironclad.platform import audit, events
 from ironclad.platform.jobs import JobQueue, JobSpec
 from ironclad.platform.observability import registry
 from ironclad.platform.observability import RATE_LIMITED
-from ironclad.platform import egress, password_reset
+from ironclad.platform import egress, password_reset, triage
 from ironclad.platform.integrations import egress_allowlist
 from ironclad.platform.ratelimit import Decision, client_ip
 from ironclad.platform.models import (
@@ -853,33 +853,13 @@ def update_finding(finding_id: int, body: schemas.FindingUpdate,
     finding = get_for_org(session, Finding, context.org_id, finding_id)
     if finding is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "finding not found")
-    if body.status == "suppressed" and not body.reason.strip():
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
-                            "a reason is required to suppress a finding")
-    previous = finding.status
-    finding.status = body.status
-    if body.status in ("resolved", "suppressed"):
-        finding.resolved_at = utcnow()
-        finding.suppressed_by = context.principal.email
-        finding.suppressed_reason = body.reason
-    else:
-        finding.resolved_at = None
-    event_type = {"resolved": "finding.resolved", "suppressed": "finding.suppressed"}.get(
-        body.status, "finding.reopened")
-    session.add(FindingEvent(org_id=context.org_id, finding_id=finding.id, event_type=event_type,
-                             actor=context.principal.email,
-                             detail=json.dumps({"from": previous, "to": body.status,
-                                                "reason": body.reason})))
-    if event_type == "finding.suppressed":
-        events.default_bus.publish(session, events.FINDING_SUPPRESSED, context.org_id,
-                                   {"finding_id": finding.id, "reason": body.reason},
-                                   subject_id=str(finding.id))
-    elif event_type == "finding.resolved":
-        events.default_bus.publish(session, events.FINDING_RESOLVED, context.org_id,
-                                   {"finding_id": finding.id}, subject_id=str(finding.id))
-    context.audit(f"finding.{body.status}", target_type="finding", target_id=str(finding.id),
-                  metadata={"from": previous, "reason": body.reason})
-    session.commit()
+    try:
+        triage.apply_triage(session, finding=finding, status=body.status,
+                            reason=body.reason, actor_email=context.principal.email,
+                            org_id=context.org_id, audit=context.audit,
+                            request_id=context.request_id)
+    except triage.TriageError as exc:
+        raise HTTPException(exc.code, str(exc))
     return _finding_out(finding)
 
 

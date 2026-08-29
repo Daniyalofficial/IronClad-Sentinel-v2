@@ -18,7 +18,10 @@ import json
 import os
 from typing import Any, Dict, List, Optional
 
+from urllib.parse import quote as _quote
+
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
+from fastapi import status as status_mod
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import desc, func, select
@@ -27,6 +30,7 @@ from sqlalchemy.orm import Session as DbSession
 from ironclad import __version__
 from ironclad.api.deps import _authenticate, get_db
 from ironclad.platform import audit
+from ironclad.platform.tenancy import get_for_org
 from ironclad.platform.models import (
     Component,
     Finding,
@@ -308,6 +312,50 @@ def _build_router() -> APIRouter:
         })
 
     # -------------------------------------------------------------- policies
+    @router.post("/findings/{finding_id}/triage")
+    def triage_finding(finding_id: int, request: Request,
+                       status: str = Form(...), reason: str = Form(""),
+                       session: DbSession = Depends(get_db)):
+        """Suppress, resolve or reopen a finding from the dashboard.
+
+        Uses the same shared triage service as the JSON API, so the two entry
+        points cannot diverge on authorization or on what counts as a valid
+        transition.
+        """
+        from ironclad.platform import triage
+        from ironclad.platform.rbac import FINDING_MANAGE, PermissionDenied
+
+        principal = _web_principal(request, session)
+        if principal is None:
+            return RedirectResponse("/ui/login", status_code=status_mod.HTTP_303_SEE_OTHER)
+        try:
+            principal.require(FINDING_MANAGE)
+        except PermissionDenied as exc:
+            return RedirectResponse(f"/ui/findings/{finding_id}?error=forbidden",
+                                    status_code=status_mod.HTTP_303_SEE_OTHER)
+
+        finding = get_for_org(session, Finding, principal.org_id, finding_id)
+        if finding is None:
+            return RedirectResponse("/ui/findings", status_code=status_mod.HTTP_303_SEE_OTHER)
+
+        def _audit(action, target_type="", target_id="", metadata=None, request_id=""):
+            audit.record(session, org_id=principal.org_id, action=action,
+                         actor=principal.email, actor_id=principal.user_id,
+                         target_type=target_type, target_id=target_id,
+                         metadata=metadata, request_id=request_id)
+
+        try:
+            triage.apply_triage(session, finding=finding, status=status, reason=reason,
+                                actor_email=principal.email, org_id=principal.org_id,
+                                audit=_audit)
+        except triage.TriageError as exc:
+            return RedirectResponse(
+                f"/ui/findings/{finding_id}?error={_quote(str(exc))}",
+                status_code=status_mod.HTTP_303_SEE_OTHER)
+
+        return RedirectResponse(f"/ui/findings/{finding_id}?updated=1",
+                                status_code=status_mod.HTTP_303_SEE_OTHER)
+
     @router.get("/policies", response_class=HTMLResponse)
     def policies_page(request: Request, session: DbSession = Depends(get_db)):
         principal = _require_web(request, session)
