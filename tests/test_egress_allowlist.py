@@ -292,7 +292,7 @@ def test_delivery_to_an_unlisted_host_is_blocked(monkeypatch, record_connections
     outcome = deliver(Integration(), {"event": "scan.completed"})
     assert outcome.ok is False
     assert "blocked" in outcome.error
-    assert "not on" in outcome.error
+    assert "not permitted by" in outcome.error
     assert outcome.attempts == 1, "a blocked destination must not be retried"
     assert record_connections == []
 
@@ -434,7 +434,7 @@ def test_retries_and_4xx_behaviour_unchanged(monkeypatch, record_connections):
 
         # 127.0.0.1 is not on the allowlist, so this is blocked rather than sent.
         blocked = deliver(Integration(), {"event": "x"})
-        assert blocked.ok is False and "not on" in blocked.error
+        assert blocked.ok is False and "not permitted by" in blocked.error
 
         # With the host allowlisted, a 404 is still not retried.
         import os

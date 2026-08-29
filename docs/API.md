@@ -90,6 +90,8 @@ curl -s localhost:8000/projects -H "authorization: Bearer $TOKEN"
 | Method | Path | Permission |
 |---|---|---|
 | GET | `/org` | `organization.read` |
+| GET | `/org/egress-policy` | `organization.read` — the org's outbound egress allowlist, plus the effective list after intersecting with the global allowlist |
+| PUT | `/org/egress-policy` | `organization.manage` — replace the allowlist; an empty list removes it. All validation problems returned at once (422). Audited. |
 | GET | `/users` | `user.read` |
 | POST | `/users` | `user.manage` |
 | PATCH | `/users/{id}/role` | `user.manage` |

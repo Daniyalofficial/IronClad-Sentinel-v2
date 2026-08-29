@@ -192,6 +192,44 @@ def host_allowed_by_allowlist(hostname: str, allowlist: Optional[frozenset]) -> 
     return False
 
 
+#: Optional hook returning the bound organization's allowlist, or None when
+#: no organization context is bound. Injected by ironclad.platform.egress to
+#: keep this module free of a database import and independently testable.
+_org_allowlist_provider = None
+
+
+def set_org_allowlist_provider(provider) -> None:
+    """Install a callable returning the current organization's allowlist."""
+    global _org_allowlist_provider
+    _org_allowlist_provider = provider
+
+
+def _org_allowlist():
+    if _org_allowlist_provider is None:
+        return None
+    try:
+        return _org_allowlist_provider()
+    except Exception:  # noqa: BLE001 - a broken provider must not widen egress
+        # Fail closed to "no organization allowlist configured", which with a
+        # global allowlist set still restricts, and never widens egress.
+        return None
+
+
+def _combine_allowlists(global_allowlist, org_allowlist):
+    """Intersect the two allowlists: an organization can only narrow.
+
+    Returns None only when neither is configured, meaning no allowlist and
+    the existing SSRF controls are the only control.
+    """
+    if global_allowlist is None and org_allowlist is None:
+        return None
+    if global_allowlist is None:
+        return org_allowlist
+    if org_allowlist is None:
+        return global_allowlist
+    return global_allowlist & org_allowlist
+
+
 def _private_allowed() -> bool:
     return os.environ.get(PRIVATE_ENV_FLAG, "").lower() in {"1", "true", "yes"}
 
@@ -323,10 +361,21 @@ def resolve_target(url: str) -> ResolvedTarget:
     # Egress allowlist, enforced BEFORE DNS so a rejected host is never even
     # resolved. This runs for the initial destination and for every redirect
     # hop, because resolve_target() is called for each one.
+    #
+    # Two layers, combined by intersection so an organization can only narrow
+    # what the deployment operator permitted, never widen it:
+    #   * the process-global IRONCLAD_EGRESS_ALLOWLIST
+    #   * the organization policy, when an organization context is bound
+    # With no organization context the global check alone applies, which is
+    # exactly the pre-existing behaviour for pre-auth/CLI flows.
     allowlist = egress_allowlist()
-    if not host_allowed_by_allowlist(hostname, allowlist):
+    org_allowlist = _org_allowlist()
+    combined = _combine_allowlists(allowlist, org_allowlist)
+    if not host_allowed_by_allowlist(hostname, combined):
+        scope = ("the organization egress policy" if org_allowlist is not None
+                 else EGRESS_ALLOWLIST_ENV)
         raise EgressBlocked(
-            f"{hostname} is not on {EGRESS_ALLOWLIST_ENV}; refusing to resolve it")
+            f"{hostname} is not permitted by {scope}; refusing to resolve it")
 
     # A literal IP still needs the non-public check, but needs no DNS.
     if _host_is_non_public_literal(hostname):

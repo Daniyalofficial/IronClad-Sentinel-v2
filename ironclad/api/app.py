@@ -33,7 +33,7 @@ from sqlalchemy import text
 from ironclad import __version__
 from ironclad.api import routes, schemas
 from ironclad.api.deps import cors_allowed_origins
-from ironclad.platform.database import build_engine, run_migrations, session_factory, session_scope
+from ironclad.platform.database import build_engine, run_migrations, session_scope, session_factory, session_scope
 from ironclad.platform.events import default_bus
 from ironclad.platform.jobs import JobQueue
 from ironclad.platform.mail import build_transport_from_env
@@ -90,6 +90,27 @@ def create_app(database_url: Optional[str] = None, *, run_migrations_on_start: b
     queue = JobQueue()
     register_job_handlers(queue, engine)
     app.state.queue = queue
+
+    # Bind the per-organization egress provider so the outbound delivery path
+    # enforces the organization policy, not just the process-global allowlist.
+    # The provider reads through the shared engine and fails closed.
+    from ironclad.platform import egress as egress_policy
+    from ironclad.platform.integrations import set_org_allowlist_provider
+
+    def _org_allowlist():
+        org_id = egress_policy.current_org_id()
+        if org_id is None:
+            return None
+        from ironclad.platform.models import Organization
+
+        with session_scope(engine) as lookup:
+            org = lookup.get(Organization, org_id)
+            if org is None:
+                return None
+            return egress_policy.policy_from_settings(org.id, org.settings).as_allowlist()
+
+    set_org_allowlist_provider(_org_allowlist)
+    app.state.org_allowlist_provider = _org_allowlist
 
     # Mail transport for password resets. Defaults to in-memory so a fresh
     # install never attempts a network connection; set IRONCLAD_MAIL_TRANSPORT

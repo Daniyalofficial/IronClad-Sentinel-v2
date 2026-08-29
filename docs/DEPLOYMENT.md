@@ -234,6 +234,14 @@ pg_restore -d ironclad_restored ironclad-2026-08-27.dump
 
 ### Restricting outbound egress
 
+**Per-organization policies.** The environment variable is process-global.
+In a multi-tenant deployment, each organization can set its own allowlist
+through `PUT /org/egress-policy` (requires `organization.manage`), stored in
+the organization's settings. The two combine by **intersection**, so an
+organization can only narrow what the operator permitted, never widen it.
+See `docs/SECURITY.md` for the full precedence table.
+
+
 By default integrations may reach any public host; the SSRF guard blocks
 internal and non-public addresses. To constrain egress to known endpoints:
 

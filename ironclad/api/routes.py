@@ -35,7 +35,8 @@ from ironclad.platform import audit, events
 from ironclad.platform.jobs import JobQueue, JobSpec
 from ironclad.platform.observability import registry
 from ironclad.platform.observability import RATE_LIMITED
-from ironclad.platform import password_reset
+from ironclad.platform import egress, password_reset
+from ironclad.platform.integrations import egress_allowlist
 from ironclad.platform.ratelimit import Decision, client_ip
 from ironclad.platform.models import (
     ApiToken,
@@ -57,6 +58,8 @@ from ironclad.platform.models import (
 from ironclad.platform.rbac import (
     ALL_PERMISSIONS,
     AUDIT_READ,
+    ORGANIZATION_MANAGE,
+    ORGANIZATION_READ,
     FINDING_MANAGE,
     FINDING_READ,
     INTEGRATION_MANAGE,
@@ -418,6 +421,64 @@ def get_org(context: RequestContext = Depends(require_principal), session: DbSes
     if org is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "organization not found")
     return schemas.OrganizationOut(id=org.id, name=org.name, slug=org.slug, created_at=_iso(org.created_at))
+
+
+@org_router.get("/egress-policy", response_model=schemas.EgressPolicyOut)
+def get_egress_policy(context: RequestContext = Depends(require_principal),
+                      session: DbSession = Depends(get_db)):
+    """Read this organization's outbound egress policy."""
+    context.require(ORGANIZATION_READ)
+    org = session.get(Organization, context.org_id)
+    if org is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "organization not found")
+    policy = egress.policy_from_settings(org.id, org.settings)
+    global_allowlist = egress_allowlist()
+    effective = egress.effective_allowlist(policy.as_allowlist())
+    return schemas.EgressPolicyOut(
+        org_id=org.id,
+        enabled=policy.enabled,
+        entries=sorted(policy.entries),
+        effective=sorted(effective) if effective is not None else None,
+        global_allowlist=sorted(global_allowlist) if global_allowlist is not None else None,
+    )
+
+
+@org_router.put("/egress-policy", response_model=schemas.EgressPolicyOut)
+def put_egress_policy(body: schemas.EgressPolicyUpdate, request: Request,
+                      context: RequestContext = Depends(require_principal),
+                      session: DbSession = Depends(get_db)):
+    """Replace this organization's egress allowlist.
+
+    An empty list removes the policy. Every entry is validated up front and
+    all problems are returned at once, so a caller can fix them in one pass.
+    The change is audited because it governs outbound network reach.
+    """
+    context.require(ORGANIZATION_MANAGE)
+    org = session.get(Organization, context.org_id)
+    if org is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "organization not found")
+
+    problems = egress.validate_allowlist(body.entries)
+    if problems:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, problems)
+
+    entries = sorted({egress.normalise_entry(e) for e in body.entries if e.strip()})
+    previous = sorted(egress.policy_from_settings(org.id, org.settings).entries)
+    org.settings = egress.settings_with_policy(org.settings, entries)
+
+    context.audit("org.egress_policy_updated", target_type="organization",
+                  target_id=str(org.id),
+                  metadata={"previous": previous, "entries": entries})
+    session.commit()
+
+    policy = egress.policy_from_settings(org.id, org.settings)
+    effective = egress.effective_allowlist(policy.as_allowlist())
+    global_allowlist = egress_allowlist()
+    return schemas.EgressPolicyOut(
+        org_id=org.id, enabled=policy.enabled, entries=sorted(policy.entries),
+        effective=sorted(effective) if effective is not None else None,
+        global_allowlist=sorted(global_allowlist) if global_allowlist is not None else None,
+    )
 
 
 @users_router.get("", response_model=List[schemas.UserOut])

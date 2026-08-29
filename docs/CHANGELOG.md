@@ -10,6 +10,29 @@ system in a way it had not been executed before, not by reading it.
 
 ### Added
 
+- **Per-organization egress policy.** The process-global
+  `IRONCLAD_EGRESS_ALLOWLIST` forced every organization in a multi-tenant
+  deployment onto one egress set, contradicting the tenancy model enforced
+  everywhere else. Organizations can now set their own allowlist via
+  `GET`/`PUT /org/egress-policy`, stored in the existing (previously unused)
+  `Organization.settings` column rather than a parallel configuration system.
+
+  Precedence is **intersection**: an organization can only narrow what the
+  operator permitted, never widen it. Matching reuses the established secure
+  semantics (exact, case-insensitive, explicit `*.` anchored to a label
+  boundary, no implicit suffix matching). Entry validation rejects empty
+  entries, bare `*`, `*.`, embedded wildcards, single-label names, malformed
+  labels and IP literals, over-long names and duplicates, returning all
+  problems at once.
+
+  Enforced inside `resolve_target()` before DNS alongside the global
+  allowlist, so it covers the initial destination and every redirect hop.
+  Reading requires `organization.read`, updating `organization.manage`; the
+  change is audited as `org.egress_policy_updated` with previous and new
+  entries. A broken provider fails closed.
+
+
+
 - **Password reset** (`ironclad/platform/password_reset.py`,
   `ironclad/platform/mail.py`, migration `0003_password_reset_tokens`). Local
   authentication previously had no self-service reset path at all.

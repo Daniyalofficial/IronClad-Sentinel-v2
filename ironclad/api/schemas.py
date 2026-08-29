@@ -380,6 +380,22 @@ class PasswordResetConfirmOut(StrictModel):
     message: str
 
 
+class EgressPolicyOut(StrictModel):
+    org_id: int
+    enabled: bool
+    entries: List[str] = Field(default_factory=list)
+    #: The allowlist actually in force once intersected with the global
+    #: IRONCLAD_EGRESS_ALLOWLIST, so an operator can see the real effect.
+    effective: Optional[List[str]] = None
+    global_allowlist: Optional[List[str]] = None
+
+
+class EgressPolicyUpdate(StrictModel):
+    #: An empty list removes the organization policy, reverting to the
+    #: global allowlist (or no allowlist if that is unset).
+    entries: List[str] = Field(default_factory=list, max_length=200)
+
+
 class AuditExportMeta(StrictModel):
     org_id: int
     format: str

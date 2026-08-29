@@ -322,6 +322,58 @@ every integration. The existing SSRF controls remain the primary control.
 * Redirect validation, IP pinning, retry behaviour and HMAC signing are
   unchanged. A blocked destination is not retried.
 
+### Per-organization egress policy
+
+The process-global allowlist forces every organization in a multi-tenant
+deployment onto one egress set, which contradicts the tenancy model enforced
+everywhere else. Organizations can now set their own allowlist, stored in the
+existing `Organization.settings` column — no parallel configuration system.
+
+```
+GET /org/egress-policy
+PUT /org/egress-policy   {"entries": ["hooks.slack.com", "*.webhooks.internal.example.com"]}
+```
+
+Reading requires `organization.read`; updating requires
+`organization.manage`. An empty list removes the policy. Every entry is
+validated up front and **all** problems are returned at once. The change is
+audited (`org.egress_policy_updated`, recording previous and new entries),
+because it governs outbound network reach.
+
+**Precedence is intersection — an organization can only narrow, never widen:**
+
+| global | org | effective |
+|---|---|---|
+| unset | unset | no allowlist (SSRF rules only) |
+| set | unset | global |
+| unset | set | org |
+| set | set | **intersection** |
+
+Intersection is the safe model: a tenant cannot grant itself egress the
+deployment operator did not permit, and an operator tightening the global
+list immediately tightens every organization. Widening semantics would let a
+tenant escalate its own network reach.
+
+Matching uses the same secure semantics as the global allowlist: exact,
+case-insensitive, explicit leading `*.` anchored to a label boundary, no
+implicit suffix matching. Entry validation rejects empty entries, bare `*`,
+`*.`, embedded wildcards, single-label names, malformed labels, malformed IP
+literals, over-long names and duplicates.
+
+Enforcement is inside `resolve_target()` **before DNS**, alongside the global
+allowlist, so it covers the initial destination and every redirect hop. A
+rejected host is never resolved and no socket is opened.
+
+**Tenant isolation:** an organization's allowlist is read only through its
+own `org_id` from the request principal, so org A's entries can never
+authorize org B. A broken provider fails **closed** to "no organization
+allowlist", which with a global allowlist set still restricts and never
+widens egress.
+
+Being allowlisted does not exempt a host from the SSRF rules:
+`169.254.169.254` on an organization allowlist is still refused, and DNS
+rebinding is still caught by IP validation.
+
 ### DNS rebinding is closed by IP pinning
 
 The original guard resolved the hostname at *validation* time, and
