@@ -300,7 +300,7 @@ API, a dashboard, a job queue, events, audit and deployment artifacts.
   PostgreSQL; 19 tables; schema never created by application code.
 - Authentication: PBKDF2-HMAC-SHA256 (210k iterations), session and API
   tokens stored as digests, time-based self-clearing lockout.
-- Authorization: 5 roles, 20 permissions, deny by default.
+- Authorization: 5 roles, 19 permissions, deny by default.
 - Multi-tenancy: `org_query()` refuses a model with no `org_id`; foreign
   rows return 404, never 403.
 - Jobs: durable queue with at-least-once delivery, retry with exponential

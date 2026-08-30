@@ -100,7 +100,7 @@ ironclad/
     migrations/          sqlite/ and postgres/ DDL
     models.py            SQLAlchemy models (map the schema, never create it)
     security.py          PBKDF2 hashing, tokens, lockout
-    rbac.py              5 roles, 20 permissions, deny by default
+    rbac.py              5 roles, 19 permissions, deny by default
     tenancy.py           the only supported way to start a query
     scanning.py          engine -> database bridge, scan-root confinement
     jobs.py, worker_jobs.py   durable queue + handlers

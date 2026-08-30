@@ -36,7 +36,7 @@ bash demo/run_demo.sh                                  # end-to-end story
 | 15. API | 0 | **93** | 53 operations across 45 paths, Pydantic-validated, 102 end-to-end tests |
 | 16. Web / dashboard | 0 | **90** | 10 server-rendered pages / 14 routes, incl. a working triage form |
 | 17. Authentication | 0 | **95** | PBKDF2 210k, digests, lockout, revocation |
-| 18. Authorization | 0 | **95** | 5 roles / 20 permissions, deny by default |
+| 18. Authorization | 0 | **95** | 5 roles / 19 permissions, deny by default |
 | 19. Multi-tenancy | 0 | **95** | `org_query` enforcement; 6 cross-tenant isolation tests |
 | 20. Integrations | 30 | **90** | webhook, GitHub, GitLab, Slack/Teams, Jira — real deliveries |
 | 21. Event processing | 0 | **90** | 15 typed contracts, validated at publish, persisted |
@@ -49,7 +49,7 @@ bash demo/run_demo.sh                                  # end-to-end story
 | 28. Security hardening | 70 | **94** | Self-scan clean; threat model with a test per control |
 | 29. Testing | 90 | **97** | 61 → **849** tests across 35 modules |
 | 30. Performance | 60 | **92** | Published numbers for 3 tiers + corpus throughput |
-| 31. Documentation | 75 | **95** | 12 documents, all describing shipped behaviour |
+| 31. Documentation | 75 | **95** | 13 documents, all describing shipped behaviour |
 | 32. Developer experience | 70 | **92** | `doctor`, `init`, CONTRIBUTING, one-command setup |
 | 33. Packaging / releases | 65 | **90** | Extras split, package data, wheel + PyInstaller script, checksums |
 | 34. Commercial readiness | 65 | **90** | Positioning, feature matrix, pilot guide, licensing |
@@ -234,5 +234,5 @@ Step 9 (wheel build) needs the `build` module, which is now part of the
 
 Inventory: 66 rules in 9 packs · 20 manifest parsers across 8 ecosystems ·
 53 API operations across 45 paths · 14 dashboard routes (10 pages) ·
-3 migrations per dialect · 12 documents · 9 Kubernetes manifests ·
+3 migrations per dialect · 13 documents · 9 Kubernetes manifests ·
 35 test modules.
