@@ -2,11 +2,13 @@
 
 **Report date:** 2026-08-30
 **Branch:** `arena/01a03853-ironclad-sentinel-v2`
-**HEAD:** `082b8d1` (`docs: make the table count and skip counts precise`)
-**Previous fix commit:** `4adf170` (`fix(reports): advertise the real tool version; unblock two verification steps`)
+**State measured at:** `110e099` (this file's own commit is the tip, so HEAD
+is one commit past the hash quoted here by design)
+**Code fix commit:** `4adf170` (`fix(reports): advertise the real tool version; unblock two verification steps`)
 **Branched from:** `f53b542` on `main`
-**Pull request:** #8 — `OPEN`, `MERGEABLE`, **43 commits**, **155 files changed, +28,194 / −491**
-**GitHub CI on `082b8d1`:** **4/4 checks pass** (run `33294410087` / `33294410112`)
+**Pull request:** #8 — `OPEN`, `MERGEABLE`, **44 commits**, **155 files changed, +28,194 / −491**
+**GitHub CI:** **4/4 checks pass**, verified independently on `4adf170`,
+`082b8d1` and `110e099` (latest run `33294708399` / `33294708461`)
 
 Every number in this document was produced by running the command shown
 against this checkout during the session that wrote it. Nothing here is
