@@ -33,8 +33,8 @@ bash demo/run_demo.sh                                  # end-to-end story
 | 12. CLI | 90 | **96** | 12 command groups; every command has a CLI test |
 | 13. Configuration | 60 | **95** | 5-level precedence implemented and documented |
 | 14. Storage | 0 | **93** | 19 tables, checksummed migrations, SQLite + PostgreSQL |
-| 15. API | 0 | **93** | ~50 endpoints, Pydantic-validated, 73 end-to-end tests |
-| 16. Web / dashboard | 0 | **88** | 11 server-rendered pages, real data only |
+| 15. API | 0 | **93** | 53 operations across 45 paths, Pydantic-validated, 102 end-to-end tests |
+| 16. Web / dashboard | 0 | **90** | 10 server-rendered pages / 14 routes, incl. a working triage form |
 | 17. Authentication | 0 | **95** | PBKDF2 210k, digests, lockout, revocation |
 | 18. Authorization | 0 | **95** | 5 roles / 20 permissions, deny by default |
 | 19. Multi-tenancy | 0 | **95** | `org_query` enforcement; 6 cross-tenant isolation tests |
@@ -132,17 +132,32 @@ and an OSV-compatible remote source, but no feed is bundled or vendored.
   not the vulnerable path is reachable.
 
 ### Platform
-* **PostgreSQL is supported but not exercised in CI.** The dialect has its
-  own migration folder and the URL handling is tested, but no test runs
-  against a live PostgreSQL server. SQLite is what the suite proves.
-* **No rate limiting** on the API. Login lockout exists; general request
-  throttling belongs in your ingress and is documented as such.
+* **PostgreSQL is exercised, but only partly in GitHub CI.** The live CI
+  service (`postgres:16-alpine`) applies the migrations and bootstraps an
+  organization. The 16 behavioural tests in `tests/test_postgres.py` (check
+  constraints, unique constraints, cascade delete, tenant isolation,
+  timezone-aware session expiry, job queue) are wired into the staged
+  workflow at `deploy/ci/verify.yml`; they were verified locally against a
+  real PostgreSQL 16.2 server — **16/16 passing**. Until the staged workflow
+  is installed into `.github/workflows/`, GitHub CI itself covers
+  migrations and bootstrap only.
+* **Rate limiting is in-process.** `app.state.limiter` enforces general,
+  login, per-account lockout, password-reset, password-change and
+  token-creation budgets from the `IRONCLAD_RATELIMIT_*` variables, with the
+  backend chosen by `IRONCLAD_RATELIMIT_BACKEND`. In a multi-replica
+  deployment only the database backend is shared across processes, and edge
+  throttling still belongs in your ingress.
 * **OIDC/OAuth2 is not implemented.** Local authentication and API tokens
   only. The session model would need an external-identity path.
-* **Password reset** has no delivery mechanism (no mail transport is
-  bundled). The lockout is self-clearing instead.
-* **The dashboard has no mutating UI.** Triage is done through the API;
-  pages are read-only views.
+* **Password reset delivers over a configurable transport.** SMTP, in-memory
+  and null transports ship in `ironclad/platform/mail.py`, selected by
+  `IRONCLAD_MAIL_TRANSPORT` and configured with `IRONCLAD_SMTP_*`. No
+  credentials are bundled, so an operator must supply SMTP settings before
+  real mail leaves the box.
+* **The dashboard is mostly read-only.** One mutating control exists today:
+  finding triage (`POST /ui/findings/{finding_id}/triage`), which shares its
+  service object with the JSON API. Project creation, policy editing and
+  integration management remain API-only.
 * **Worker is single-process polling.** The queue interface is
   broker-shaped, but no Redis/Celery backend is implemented.
 
@@ -192,8 +207,10 @@ All numbers below are produced by running the commands shown, not estimated.
 
 | Claim | Command | Result |
 |---|---|---|
-| Full test suite | `pytest -q` | **849 passed**, 1 skipped |
-| Core-only (what CI installs) | fresh venv, `pip install -e .` + pytest | **484 passed**, 15 skipped |
+| Full test suite | `pytest -q` | **850 passed**, 1 skipped |
+| Full suite incl. PostgreSQL | live PostgreSQL 16.2 + `IRONCLAD_TEST_POSTGRES_URL` | **866 passed**, 0 skipped |
+| Core-only (what CI installs) | fresh venv, `pip install -e .` + pytest | **485 passed**, 15 skipped |
+| PostgreSQL behavioural suite | live PostgreSQL 16.2, `pytest tests/test_postgres.py` | **16 passed** |
 | Detection false positives | `benchmarks/corpus_metrics.py` | precision **1.00**, recall **1.00** on the synthetic corpus |
 | Detection false negatives | `pytest tests/test_detection_coverage.py` | **19/19** classes detected, safe variants not flagged |
 | SSRF / DNS rebinding | `pytest tests/test_ssrf.py` | 45 tests, rebinding reproduced then blocked |
@@ -201,9 +218,21 @@ All numbers below are produced by running the commands shown, not estimated.
 | Integration delivery | `benchmarks/integration_check.py` | **51/51** against a real local HTTP server |
 | Self-scan | `ironclad scan ironclad --fail-on high` | exit 0, **0 findings**, grade A+ |
 | Company demo | `bash demo/run_demo.sh` | exit 0, full story asserts itself |
-| Reproducible verification | `bash scripts/verify_all.sh` | 32 passed, 0 failed, 1 skipped (Docker) |
+| Reproducible verification | `bash scripts/verify_all.sh` | **32 passed**, 0 failed, 1 skipped (Docker) |
 | GitHub CI | PR #8 | **4/4 checks pass** |
 
+Skip counts move with the environment, so both are stated above: without
+`psycopg2` the PostgreSQL module skips as one unit (850 passed, 1 skipped);
+with `psycopg2` installed but no server URL its 16 tests skip individually
+(850 passed, 16 skipped); with a live server nothing skips (866 passed).
+
+`scripts/verify_all.sh` step 7 (PostgreSQL) only runs when `psycopg2` is
+importable, so install with `pip install -e ".[server,dev,postgres]"` — on a
+plain `.[dev]` install it silently reports a skip rather than a failure.
+Step 9 (wheel build) needs the `build` module, which is now part of the
+`dev` extra.
+
 Inventory: 66 rules in 9 packs · 20 manifest parsers across 8 ecosystems ·
-49 API endpoints · 11 dashboard pages · 3 migrations per dialect ·
-12 documents · 9 Kubernetes manifests · 35 test modules.
+53 API operations across 45 paths · 14 dashboard routes (10 pages) ·
+3 migrations per dialect · 12 documents · 9 Kubernetes manifests ·
+35 test modules.

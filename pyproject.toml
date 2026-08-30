@@ -32,7 +32,7 @@ server = [
     "python-multipart>=0.0.9",
 ]
 postgres = ["psycopg2-binary>=2.9"]
-dev = ["pytest>=7.4", "httpx>=0.27"]
+dev = ["pytest>=7.4", "httpx>=0.27", "build>=1.0"]
 
 [project.scripts]
 ironclad = "ironclad.cli:_safe_main"

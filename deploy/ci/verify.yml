@@ -195,6 +195,25 @@ jobs:
           assert pending_migrations(engine) == []
           PY
 
+      - name: PostgreSQL behavioral suite (constraints, cascade, tenancy, timezones)
+        run: |
+          # `tests/test_postgres.py` drops every table in its target, and its
+          # own guard refuses to run against a database name that does not
+          # look disposable -- so this uses a dedicated scratch database
+          # instead of the `ironclad` one created by the service above.
+          python - <<'PY'
+          import psycopg2
+          admin = psycopg2.connect("postgresql://ironclad:ironclad-ci@localhost:5432/ironclad")
+          admin.autocommit = True
+          cur = admin.cursor()
+          cur.execute('DROP DATABASE IF EXISTS ironclad_ci_test')
+          cur.execute('CREATE DATABASE ironclad_ci_test')
+          admin.close()
+          print("created scratch database ironclad_ci_test")
+          PY
+          export IRONCLAD_TEST_POSTGRES_URL="postgresql+psycopg2://ironclad:ironclad-ci@localhost:5432/ironclad_ci_test"
+          pytest -q tests/test_postgres.py
+
       - name: Server boots and serves /ready
         run: |
           export IRONCLAD_DATABASE_URL="sqlite:///./.ironclad/ci.db"

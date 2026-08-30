@@ -150,6 +150,27 @@ system in a way it had not been executed before, not by reading it.
 
 ### Fixed
 
+- **Reports advertised a version that was never shipped.**
+  `ScanResult.tool_version` defaulted to the literal `"1.0.0"` while the
+  package is `1.1.0`, and `run_scan()` never passed a version — so every
+  JSON report and every SARIF `runs[].tool.driver.version` named a release
+  that does not exist. Anyone ingesting our SARIF into GitHub code scanning
+  attributed all findings to the wrong tool version, and baseline provenance
+  was wrong with it. The default is now `default_factory=lambda: __version__`.
+  Caught by running the real CLI and reading the emitted SARIF back.
+- **`scripts/verify_all.sh` could not run its own packaging step.** Step 9
+  calls `python -m build --wheel`, but `build` was not declared in the `dev`
+  extra, so a clean `pip install -e ".[server,dev]"` produced `2 failed`
+  (build wheel, wheel installs clean). `build>=1.0` is now part of `dev`;
+  the full script reports 32 passed / 0 failed / 1 skipped (Docker).
+- **The staged CI workflow never ran the PostgreSQL behavioural suite.**
+  `deploy/ci/verify.yml` stood up `postgres:16-alpine` and applied the
+  migrations, but never set `IRONCLAD_TEST_POSTGRES_URL`, so the 16 tests
+  covering check constraints, cascade delete, tenant isolation,
+  timezone-aware session expiry and the job queue were skipped in CI while
+  looking covered. A dedicated `ironclad_ci_test` scratch database is now
+  created and the suite runs. Verified locally against PostgreSQL 16.2:
+  16/16 passing. `.github/workflows/` was deliberately left untouched.
 - **Migrations were not atomic.** pysqlite implicitly commits before DDL, so
   `engine.begin()` never wrapped a migration in a transaction. A migration
   that failed partway left all 19 tables behind while recording nothing as

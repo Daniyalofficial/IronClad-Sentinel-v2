@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
+from ironclad import __version__
+
 
 class Severity(str, Enum):
     CRITICAL = "critical"
@@ -207,7 +209,11 @@ class ScanResult:
     # Not serialised by `to_dict()` so the JSON report stays finding-focused.
     sbom: Optional[Dict[str, Any]] = None
     generated_at: float = field(default_factory=time.time)
-    tool_version: str = "1.0.0"
+    # Stamped at construction time, never hardcoded: this value is written
+    # into the JSON report and into SARIF `runs[].tool.driver.version`, so a
+    # stale literal here misattributes every finding to a version that was
+    # never shipped.
+    tool_version: str = field(default_factory=lambda: __version__)
 
     def gating_findings(self) -> List[Finding]:
         """Findings that CI is allowed to gate on.

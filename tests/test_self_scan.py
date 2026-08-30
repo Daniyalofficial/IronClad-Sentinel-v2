@@ -89,3 +89,31 @@ def test_real_credential_is_still_reported_alongside_constants(tmp_path):
                             'api_token = "Zk9pQ2xR7vN4mT8sW1yB6dF3hJ0aL5e"\n')
     findings = scan_file_for_secrets(discovered)
     assert {f.rule_id for f in findings} == {"SECRETS-HIGH-ENTROPY-ASSIGNMENT"}
+
+
+def test_report_and_sarif_advertise_the_real_tool_version(tmp_path):
+    """Reports must name the version actually shipped, not a stale literal.
+
+    A customer ingesting our SARIF into GitHub code scanning records
+    ``runs[].tool.driver.version``. If that disagrees with the installed
+    package, every finding is attributed to a version that does not exist
+    and baseline/CI provenance is wrong.
+    """
+    from ironclad import __version__
+    from ironclad.core.config import IronCladConfig
+    from ironclad.core.engine import run_scan
+    from ironclad.reporting.sarif import build_sarif
+
+    target = tmp_path / "app"
+    target.mkdir()
+    (target / "x.py").write_text('import os\nos.system("id")\n')
+
+    result = run_scan(IronCladConfig(target=str(target)))
+
+    assert result.tool_version == __version__, (
+        f"ScanResult advertises {result.tool_version!r} but the package is {__version__!r}"
+    )
+    assert result.to_dict()["tool_version"] == __version__
+
+    doc = build_sarif(result)
+    assert doc["runs"][0]["tool"]["driver"]["version"] == __version__
