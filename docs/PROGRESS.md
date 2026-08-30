@@ -32,7 +32,7 @@ bash demo/run_demo.sh                                  # end-to-end story
 | 11. CI/CD | 85 | **93** | GitHub Actions, GitLab CI, pre-commit, documented exit codes |
 | 12. CLI | 90 | **96** | 12 command groups; every command has a CLI test |
 | 13. Configuration | 60 | **95** | 5-level precedence implemented and documented |
-| 14. Storage | 0 | **93** | 19 tables, checksummed migrations, SQLite + PostgreSQL |
+| 14. Storage | 0 | **93** | 19 tables (18 application + `schema_migrations`), checksummed migrations, SQLite + PostgreSQL |
 | 15. API | 0 | **93** | 53 operations across 45 paths, Pydantic-validated, 102 end-to-end tests |
 | 16. Web / dashboard | 0 | **90** | 10 server-rendered pages / 14 routes, incl. a working triage form |
 | 17. Authentication | 0 | **95** | PBKDF2 210k, digests, lockout, revocation |

@@ -104,7 +104,7 @@ The API never blocks on a scan: `POST /scan` returns **202** immediately.
 
 | Capability | Detail |
 |---|---|
-| Storage | 19 tables, checksummed SQL migrations for SQLite **and** PostgreSQL. Schema is never created by application code |
+| Storage | 19 tables (18 application tables plus the `schema_migrations` ledger), checksummed SQL migrations for SQLite **and** PostgreSQL. Schema is never created by application code |
 | Authentication | PBKDF2-HMAC-SHA256 (210k iterations), tokens stored as digests, self-clearing lockout |
 | Authorization | 5 roles (`owner > admin > security > developer > viewer`), 20 explicit permissions, deny by default |
 | Multi-tenancy | Every tenant-owned row is `org_id`-scoped; a foreign row is a **404**, never a 403 |
