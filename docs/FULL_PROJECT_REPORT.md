@@ -2,13 +2,13 @@
 
 **Report date:** 2026-08-30
 **Branch:** `arena/01a03853-ironclad-sentinel-v2`
-**State measured at:** `110e099` (this file's own commit is the tip, so HEAD
+**State measured at:** `7ce259f` (this file's own commit is the tip, so HEAD
 is one commit past the hash quoted here by design)
 **Code fix commit:** `4adf170` (`fix(reports): advertise the real tool version; unblock two verification steps`)
 **Branched from:** `f53b542` on `main`
-**Pull request:** #8 — `OPEN`, `MERGEABLE`, **44 commits**, **155 files changed, +28,194 / −491**
+**Pull request:** #8 — `OPEN`, `MERGEABLE`, **45 commits**, **156 files changed, +28,597 / −491**
 **GitHub CI:** **4/4 checks pass**, verified independently on `4adf170`,
-`082b8d1` and `110e099` (latest run `33294708399` / `33294708461`)
+`082b8d1`, `110e099` and `7ce259f` (latest run: all four checks pass)
 
 Every number in this document was produced by running the command shown
 against this checkout during the session that wrote it. Nothing here is
@@ -35,7 +35,8 @@ real third-party credentials, a labelled real-world corpus, and CI
 
 ## 2. Verified evidence
 
-Run against `082b8d1`, Python 3.11.2, in a fresh `.venv`.
+Run against `7ce259f`, Python 3.11.2, in a fresh `.venv` (the suite was
+re-run at each intermediate commit and gave the same result).
 
 | # | Claim | Command | Result |
 |---|---|---|---|
