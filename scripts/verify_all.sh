@@ -314,6 +314,24 @@ missing=[x for x in req if not (r/x).exists()]; assert not missing, missing; \
 print(\"all\", len(req), \"package-data paths present\")'
   \"\$CV/bin/ironclad\" version
 "
+# The check above proves data/vuln_db.json is IN the wheel; this proves the
+# installed copy is loadable and has real coverage -- the difference between
+# "the file shipped" and "the installed product can detect anything".
+step "installed advisory db is usable" bash -c "
+  set -e
+  CV=\$(mktemp -d)/cv2
+  python3 -m venv \"\$CV\"
+  \"\$CV/bin/pip\" install -q dist/*.whl
+  \"\$CV/bin/ironclad\" advisories stats --json | \"\$CV/bin/python\" -c '
+import json, sys
+d = json.load(sys.stdin)
+assert d[\"package_count\"] > 10000, d
+assert d[\"advisory_count\"] > 40000, d
+assert len(d[\"ecosystems\"]) == 8, d
+assert not d[\"warnings\"], d[\"warnings\"]
+print(\"installed db:\", d[\"package_count\"], \"packages /\", d[\"advisory_count\"], \"advisories\")
+'
+"
 
 if [ "$QUICK" -eq 0 ]; then
   header "10. Scale + demo (slow)"

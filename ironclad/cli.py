@@ -850,7 +850,7 @@ def advisories_group():
               help="Cap advisories per package (0 = no cap). Keeps the database bounded.")
 @click.option("--source-label", default="",
               help="Free-text provenance recorded in _meta (e.g. the upstream repo and commit).")
-@click.option("--as-json", is_flag=True, help="Print the summary as JSON.")
+@click.option("--json", "as_json", is_flag=True, help="Emit machine-readable JSON")
 def advisories_import_osv(source, output, ecosystems, limit, source_label, as_json):
     """Convert an OSV dump into IronClad's offline advisory database.
 
@@ -938,7 +938,7 @@ def advisories_import_osv(source, output, ecosystems, limit, source_label, as_js
         "size_bytes": os.path.getsize(output),
     }
     if as_json:
-        console.print(json.dumps(summary, indent=2))
+        console.print_json(json.dumps(summary))
     else:
         console.print(f"[green]\u2713[/] read {records} OSV records from {source}")
         if unreadable:
@@ -953,7 +953,7 @@ def advisories_import_osv(source, output, ecosystems, limit, source_label, as_js
 @advisories_group.command("stats")
 @click.option("--database", "database_path", default=None,
               help="Database to inspect (default: the bundled one).")
-@click.option("--as-json", is_flag=True)
+@click.option("--json", "as_json", is_flag=True)
 def advisories_stats(database_path, as_json):
     """Show what the active advisory database actually covers."""
     from ironclad.scanners.advisories import BundledAdvisorySource
@@ -973,7 +973,7 @@ def advisories_stats(database_path, as_json):
         "warnings": source.warnings,
     }
     if as_json:
-        console.print(json.dumps(summary, indent=2))
+        console.print_json(json.dumps(summary))
     else:
         for eco, count in per_eco.items():
             console.print(f"    {eco:<12} {count:>6} packages")

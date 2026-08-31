@@ -497,7 +497,7 @@ def test_import_osv_lowercases_package_keys(tmp_path):
 
     result = CliRunner().invoke(main, ["advisories", "import-osv",
                                        "--source", str(source), "--output", str(out),
-                                       "--as-json"])
+                                       "--json"])
     assert result.exit_code == 0, result.output
     summary = json.loads(result.output)
     assert summary["osv_records_read"] == 1
@@ -523,7 +523,7 @@ def test_import_osv_filters_ecosystems_and_reports_provenance(tmp_path):
 
     result = CliRunner().invoke(main, ["advisories", "import-osv", "--source", str(source),
                                        "--output", str(out), "--ecosystems", "javascript",
-                                       "--as-json"])
+                                       "--json"])
     assert result.exit_code == 0, result.output
     written = json.loads(out.read_text(encoding="utf-8"))
     assert [k for k in written if not k.startswith("_")] == [], (
@@ -549,7 +549,7 @@ def test_import_osv_keeps_only_the_requested_ecosystem(tmp_path):
 
     result = CliRunner().invoke(main, ["advisories", "import-osv", "--source", str(source),
                                        "--output", str(out), "--ecosystems", "python",
-                                       "--as-json"])
+                                       "--json"])
     assert result.exit_code == 0, result.output
     written = json.loads(out.read_text(encoding="utf-8"))
     assert [k for k in written if not k.startswith("_")] == ["python"]
@@ -595,8 +595,39 @@ def test_import_osv_skips_corrupt_files_and_keeps_going(tmp_path):
     out = tmp_path / "db.json"
 
     result = CliRunner().invoke(main, ["advisories", "import-osv", "--source", str(source),
-                                       "--output", str(out), "--as-json"])
+                                       "--output", str(out), "--json"])
     assert result.exit_code == 0, result.output
     summary = json.loads(result.output)
     assert summary["unreadable_files"] == 1
     assert summary["osv_records_read"] == 1
+
+
+def test_machine_readable_output_stays_parseable_with_long_values(tmp_path):
+    """Regression: `--json` must emit valid JSON however long the values are.
+
+    The importer originally printed through `console.print(json.dumps(...))`.
+    Rich word-wraps at 80 columns when stdout is not a terminal, so a long
+    string value was split across lines *inside* the quoted string and the
+    output stopped being valid JSON -- silently, and only for values long
+    enough to wrap. Every other `--json` command in the CLI uses
+    `console.print_json`, which does not wrap; this pins that.
+    """
+    import json as _json
+
+    from click.testing import CliRunner
+
+    from ironclad.cli import main
+
+    source = tmp_path / "osv"
+    source.mkdir()
+    (source / "requests.json").write_text(
+        open(os.path.join(FIXTURES, "GHSA-x84v-xcm2-53pg.json"), encoding="utf-8").read(),
+        encoding="utf-8")
+    long_label = "github/advisory-database (advisories/github-reviewed) at " + "e" * 120
+
+    result = CliRunner().invoke(main, ["advisories", "import-osv", "--source", str(source),
+                                       "--output", str(tmp_path / "db.json"),
+                                       "--source-label", long_label, "--json"])
+    assert result.exit_code == 0, result.output
+    parsed = _json.loads(result.output)
+    assert parsed["source"] == long_label, "the value must survive intact"
