@@ -24,6 +24,8 @@ from sqlalchemy.orm import Session as DbSession
 from ironclad import __version__
 from ironclad.api import schemas
 from ironclad.api.deps import (
+    EntityId,
+    EntityQuery,
     RequestContext,
     admin_required,
     get_context,
@@ -399,7 +401,7 @@ def list_api_tokens(context: RequestContext = Depends(require_principal),
 
 
 @auth_router.delete("/tokens/{token_id}", status_code=status.HTTP_204_NO_CONTENT)
-def revoke_api_token(token_id: int, context: RequestContext = Depends(require_principal),
+def revoke_api_token(token_id: EntityId, context: RequestContext = Depends(require_principal),
                      session: DbSession = Depends(get_db)):
     context.require(TOKEN_MANAGE)
     row = get_for_org(session, ApiToken, context.org_id, token_id)
@@ -517,7 +519,7 @@ def create_user(body: schemas.UserCreate, context: RequestContext = Depends(admi
 
 
 @users_router.patch("/{user_id}/role", response_model=schemas.UserOut)
-def change_role(user_id: int, body: schemas.RoleUpdate,
+def change_role(user_id: EntityId, body: schemas.RoleUpdate,
                 context: RequestContext = Depends(admin_required),
                 session: DbSession = Depends(get_db)):
     user = get_for_org(session, User, context.org_id, user_id)
@@ -577,7 +579,7 @@ def create_project(body: schemas.ProjectCreate, context: RequestContext = Depend
 
 
 @projects_router.get("/{project_id}", response_model=schemas.ProjectOut)
-def get_project(project_id: int, context: RequestContext = Depends(require_principal),
+def get_project(project_id: EntityId, context: RequestContext = Depends(require_principal),
                 session: DbSession = Depends(get_db)):
     context.require(PROJECT_READ)
     project = _require_project(session, context.org_id, project_id)
@@ -587,7 +589,7 @@ def get_project(project_id: int, context: RequestContext = Depends(require_princ
 
 
 @projects_router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
-def archive_project(project_id: int, context: RequestContext = Depends(require_principal),
+def archive_project(project_id: EntityId, context: RequestContext = Depends(require_principal),
                     session: DbSession = Depends(get_db)):
     """Archive rather than delete: findings and audit history must survive."""
     context.require(PROJECT_MANAGE)
@@ -674,7 +676,7 @@ def _run_scan_inline(request: Request, session: DbSession, context: RequestConte
 
 
 @scan_router.get("/scan/{scan_id}", response_model=schemas.ScanOut)
-def get_scan(scan_id: int, context: RequestContext = Depends(require_principal),
+def get_scan(scan_id: EntityId, context: RequestContext = Depends(require_principal),
              session: DbSession = Depends(get_db)):
     context.require(SCAN_READ)
     scan = get_for_org(session, Scan, context.org_id, scan_id)
@@ -698,7 +700,7 @@ def list_scans(project_id: Optional[int] = None,
 
 
 @scan_router.post("/scan/{scan_id}/cancel", response_model=schemas.ScanOut)
-def cancel_scan(scan_id: int, request: Request, context: RequestContext = Depends(require_principal),
+def cancel_scan(scan_id: EntityId, request: Request, context: RequestContext = Depends(require_principal),
                 session: DbSession = Depends(get_db)):
     context.require(SCAN_CANCEL)
     scan = get_for_org(session, Scan, context.org_id, scan_id)
@@ -726,7 +728,7 @@ def cancel_scan(scan_id: int, request: Request, context: RequestContext = Depend
 
 
 @scan_router.get("/scan/{scan_id}/findings", response_model=List[schemas.FindingOut])
-def scan_findings(scan_id: int, severity: Optional[str] = None,
+def scan_findings(scan_id: EntityId, severity: Optional[str] = None,
                   limit: int = Query(default=200, ge=1, le=schemas.MAX_PAGE_SIZE),
                   offset: int = Query(default=0, ge=0),
                   context: RequestContext = Depends(require_principal),
@@ -743,7 +745,7 @@ def scan_findings(scan_id: int, severity: Optional[str] = None,
 
 
 @scan_router.get("/scan/{scan_id}/result", response_model=schemas.ScanResultOut)
-def scan_result(scan_id: int, context: RequestContext = Depends(require_principal),
+def scan_result(scan_id: EntityId, context: RequestContext = Depends(require_principal),
                 session: DbSession = Depends(get_db)):
     """Scan plus its policy decision, recomputed deterministically."""
     context.require(SCAN_READ)
@@ -814,7 +816,7 @@ def list_findings(project_id: Optional[int] = None, severity: Optional[str] = No
 
 
 @findings_router.get("/{finding_id}", response_model=schemas.FindingOut)
-def get_finding(finding_id: int, context: RequestContext = Depends(require_principal),
+def get_finding(finding_id: EntityId, context: RequestContext = Depends(require_principal),
                 session: DbSession = Depends(get_db)):
     context.require(FINDING_READ)
     finding = get_for_org(session, Finding, context.org_id, finding_id)
@@ -824,7 +826,7 @@ def get_finding(finding_id: int, context: RequestContext = Depends(require_princ
 
 
 @findings_router.get("/{finding_id}/events", response_model=List[schemas.FindingEventOut])
-def finding_events(finding_id: int, context: RequestContext = Depends(require_principal),
+def finding_events(finding_id: EntityId, context: RequestContext = Depends(require_principal),
                    session: DbSession = Depends(get_db)):
     context.require(FINDING_READ)
     if get_for_org(session, Finding, context.org_id, finding_id) is None:
@@ -845,7 +847,7 @@ def finding_events(finding_id: int, context: RequestContext = Depends(require_pr
 
 
 @findings_router.patch("/{finding_id}", response_model=schemas.FindingOut)
-def update_finding(finding_id: int, body: schemas.FindingUpdate,
+def update_finding(finding_id: EntityId, body: schemas.FindingUpdate,
                    context: RequestContext = Depends(require_principal),
                    session: DbSession = Depends(get_db)):
     """Suppress or resolve a finding. Both are auditable state changes."""
@@ -867,7 +869,7 @@ def update_finding(finding_id: int, body: schemas.FindingUpdate,
 # SBOM / licenses
 # --------------------------------------------------------------------------- #
 @sbom_router.get("/sbom", response_model=schemas.SbomOut)
-def get_sbom(project_id: int, context: RequestContext = Depends(require_principal),
+def get_sbom(project_id: EntityQuery, context: RequestContext = Depends(require_principal),
              session: DbSession = Depends(get_db)):
     context.require(SBOM_READ)
     _require_project(session, context.org_id, project_id)
@@ -880,7 +882,7 @@ def get_sbom(project_id: int, context: RequestContext = Depends(require_principa
 
 
 @sbom_router.get("/sbom/document")
-def get_sbom_document(project_id: int, context: RequestContext = Depends(require_principal),
+def get_sbom_document(project_id: EntityQuery, context: RequestContext = Depends(require_principal),
                       session: DbSession = Depends(get_db)):
     """Return the raw CycloneDX document so it can be uploaded unchanged."""
     context.require(SBOM_READ)
@@ -894,7 +896,7 @@ def get_sbom_document(project_id: int, context: RequestContext = Depends(require
 
 
 @sbom_router.get("/sbom/components", response_model=List[schemas.ComponentOut])
-def list_components(project_id: int, license_class: Optional[str] = None,
+def list_components(project_id: EntityQuery, license_class: Optional[str] = None,
                     context: RequestContext = Depends(require_principal),
                     session: DbSession = Depends(get_db)):
     context.require(SBOM_READ)
@@ -911,7 +913,7 @@ def list_components(project_id: int, license_class: Optional[str] = None,
 
 
 @sbom_router.get("/licenses", response_model=schemas.LicenseSummaryOut)
-def get_licenses(project_id: int, context: RequestContext = Depends(require_principal),
+def get_licenses(project_id: EntityQuery, context: RequestContext = Depends(require_principal),
                  session: DbSession = Depends(get_db)):
     context.require(LICENSE_READ)
     _require_project(session, context.org_id, project_id)
@@ -996,7 +998,7 @@ def validate_policy(body: schemas.PolicyUpsert, context: RequestContext = Depend
 
 
 @policy_router.delete("/{policy_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_policy(policy_id: int, context: RequestContext = Depends(require_principal),
+def delete_policy(policy_id: EntityId, context: RequestContext = Depends(require_principal),
                   session: DbSession = Depends(get_db)):
     context.require(POLICY_MANAGE)
     row = get_for_org(session, PolicyRow, context.org_id, policy_id)
@@ -1068,7 +1070,7 @@ def create_integration(body: schemas.IntegrationCreate,
 
 
 @integration_router.delete("/{integration_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_integration(integration_id: int, context: RequestContext = Depends(require_principal),
+def delete_integration(integration_id: EntityId, context: RequestContext = Depends(require_principal),
                        session: DbSession = Depends(get_db)):
     context.require(INTEGRATION_MANAGE)
     row = get_for_org(session, Integration, context.org_id, integration_id)
@@ -1082,7 +1084,7 @@ def delete_integration(integration_id: int, context: RequestContext = Depends(re
 
 
 @integration_router.post("/{integration_id}/test", response_model=schemas.IntegrationOut)
-def test_integration(integration_id: int, context: RequestContext = Depends(require_principal),
+def test_integration(integration_id: EntityId, context: RequestContext = Depends(require_principal),
                      session: DbSession = Depends(get_db)):
     """Deliver a real test payload and record the outcome."""
     context.require(INTEGRATION_MANAGE)

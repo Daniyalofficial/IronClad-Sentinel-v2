@@ -28,6 +28,7 @@ from typing import Any, Dict, Optional
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
+from sqlalchemy import exc as sqlalchemy_exc
 from sqlalchemy import text
 
 from ironclad import __version__
@@ -161,6 +162,22 @@ def create_app(database_url: Optional[str] = None, *, run_migrations_on_start: b
         for header, value in SECURITY_HEADERS.items():
             response.headers.setdefault(header, value)
         return response
+
+    @app.exception_handler(OverflowError)
+    @app.exception_handler(sqlalchemy_exc.DataError)
+    async def _numeric_out_of_range(request: Request, exc: Exception):
+        """A client-supplied number too wide for the column type.
+
+        Bounded path parameters (``EntityId``) reject the common case with a
+        422 before it reaches the database. This is the backstop for any
+        integer that still does -- SQLite raises ``OverflowError`` and
+        PostgreSQL raises ``DataError`` -- so an attacker cannot turn an
+        oversized identifier into a 500.
+        """
+        logger.warning("numeric value out of range",
+                       extra={"fields": {"path": request.url.path}})
+        return JSONResponse({"detail": "numeric value out of range"},
+                            status_code=422, headers=SECURITY_HEADERS)
 
     @app.exception_handler(Exception)
     async def _unhandled(request: Request, exc: Exception):  # pragma: no cover - defensive

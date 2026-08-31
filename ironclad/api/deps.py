@@ -14,9 +14,9 @@ X-Org-Id header", no implicit admin.
 from __future__ import annotations
 
 import os
-from typing import Optional
+from typing import Annotated, Optional
 
-from fastapi import Depends, Header, HTTPException, Request, status
+from fastapi import Depends, Header, HTTPException, Path, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
@@ -185,3 +185,24 @@ def cors_allowed_origins() -> list:
     """Explicit allowlist; the API never reflects an arbitrary Origin."""
     raw = os.environ.get("IRONCLAD_CORS_ORIGINS", "")
     return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+
+# Largest signed 64-bit integer, i.e. the widest identifier SQLite and
+# PostgreSQL can both store.
+MAX_IDENTIFIER = 9_223_372_036_854_775_807
+
+EntityId = Annotated[
+    int,
+    Path(ge=1, le=MAX_IDENTIFIER,
+         description="Database identifier. Bounded because an unbounded int "
+                     "reaches the driver as a Python arbitrary-precision int "
+                     "and raises OverflowError, which surfaced as a 500."),
+]
+
+EntityQuery = Annotated[
+    int,
+    Query(ge=1, le=MAX_IDENTIFIER,
+          description="Database identifier. Bounded for the same reason as "
+                      "EntityId: an unbounded int reaches the driver and "
+                      "raises, which surfaced as a 500."),
+]
