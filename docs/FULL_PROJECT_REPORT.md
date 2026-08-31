@@ -2,7 +2,7 @@
 
 **Report date:** 2026-08-31
 **Branch:** `arena/01a03853-ironclad-sentinel-v2`
-**HEAD (local and remote):** `902747b`
+**HEAD (local and remote):** `db5220d`
 **Pull request:** #8 — `OPEN`, `MERGEABLE`
 **GitHub CI:** **4/4 checks pass**
 
@@ -221,17 +221,43 @@ each reproduced with a real file carrying the payload:
 SARIF and CycloneDX go through `json.dumps` and were already safe — pinned by
 a test rather than assumed.
 
+### 4.10 A second advisory feed, and the bug merging it exposed (`db5220d`)
+
+Scored recall against `pypa/advisory-database` — a different team, `PYSEC-`
+identifiers, NVD-derived rather than GitHub-reviewed. **97/104 = 93.27%**, and
+every miss was real: the database had **zero** advisories for `click`, and was
+missing `CVE-2025-49142` (jinja2) and `CVE-2022-29361` (werkzeug).
+
+The importer now reads YAML as well as JSON and accepts `--source` more than
+once. Because the two feeds name one CVE differently, entries are
+deduplicated by CVE with earlier sources winning — the merge collapsed
+**26,602 duplicates** that would otherwise have double-reported most Python
+vulnerabilities.
+
+Merging then exposed a converter bug the single feed had hidden:
+`PYSEC-2025-74` is a **Nautobot** advisory that names `jinja2` and carries no
+ranges and no versions. Turning absent data into "every version affected"
+flagged every jinja2 install in existence for someone else's bug. Absent
+version data is now dropped — distinct from an unbounded range, since
+`PYSEC-2025-3` is a malicious package with `introduced: 0` and no fix, where
+"every version affected" is correct. Both real records are vendored as
+fixtures.
+
+After: independent recall **105/105**, pipeline recall **114/114**,
+real-world corpus **24 findings / 0 false positives**.
+
 ---
 
 ## 5. Test results
 
 | | |
 |---|---|
-| Full suite, live PostgreSQL 16.2 | **1,431 passed, 0 skipped** |
-| Full suite, no server URL | **1,415 passed, 16 skipped** |
+| Full suite, live PostgreSQL 16.2 | **1,438 passed, 0 skipped** |
+| Full suite, no server URL | **1,422 passed, 16 skipped** |
 | Core-only (`pip install -e .`) | **571 passed, 16 skipped** |
 | `scripts/verify_all.sh` | **35 passed, 0 failed, 1 skipped** (Docker) |
-| Dependency pipeline recall | `benchmarks/pipeline_recall.py` | **110/110 = 1.0000** on 8 real revisions |
+| Dependency pipeline recall | `benchmarks/pipeline_recall.py` | **114/114 = 1.0000** |
+| Recall vs an independent feed | `benchmarks/independent_recall.py` | **105/105 = 1.0000** (was 97/104 = **0.9327** before the second feed) |
 | Synthetic corpus | precision **1.0000**, recall **1.0000** (12 TP, 0 FP, 0 FN) |
 | Real-world corpus | 6 repositories, **20 findings, 0 false positives** |
 | Integration delivery | **51/51** checks against a real local HTTP server |
@@ -239,7 +265,7 @@ a test rather than assumed.
 | Test modules | **37**, 1,394 collected |
 | Product code | 14,944 lines of Python in `ironclad/` |
 
-Tests added this session: **581** (850 → 1,431).
+Tests added this session: **588** (850 → 1,438).
 
 Largest modules: `test_api_malformed` 442, `test_api` 102,
 `test_rule_packs_extended` 71, `test_python_flows` 54,
@@ -259,7 +285,7 @@ unpushed, so they have **not** been through CI.
 | No integration proven against a real endpoint | **Credentials** — no GitHub/GitLab/Slack/Teams/Jira tokens | `integration_check.py` labels all five `NOT EXTERNALLY VERIFIED` itself |
 | Live CI does not run the PostgreSQL behavioural suite | **Repository permissions** — no `workflows` scope | Fixed in the staged `deploy/ci/verify.yml`; verified locally 16/16 |
 | Push and CI stopped mid-session | **Credentials** — GitHub token expired | 3 commits local-only |
-| End-to-end recall against an independent vulnerability source | **Data** — needs a labelled corpus from a source other than the one the scanner reads | *Pipeline* recall is now measured (110/110); data completeness is not |
+| End-to-end recall against a fully independent source | Now measured (105/105) but **partly circular**, since both feeds are in the shipped database | A source outside both feeds would be needed for an uncircular figure |
 | No OIDC / OAuth2 | Not blocked — **not implemented** | Real enterprise sales blocker |
 | Analysis is intra-procedural, Python-only for taint | Design trade | Regex rules elsewhere cannot model data flow |
 | Advisory DB is a snapshot | Design | Goes stale between releases; regenerate or overlay |

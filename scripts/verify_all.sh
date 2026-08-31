@@ -143,6 +143,10 @@ step "real-world corpus"       python benchmarks/real_world_corpus.py
 # Recall of the parse -> normalise -> lookup -> range-match pipeline against
 # real pinned revisions. Also self-skips without network.
 step "pipeline recall"         python benchmarks/pipeline_recall.py
+# Scores against pypa/advisory-database, a feed maintained independently of
+# github/advisory-database. Self-skips unless IRONCLAD_PYPA_VULNS points at a
+# checkout of its `vulns` directory.
+step "independent-feed recall"  python benchmarks/independent_recall.py
 
 header "7. PostgreSQL"
 PG_URL=""
