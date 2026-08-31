@@ -1,172 +1,216 @@
 # IronClad Sentinel
 
-**Offline, self-hosted Application Security scanning platform.**
-Zero telemetry. Zero external API calls. Zero "phone home." Runs entirely
-inside your own network, air-gapped environment, or laptop.
+**Self-hosted application security platform.** SAST, secrets, dependency
+vulnerabilities, infrastructure-as-code, SBOM and license compliance —
+turned into findings engineering teams can actually act on. Zero telemetry,
+zero phone-home, and the scanning path never executes the code it reads.
 
-Built for security/AppSec teams who need SAST + secrets + dependency-CVE
-+ Infrastructure-as-Code + SBOM/license-compliance scanning but whose
-policies (finance, healthcare, defense, or just sane engineering) forbid
-shipping proprietary source code to a third-party SaaS scanner.
+> Your company has thousands of signals across dozens of systems. IronClad
+> Sentinel analyses them and turns security findings into actionable,
+> explainable security intelligence for engineering teams.
+
+Two ways to run it:
+
+* **CLI** — a single offline scanner for laptops, pre-commit hooks and CI.
+  No database, no network.
+* **Server** — API + dashboard + worker with organizations, users, roles,
+  policies, baselines, audit and integrations, backed by SQLite or
+  PostgreSQL.
 
 ---
-
-## Why this exists
-
-Every mainstream competitor in this space (Snyk, Semgrep Cloud, Checkov
-Cloud, etc.) is, at its core, a SaaS product: your source code, or at
-minimum metadata about it, transits their servers. For a large class of
-enterprise buyers -- regulated industries, defense contractors, anyone
-handling customer PII -- that's a non-starter regardless of how good the
-detection engine is.
-
-IronClad Sentinel is architected around one hard constraint from day
-one: **the tool must fully function with the network cable unplugged.**
-Every engine, every rule, every report format, and even license
-verification are 100% local computation. That constraint becomes the
-sales pitch: "the only enterprise-grade scanner your security team will
-actually approve to touch the crown-jewel repo."
-
-## What's inside
-
-| Engine | What it does |
-|---|---|
-| **Deep Python AST analyzer** | Real taint analysis (not just regex): tracks untrusted input from request params/env/stdin into SQL execution, shell exec, `eval`, deserialization sinks. Also flags structural issues (assert-based auth checks, debug flags, weak hashes, disabled TLS verification, mutable default args). |
-| **Multi-language rule engine** | A YAML rule DSL (like Semgrep, but simpler and fully offline) with bundled packs for JavaScript/TypeScript, Java, Go, Ruby, PHP, C#, Terraform, Kubernetes YAML, SQL, Shell, Dockerfiles, and generic secret patterns. Easy to extend with your own `.yml` rule packs. |
-| **Secrets detector** | Known-provider token regexes (AWS, GitHub, Stripe, Slack, Google, DB connection strings, PEM private keys) PLUS a Shannon-entropy-based generic detector that catches custom/internal secrets no vendor regex would recognize. |
-| **Dependency vulnerability scanner** | Parses `requirements.txt`, `package.json`, `go.mod` and matches installed versions against a bundled, curated offline advisory database (`ironclad/data/vuln_db.json`) -- update this file during your own controlled release process; the tool never fetches it live. |
-| **IaC misconfiguration scanner** | Dedicated Dockerfile analysis (missing USER, privileged patterns, curl\|sh, hardcoded secrets in ENV/ARG, floating tags, missing HEALTHCHECK) plus Kubernetes/Terraform rules via the rule engine. |
-| **SBOM generator** | Produces a CycloneDX 1.5 JSON SBOM from discovered manifests -- the format most enterprise procurement/compliance processes now require. |
-| **License compliance checker** | Flags dependencies under strong-copyleft licenses (GPL/AGPL) that commonly trigger legal review. |
-
-Reports export as **JSON, SARIF 2.1.0** (native GitHub Code Scanning /
-Azure DevOps ingestion), **HTML** (dark-themed, shareable), **Markdown**
-(perfect for PR comments), and **JUnit XML** (renders in virtually every
-CI system's native test-results UI).
 
 ## Quick start
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e .
+pip install -e ".[server,dev]"
 
-# Generate the intentionally-vulnerable demo fixture (not committed to
-# git -- generated at runtime so no secret-shaped string ever lives in
-# git history/trips GitHub push protection) and scan it
-python demo/generate_vulnerable_app.py
-ironclad scan demo/vulnerable_app --format json,html,sarif --output-dir /tmp/reports
-
-# Generate an SBOM
-ironclad sbom demo/vulnerable_app --out sbom.json
-
-# Check license status
-ironclad license status
+ironclad doctor                        # verify the installation
+ironclad scan . --policy policy.yaml   # scan and gate
+ironclad sbom . --out sbom.json        # CycloneDX 1.5
 ```
 
-Trial mode (no license file installed) runs the AST + rule-engine +
-secrets scanners with no time limit and no size limit -- enough for a
-real evaluation. A full license additionally unlocks the
-dependency/IaC/license-compliance engines and is what you'd actually
-gate CI enforcement on.
-
-## CI/CD integration
-
-Drop-in configs are provided for:
-- `integrations/github-actions/ironclad-scan.yml` -- uploads SARIF straight into GitHub's native Security tab.
-- `integrations/gitlab-ci/.gitlab-ci.yml` -- surfaces JUnit results in GitLab's native pipeline UI.
-- `integrations/pre-commit/pre-commit-hook.sh` -- blocks commits introducing new high/critical findings, fully local.
-
-## Baseline / gradual adoption
-
-First scans of a real codebase often surface a big backlog. Snapshot it
-once and gate CI only on *new* findings going forward:
+Run the whole product story end to end (generates a vulnerable repo, fails
+the gate, baselines the backlog, fixes the code, passes the gate):
 
 ```bash
-ironclad scan . --update-baseline --baseline .ironclad/baseline.json
-# later, in CI:
-ironclad scan . --baseline .ironclad/baseline.json --fail-on high
+bash demo/run_demo.sh
 ```
 
-## Licensing model (how this makes money)
-
-IronClad Sentinel ships with an **offline Ed25519-signed license system**
-(`ironclad/licensing/keygen.py`). There is no license server and no
-recurring hosting cost for you:
-
-1. Run `python -m ironclad.licensing.keygen init-keypair` **once**, ever,
-   on a machine you control. Keep the private key secret; the public key
-   ships inside the product.
-2. When someone pays, run `issue-license` to generate a small signed
-   `license.json` and email it to them.
-3. The customer drops it at `~/.ironclad/license.json`. Every run
-   verifies the signature locally against the bundled public key -- no
-   internet connection required on either side, ever.
-
-This means your entire revenue operation is: collect payment -> run one
-local command -> send a file. No infrastructure to maintain, no uptime
-SLA to worry about, and it's a genuine sales advantage (buyers in
-regulated industries specifically prefer license enforcement that
-doesn't require an outbound network call).
-
-See `docs/PRICING_AND_GTM.md` for a suggested tiering/pricing model and
-sales positioning.
-
-## Packaging & distribution
+Run the server:
 
 ```bash
-bash scripts/build_release.sh
+export IRONCLAD_DATABASE_URL="sqlite:///./.ironclad/ironclad.db"
+ironclad server init --org-name "Acme Corp" --admin-email you@acme.com \
+  --admin-password "$ADMIN_PASSWORD"
+ironclad serve                # API + dashboard on :8000
+ironclad server worker        # background scan worker (separate process)
 ```
 
-Produces both a standard Python wheel (for customers with their own
-Python/pip setup or internal package index) and a single-file
-PyInstaller binary with zero Python dependency at all -- the strongest
-"just hand me a binary" option for locked-down customer environments.
+Dashboard at `/ui`. The interactive API docs at `/docs` (and `/openapi.json`)
+are **disabled by default**; opt in with `IRONCLAD_ENABLE_DOCS=1` while
+developing.
 
-Customers install with:
+---
+
+## What it detects
+
+| Engine | What it does |
+|---|---|
+| **Python AST + taint** | Real source → sanitizer → sink analysis: SQL injection, command injection, `eval`/`exec`, path traversal, SSRF, XSS, open redirect, template injection, XXE, unsafe deserialization, weak TLS, insecure randomness, debug flags, assert-based auth |
+| **Multi-language rules** | 9 YAML packs, **66 rules** across Python, JS/TS, Java, Go, Ruby, PHP, C#, SQL, shell, Terraform, Kubernetes, Dockerfiles. Extend without touching code |
+| **Secrets** | Provider patterns (AWS, GitHub, Stripe, Slack, Google, DB URIs, PEM keys), Shannon-entropy detection, and a name-based credential rule that catches weak literals an entropy detector misses. **Secret values are never emitted** |
+| **Dependencies** | **8 ecosystems, 23 manifest parsers**: Python (incl. `Pipfile`, `setup.py`, `constraints.txt` and pip-compile `requirements/*.txt`), npm, Go, Rust, Java (Maven + Gradle), PHP, Ruby, NuGet. A version *range* is never reported as an installed version; malformed manifests reported, not silently skipped |
+| **IaC** | Dockerfiles, Kubernetes and Terraform: privileged containers, host networking, root users, world-open ingress, disabled encryption, exposed ports, secrets in ENV/ARG, floating tags |
+| **SBOM** | CycloneDX 1.5 **and** SPDX 2.3 from one component model, deterministic output, both schema-validated |
+| **Licenses** | SPDX expression parsing (`OR`/`AND`/`WITH`), allow/warn/block policy. Unknown is **never** assumed permissive |
+
+Reports: **JSON, SARIF 2.1.0, HTML, Markdown, JUnit XML, CycloneDX** — all
+rendered from one `ScanResult`, so they cannot disagree.
+
+## Policy and gradual adoption
 
 ```bash
-bash scripts/customer_install.sh ironclad_sentinel-1.0.0-py3-none-any.whl license.json
+ironclad policy init --out policy.yaml     # commented starting point
+ironclad policy validate policy.yaml
+ironclad scan . --policy policy.yaml       # deterministic pass/fail
 ```
 
-## Extending detection
+A policy sets severity gates, `fail_on`, a risk-score cap, license
+allow/warn/block lists, blocked packages, a confidence floor and rule
+severity overrides. Evaluation is deterministic: the same scan plus the
+same policy always produces the same decision.
 
-Add your own rule packs (no code changes required) by dropping YAML
-files following the schema documented in `ironclad/rules/schema.py` into
-a directory referenced by `custom_rules_dirs` in `.ironclad.yml`. See
-`.ironclad.example.yml` for the full configuration surface.
-
-## Running the test suite
+First scan of a real codebase surfaces a backlog. Snapshot it and gate only
+on new findings:
 
 ```bash
-pip install -e . pytest
-python -m pytest tests/ -v
+ironclad baseline create . --out .ironclad/baseline.json \
+  --reason "TICKET-1234" --expires-in-days 90 --created-by secops@acme.com
+ironclad scan . --policy policy.yaml --baseline .ironclad/baseline.json
 ```
 
-## Project layout
+Baselines carry a reason, an author and an **expiry**. Accepted findings
+stop gating; expired ones start gating again. Critical findings cannot be
+baselined without a reason unless you pass `--force`.
+
+## Server
 
 ```
-ironclad/
-  cli.py                    entrypoint (click-based CLI)
-  core/                     config, file discovery, data models, orchestration engine, baseline diffing
-  scanners/                 the six detection engines
-  rules/                    YAML rule DSL loader + bundled rule packs
-  reporting/                JSON/SARIF/HTML/Markdown/JUnit renderers
-  licensing/                offline Ed25519 license issuance & verification
-  data/                     bundled offline vulnerability + license databases
-demo/generate_vulnerable_app.py  generates the intentionally-vulnerable app fixture at runtime (gitignored output)
-integrations/               GitHub Actions, GitLab CI, pre-commit hook templates
-scripts/                    build & customer installation scripts
-tests/                      pytest suite (39+ tests across every engine)
-docs/                       pricing/GTM notes, architecture notes
+POST /scan ──► jobs table ──► worker ──► scanner ──► database ──► events / reports
 ```
 
-## Explicitly out of scope (by design)
+The API never blocks on a scan: `POST /scan` returns **202** immediately.
 
-- No telemetry, analytics, or crash reporting of any kind.
-- No auto-update mechanism that phones home.
-- No live vulnerability-feed API calls at scan time (update
-  `ironclad/data/vuln_db.json` yourself during releases).
-- No license-server dependency for verification.
+| Capability | Detail |
+|---|---|
+| Storage | 19 tables (18 application tables plus the `schema_migrations` ledger), checksummed SQL migrations for SQLite **and** PostgreSQL. Schema is never created by application code |
+| Authentication | PBKDF2-HMAC-SHA256 (210k iterations), tokens stored as digests, self-clearing lockout |
+| Authorization | 5 roles (`owner > admin > security > developer > viewer`), 19 explicit permissions, deny by default |
+| Multi-tenancy | Every tenant-owned row is `org_id`-scoped; a foreign row is a **404**, never a 403 |
+| Jobs | Durable queue, at-least-once, exponential-backoff retries, stale-claim recovery |
+| Events | 15 typed contracts, validated at publish time, persisted |
+| Audit | Append-only, credential-redacted, filterable |
+| Observability | JSON structured logs with request/correlation ids, Prometheus metrics at `/metrics` |
+| Integrations | Webhook (HMAC-signed), GitHub (SARIF upload), GitLab, Slack/Teams, Jira — real deliveries, bounded retries |
 
-If a feature request would require any of the above, it doesn't belong
-in this product -- that constraint *is* the product.
+Full endpoint reference: [`docs/API.md`](docs/API.md).
+
+## CI/CD
+
+```yaml
+- run: ironclad scan . --policy policy.yaml --format sarif --output-dir reports
+- uses: github/codeql-action/upload-sarif@v3
+  with: { sarif_file: reports/ironclad-report.sarif.json }
+```
+
+Exit codes are a published contract (`ironclad/core/exit_codes.py`):
+`0` pass, `1` gate failed, `2` usage, `3` config, `4` target, `5` internal.
+
+Ready-made configs: `integrations/github-actions/`, `integrations/gitlab-ci/`,
+`integrations/pre-commit/`.
+
+## Deployment
+
+```bash
+docker compose up -d --build          # Postgres + API + worker
+kubectl apply -f deploy/k8s/          # namespace, API, worker, HPA, ingress
+```
+
+See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for all three topologies, the
+configuration reference, and backup/restore.
+
+## Performance
+
+Measured on this repository's CI hardware
+(`python benchmarks/scale_benchmark.py`):
+
+| Files | Wall clock | Files/sec | Peak RSS |
+|---:|---:|---:|---:|
+| 1,000 | 0.52 s | 1,917 | 21 MB |
+| 10,000 | 4.67 s | 2,142 | 26 MB |
+| 100,000 | 47.1 s | 2,122 | 72 MB |
+
+Throughput is flat and memory grows slowly — there is no quadratic pass.
+Detection accuracy on the labelled corpus: precision **1.00**, recall
+**1.00** (`benchmarks/corpus_metrics.py`). Read that number with the caveat
+in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md): the corpus is small and
+synthetic.
+
+## Tests
+
+```bash
+pytest -q                                     # 452 tests
+python benchmarks/corpus_metrics.py           # detection accuracy
+ironclad scan ironclad --fail-on high         # self-scan must stay clean
+```
+
+`ironclad scan ironclad` reports **0 findings, grade A+** across 81 files.
+Running it found two real precision bugs, both fixed and now covered by
+regression tests.
+
+## Documentation
+
+| Document | Contents |
+|---|---|
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Data flow, the single-`Finding` decision, engine boundaries |
+| [API.md](docs/API.md) | Every endpoint, permissions, error contract, tenancy semantics |
+| [DEPLOYMENT.md](docs/DEPLOYMENT.md) | Three topologies, configuration reference, migrations, backup |
+| [SECURITY.md](docs/SECURITY.md) | How the product itself is secured, and its known limitations |
+| [THREAT_MODEL.md](docs/THREAT_MODEL.md) | Assets, actors, 10 entry points — each with the test that proves the control |
+| [DISASTER_RECOVERY.md](docs/DISASTER_RECOVERY.md) | Backup, restore, failure modes, RTO/RPO |
+| [BENCHMARKS.md](docs/BENCHMARKS.md) | Measured scale and accuracy numbers |
+| [CONTRIBUTING.md](docs/CONTRIBUTING.md) | The rules for changing this codebase |
+| [PROGRESS.md](docs/PROGRESS.md) | Honest completion matrix — including what is **not** finished |
+| [CHANGELOG.md](docs/CHANGELOG.md) | What changed, and the 15 bugs found and fixed |
+| [PRICING_AND_GTM.md](docs/PRICING_AND_GTM.md) | Positioning, tiering, pilot guide |
+
+## Licensing model
+
+Offline Ed25519-signed license tokens (`ironclad/licensing/`). No license
+server, no outbound call at verification time: collect payment → run one
+local command → send a file. Trial mode runs the AST, rule-engine and
+secrets scanners with no time or size limit.
+
+## What this is not
+
+Stated plainly, because a scanner that overstates its guarantees is worse
+than one that under-delivers — the full list is in
+[`docs/PROGRESS.md`](docs/PROGRESS.md):
+
+* Taint analysis is **intra-procedural**; flows crossing a function
+  boundary are missed.
+* Deep analysis is **Python-only**. Other languages are regex rules.
+* The bundled advisory database is a **snapshot** of
+  `github/advisory-database` (13,095 packages / 44,499 advisories across 8
+  ecosystems), regenerated at release time by `scripts/build_advisory_db.sh`.
+  It is not a live feed — refresh it, or point `advisory_path` at your own
+  overlay.
+* **No OIDC/OAuth2.** Local auth and API tokens only.
+* PostgreSQL is supported and tested against a live server, but the default
+  suite proves **SQLite**.
+* The dashboard is read-only; triage happens through the API.
+
+No telemetry, no analytics, no auto-update, no live feed at scan time. If a
+feature request would require any of those, it does not belong in this
+product.

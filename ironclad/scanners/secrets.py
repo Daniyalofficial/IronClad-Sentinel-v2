@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import math
 import re
-from typing import List
+from typing import List, Optional
 
 from ironclad.core.models import CodeLocation, Engine, Finding, Severity
 from ironclad.core.walker import DiscoveredFile, read_text_safely
@@ -34,11 +34,133 @@ ASSIGNMENT_PATTERN = re.compile(
 
 # Common false-positive substrings we never want to flag even if entropy is high.
 PLACEHOLDER_HINTS = re.compile(
-    r"(?i)(example|changeme|xxxx|dummy|placeholder|your[_-]?key|test[_-]?value|"
-    r"0000000|1111111|abcdefg|lorem|sample|fixme|todo)"
+    r"(?i)(example|changeme|change[_-]?me|replace[_-]?me|xxxx|dummy|placeholder|"
+    r"your[_-]?(key|secret|password|passwd|pass|pwd|token|email|user|username|"
+    r"domain|host|client[_-]?id)|"
+    r"test[_-]?value|0000000|1111111|abcdefg|lorem|"
+    r"sample|fixme|todo|<[a-z_]+>)"
 )
 
 BASE64_LIKE = re.compile(r"^[A-Za-z0-9+/=_\-]+$")
+
+# A credential assignment with a *literal* value. Independent of entropy:
+# a weak password such as "super-secret-password-123" has low entropy but is
+# exactly the finding an operator needs to see, so an entropy-only detector
+# would silently miss it.
+CREDENTIAL_ASSIGNMENT = re.compile(
+    r"""(?P<var>[A-Za-z_][A-Za-z0-9_.\-]{1,60})\s*[:=]\s*(?P<quote>['"])(?P<value>[^'"\n]{6,200})(?P=quote)"""
+)
+
+#: Literal values that look like a credential variable name but are not a
+#: secret (field names, defaults, sentinels). Matching the variable name is
+#: not the same as containing one.
+NON_SECRET_LITERALS = {
+    "password", "passwd", "pwd", "secret", "token", "api_key", "apikey",
+    "access_key", "private_key", "none", "null", "true", "false", "nil",
+    "unset", "undefined", "redacted", "masked", "n/a", "-", "changeme",
+}
+
+#: A dotted lowercase identifier such as "token.manage" or "project.read".
+#: Permission and enum constants are routinely assigned to credential-named
+#: variables (TOKEN_MANAGE = "token.manage"); they are not secrets, and
+#: reporting them is noise that trains people to ignore the rule.
+DOTTED_IDENTIFIER = re.compile(r"^[a-z0-9_]+(?:\.[a-z0-9_]+)+$")
+
+
+def _is_self_describing_constant(var_name: str, value: str) -> bool:
+    """True when the literal simply restates the variable name.
+
+    ``TOKEN_MANAGE = "token.manage"`` and ``SCAN_READ = "scan.read"`` are
+    permission catalogues, not credentials. Comparing the normalised
+    variable name against the value removes the whole class without
+    weakening detection of real literals.
+    """
+    if not DOTTED_IDENTIFIER.match(value):
+        return False
+    normalized = var_name.strip().lower().split(".")[-1].replace("_", ".").replace("-", ".")
+    return normalized == value
+
+
+# Extensions that are documentation rather than code. A credential-shaped
+#: line in a changelog is prose, not a leak -- but provider patterns (a real
+#: AWS key pasted into a README) are still reported, so this only gates the
+#: name-based rule.
+DOC_EXTENSIONS = (".md", ".markdown", ".rst", ".txt")
+
+#: Paths that are tests. `assert` is the correct idiom there and fixture
+#: URLs are expected, so the low-precision rules are skipped; high-confidence
+#: provider patterns still run everywhere, because a real key committed to a
+#: test suite is still a leak.
+TEST_PATH_MARKERS = ("/tests/", "/test/", "test_", "_test.", "conftest.")
+
+
+def is_test_path(rel_path: str) -> bool:
+    """True when a path looks like test code or fixtures."""
+    normalized = "/" + str(rel_path).replace("\\", "/").lower()
+    if "/tests/" in normalized or "/test/" in normalized:
+        return True
+    name = normalized.rsplit("/", 1)[-1]
+    return name.startswith("test_") or name.startswith("conftest") or name.endswith("_test.py")
+
+
+def is_docstring_line(lines: List[str], index: int) -> bool:
+    """True when ``lines[index]`` sits inside a docstring.
+
+    A region counts as a docstring only when its opening line *starts* with
+    the triple quote, i.e. nothing precedes it. An assignment such as
+    ``SIGNING_KEY = <triple-quote>-----BEGIN ...`` is a string literal rather
+    than a docstring, so committed key material is still reported -- which is
+    what the corpus fixture asserts.
+    """
+    triple_double = '"' * 3
+    triple_single = "'" * 3
+    open_quote = None
+    for position in range(index + 1):
+        raw = lines[position]
+        stripped = raw.strip()
+        if open_quote is None:
+            for quote in (triple_double, triple_single):
+                if stripped.startswith(quote):
+                    rest = stripped[3:]
+                    # A single-line docstring opens and closes on one line.
+                    if not (len(rest) >= 3 and rest.endswith(quote)):
+                        open_quote = quote
+                    break
+        elif open_quote in raw:
+            open_quote = None
+    return open_quote is not None
+
+
+# A bare URL assigned to a credential-named variable is a configuration
+#: value, not a secret -- e.g. rubygems' `EC2_IAM_TOKEN` holds the EC2
+#: metadata endpoint URL. A URL that *embeds* credentials (user:pass@host)
+#: is still reported by the basic-auth rule, so nothing is lost.
+BARE_URL_VALUE = re.compile(r"^https?://[^/\s:@]+(?::\d+)?(?:/|$)")
+
+
+def _is_bare_url(value: str) -> bool:
+    return bool(BARE_URL_VALUE.match(value.strip()))
+
+
+def _keyword_is_namespace_prefix(var_name: str) -> bool:
+    """True when the sensitive word is a namespace prefix, not the subject.
+
+    ``TOKEN_COMMENT_BEGIN`` is a lexer constant whose name merely starts with
+    TOKEN; ``SECRET_KEY`` and ``API_TOKEN`` are credentials. The distinction
+    is whether the keyword is the leading segment of a 3+-segment name.
+    """
+    segments = [seg for seg in re.split(r"[_\-]", var_name.lower()) if seg]
+    if len(segments) < 3:
+        return False
+    keywords = {"token", "secret", "password", "passwd", "key", "credential"}
+    return segments[0] in keywords
+
+
+#: Patterns that mean "this value comes from configuration", not from source.
+ENV_LOOKUP_HINTS = re.compile(
+    r"(?i)(os\.environ|getenv|process\.env|System\.getenv|ENV\[|vault|keyring|"
+    r"secret_?manager|config\.get|settings\.|fetch_?secret|read_?secret)"
+)
 
 EXCLUDED_LANGUAGES = {"other"}
 BINARY_LOOKING_EXT = {".png", ".jpg", ".gif", ".woff", ".ttf"}
@@ -58,15 +180,114 @@ def shannon_entropy(data: str) -> float:
     return entropy
 
 
+#: Hex digests at the lengths the common algorithms produce. A pinned
+#: checksum or commit digest assigned to a credential-named variable
+#: (`api_token = "<sha256>"`) is not a secret, and reporting it trains
+#: people to ignore the rule.
+_HEX_DIGEST_LENGTHS = (32, 40, 64)  # md5, sha1/git sha, sha256
+
+
 def _looks_like_hash_or_uuid(value: str) -> bool:
-    """Skip common non-secret high-entropy patterns: hex hashes, UUIDs, git SHAs."""
-    if re.fullmatch(r"[0-9a-fA-F]{32}", value):
-        return True  # md5-length hex
-    if re.fullmatch(r"[0-9a-fA-F]{40}", value):
-        return True  # sha1-length hex / git commit sha
+    """Skip common non-secret high-entropy patterns: hex digests and UUIDs."""
+    for length in _HEX_DIGEST_LENGTHS:
+        if re.fullmatch(r"[0-9a-fA-F]{%d}" % length, value):
+            return True
     if re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", value):
         return True  # UUID
     return False
+
+
+#: High-confidence provider shapes that are worth reporting even inside a
+#: test suite or a README -- these are recognisable formats, not guesses.
+PROVIDER_SHAPE = re.compile(
+    r"(AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{20,}|"
+    r"sk-[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|"
+    r"-----BEGIN [A-Z ]*PRIVATE KEY-----|"
+    r"AIza[0-9A-Za-z\-_]{35})"
+)
+
+
+def _line_has_provider_shape(line: str) -> bool:
+    return bool(PROVIDER_SHAPE.search(line))
+
+
+def _scan_credential_assignments(discovered: DiscoveredFile, lines: List[str],
+                                 findings: List[Finding],
+                                 skip_lines: Optional[set] = None) -> set:
+    """Flag credentials assigned a literal value, regardless of entropy.
+
+    ``skip_lines`` holds lines already reported by the entropy pass, which is
+    the more informative of the two (it includes the measured entropy); one
+    finding per problem, not two.
+    """
+    reported: set = set()
+    is_doc = str(discovered.path).lower().endswith(DOC_EXTENSIONS)
+    for idx, line in enumerate(lines, start=1):
+        if skip_lines and idx in skip_lines:
+            continue
+        if is_doc:
+            continue
+        if is_docstring_line(lines, idx - 1):
+            continue
+        if ENV_LOOKUP_HINTS.search(line):
+            continue
+        stripped = line.strip()
+        if stripped.startswith("#") or stripped.startswith("//"):
+            continue
+        for match in CREDENTIAL_ASSIGNMENT.finditer(line):
+            var_name = match.group("var")
+            value = match.group("value")
+            if not SENSITIVE_VAR_HINTS.search(var_name):
+                continue
+            if value.strip().lower() in NON_SECRET_LITERALS:
+                continue
+            if value.strip().lower() == var_name.strip().lower().split(".")[-1]:
+                continue
+            if _is_self_describing_constant(var_name, value.strip()):
+                continue
+            if _keyword_is_namespace_prefix(var_name):
+                continue
+            if _is_bare_url(value):
+                continue
+            if PLACEHOLDER_HINTS.search(value):
+                continue
+            if _looks_like_hash_or_uuid(value):
+                continue
+            findings.append(Finding(
+                rule_id="SECRETS-HARDCODED-CREDENTIAL",
+                title=f"Hardcoded credential in `{var_name}`",
+                description=(
+                    f"`{var_name}` is assigned a literal string. A credential committed to "
+                    f"source control is readable by everyone with repository access, survives "
+                    f"in git history after deletion, and is usually shared rather than rotated."
+                ),
+                severity=Severity.HIGH,
+                engine=Engine.SECRETS,
+                category="secrets",
+                cwe="CWE-798",
+                owasp="A07:2021-Identification and Authentication Failures",
+                confidence="medium",
+                remediation=(
+                    "Load the value from an environment variable or a secret manager, remove it "
+                    "from version control, and rotate it -- deleting the line does not remove it "
+                    "from git history."
+                ),
+                references=["https://cwe.mitre.org/data/definitions/798.html"],
+                location=CodeLocation(file_path=discovered.rel_path, start_line=idx, end_line=idx,
+                                      snippet=_redact(line.strip(), value)[:300]),
+                extra={"variable": var_name, "value_length": len(value)},
+            ))
+            reported.add(idx)
+            break
+    return reported
+
+
+def _redact(line: str, secret: str) -> str:
+    """Never echo the secret itself into a finding's snippet."""
+    if not secret:
+        return line
+    masked = secret[:2] + "*" * max(0, min(len(secret) - 2, 12))
+    return line.replace(secret, masked)
 
 
 def scan_file_for_secrets(discovered: DiscoveredFile, entropy_threshold: float = 4.3) -> List[Finding]:
@@ -78,10 +299,19 @@ def scan_file_for_secrets(discovered: DiscoveredFile, entropy_threshold: float =
 
     findings: List[Finding] = []
     lines = content.splitlines()
+    entropy_lines: set = set()
 
+    test_path = is_test_path(discovered.rel_path)
     for idx, line in enumerate(lines, start=1):
         if len(line) > 2000:
             continue  # skip minified/huge lines, handled elsewhere
+        if test_path and not _line_has_provider_shape(line):
+            # Entropy-based detection is the least precise rule; fixture
+            # strings in test suites drown it. Provider patterns below still
+            # run because a real key in a test file is still a leak.
+            continue
+        if is_docstring_line(lines, idx - 1):
+            continue
         for match in ASSIGNMENT_PATTERN.finditer(line):
             var_name = match.group("var")
             value = match.group("value")
@@ -127,5 +357,12 @@ def scan_file_for_secrets(discovered: DiscoveredFile, entropy_threshold: float =
                 ),
                 extra={"entropy": round(entropy, 3), "variable": var_name},
             ))
+            entropy_lines.add(idx)
+            break
+
+    # Second pass: literal credentials that the entropy test would miss. A
+    # weak password has low entropy but is still a committed credential, so
+    # an entropy-only detector silently drops it.
+    _scan_credential_assignments(discovered, lines, findings, skip_lines=entropy_lines)
 
     return findings

@@ -1,0 +1,41 @@
+# One-shot migration job. Migrations are idempotent and checksummed, so
+# re-running this is safe; an edited migration file fails loudly instead.
+#
+#   kubectl -n ironclad create job --from=cronjob/ironclad-migrate ironclad-migrate-$(date +%s)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ironclad-migrate
+  namespace: ironclad
+spec:
+  # Never scheduled automatically -- triggered on demand from the CronJob
+  # object, which keeps `kubectl create job --from=cronjob/...` available.
+  schedule: "0 0 1 1 *"
+  suspend: true
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 600
+      template:
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: migrate
+              image: ghcr.io/daniyalofficial/ironclad-sentinel:1.1.0
+              args: ["migrate"]
+              envFrom:
+                - configMapRef: {name: ironclad-config}
+                - secretRef: {name: ironclad-secrets}
+              resources:
+                requests: {cpu: 100m, memory: 128Mi}
+                limits: {cpu: 500m, memory: 512Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: ["ALL"]}

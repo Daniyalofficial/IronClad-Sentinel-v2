@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}{{ finding.rule_id }} &middot; IronClad Sentinel{% endblock %}
+{% block content %}
+<h1>{{ finding.title }}</h1>
+<p class="muted"><code>{{ finding.rule_id }}</code> &middot; scan #{{ finding.scan_id }}
+  {% if project %}&middot; project {{ project.name }}{% endif %}</p>
+
+<section class="tiles">
+  <div class="tile {{ finding.severity }}"><span class="label">Severity</span><strong>{{ finding.severity }}</strong></div>
+  <div class="tile"><span class="label">Confidence</span><strong>{{ finding.confidence }}</strong></div>
+  <div class="tile"><span class="label">Engine</span><strong>{{ finding.engine }}</strong></div>
+  <div class="tile"><span class="label">Category</span><strong>{{ finding.category }}</strong></div>
+  <div class="tile"><span class="label">Status</span><strong>{{ finding.status }}</strong></div>
+</section>
+
+<h2>Location</h2>
+<p><code>{{ finding.file_path }}:{{ finding.start_line }}-{{ finding.end_line }}</code></p>
+<pre class="code">{{ finding.snippet }}</pre>
+
+<h2>Why this matters</h2>
+<p>{{ finding.description }}</p>
+
+<h2>Remediation</h2>
+<p>{{ finding.remediation or 'No remediation recorded.' }}</p>
+
+<h2>Classification</h2>
+<ul class="inline-list">
+  {% if finding.cwe %}<li>{{ finding.cwe }}</li>{% endif %}
+  {% if finding.owasp %}<li>{{ finding.owasp }}</li>{% endif %}
+  {% for key, value in extra.items() %}<li>{{ key }}: {{ value }}</li>{% endfor %}
+</ul>
+
+{% if can_manage %}
+<h2>Triage</h2>
+{% if request.query_params.get('error') %}
+  <p class="alert">{{ request.query_params.get('error') }}</p>
+{% endif %}
+{% if request.query_params.get('updated') %}
+  <p class="ok">Finding updated.</p>
+{% endif %}
+<form class="filters" method="post" action="/ui/findings/{{ finding.id }}/triage">
+  <label>Status
+    <select name="status">
+      <option value="open" {{ 'selected' if finding.status == 'open' else '' }}>open</option>
+      <option value="resolved" {{ 'selected' if finding.status == 'resolved' else '' }}>resolved</option>
+      <option value="suppressed" {{ 'selected' if finding.status == 'suppressed' else '' }}>suppressed</option>
+    </select>
+  </label>
+  <label>Reason <input name="reason" value="{{ finding.suppressed_reason or '' }}"
+                       placeholder="ticket link or justification"></label>
+  <button type="submit" class="primary">Update</button>
+</form>
+<p class="muted">Suppressing requires a reason and is written to the audit log.</p>
+{% endif %}
+
+<h2>History</h2>
+<table class="grid"><thead><tr><th>When</th><th>Event</th><th>Actor</th><th>Detail</th></tr></thead><tbody>
+{% for entry in history %}<tr><td>{{ entry.created_at }}</td><td>{{ entry.event_type }}</td>
+  <td>{{ entry.actor }}</td><td><code>{{ entry.detail }}</code></td></tr>{% endfor %}
+</tbody></table>
+{% endblock %}

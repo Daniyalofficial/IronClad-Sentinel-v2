@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Settings &middot; IronClad Sentinel{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+<h2>Organization</h2>
+<table class="grid narrow"><tbody>
+  <tr><td>Organization</td><td>{{ nav.org.name if nav.org else '-' }} ({{ nav.org.slug if nav.org else '-' }})</td></tr>
+  <tr><td>Scan root</td><td><code>{{ scan_root }}</code></td></tr>
+  <tr><td>Database</td><td>{{ database }}</td></tr>
+  <tr><td>Advisory source</td><td>{{ advisory_source }}</td></tr>
+  <tr><td>Version</td><td>{{ nav.version }}</td></tr>
+</tbody></table>
+<p class="muted">Scan targets are confined to the scan root; requests outside it are rejected.</p>
+
+<h2>Users</h2>
+<table class="grid"><thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Active</th>
+  <th>Last login</th></tr></thead><tbody>
+{% for user in users %}<tr>
+  <td>{{ user.email }}</td><td>{{ user.full_name or '-' }}</td><td>{{ user.role }}</td>
+  <td>{{ 'yes' if user.is_active else 'no' }}</td><td>{{ user.last_login_at or '-' }}</td>
+</tr>{% endfor %}
+</tbody></table>
+
+<h2>Roles and permissions</h2>
+<table class="grid"><thead><tr><th>Role</th><th>Permissions</th></tr></thead><tbody>
+{% for role, perms in roles.items() %}<tr><td>{{ role }}</td>
+  <td><code>{{ perms|join(', ') }}</code></td></tr>{% endfor %}
+</tbody></table>
+{% endblock %}

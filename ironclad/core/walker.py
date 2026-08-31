@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import fnmatch
 import os
+import re
 from dataclasses import dataclass, field
 from typing import Dict, List
 
@@ -41,13 +42,61 @@ LANGUAGE_EXTENSIONS = {
 }
 
 DEPENDENCY_MANIFESTS = {
-    "requirements.txt", "Pipfile.lock", "poetry.lock", "pyproject.toml",
-    "package.json", "package-lock.json", "yarn.lock",
-    "go.sum", "go.mod",
-    "Gemfile.lock",
-    "pom.xml", "build.gradle",
-    "composer.lock",
+    # Python
+    "requirements.txt", "constraints.txt", "Pipfile", "Pipfile.lock", "poetry.lock",
+    "pyproject.toml", "setup.py",
+    # npm / JavaScript
+    "package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
+    # Go
+    "go.mod", "go.sum",
+    # Rust
+    "Cargo.toml", "Cargo.lock",
+    # Java / JVM
+    "pom.xml", "build.gradle", "build.gradle.kts",
+    # PHP
+    "composer.json", "composer.lock",
+    # Ruby
+    "Gemfile", "Gemfile.lock",
+    # .NET
+    "packages.config",
 }
+
+# Manifest filenames that vary per project (requirements-dev.txt, MyApp.csproj)
+_REQUIREMENTS_VARIANT = re.compile(r"^requirements.*\.txt$", re.IGNORECASE)
+
+
+# pip-compile projects keep their pinned lockfiles in a `requirements/`
+# directory, one file per environment: `requirements/tests.txt`,
+# `requirements/dev.txt`. The *filename* carries no "requirements" prefix, so
+# matching on filename alone made the whole dev/test inventory invisible --
+# flask 2.0.0 pins 55 dependencies there and not one was scanned.
+_REQUIREMENTS_DIR = re.compile(r"^requirements([-_.].*)?$", re.IGNORECASE)
+
+
+def in_requirements_directory(rel_path: str) -> bool:
+    """True when a relative path sits directly inside a `requirements/` dir."""
+    parent = os.path.dirname(str(rel_path))
+    if not parent:
+        return False
+    return bool(_REQUIREMENTS_DIR.match(os.path.basename(parent)))
+
+
+def is_dependency_manifest(filename: str, rel_path: str = "") -> bool:
+    """True when a filename is a dependency manifest IronClad can parse.
+
+    ``rel_path`` is optional and only needed for the ``requirements/`` layout;
+    passing it lets a pip-compile lockfile such as ``requirements/tests.txt``
+    be recognised even though its basename looks like nothing in particular.
+    """
+    if filename in DEPENDENCY_MANIFESTS:
+        return True
+    if _REQUIREMENTS_VARIANT.match(filename):
+        return True
+    if filename.lower().endswith(".csproj"):
+        return True
+    if rel_path and filename.lower().endswith(".txt") and in_requirements_directory(rel_path):
+        return True
+    return False
 
 IAC_FILENAMES_HINTS = {
     "dockerfile": "docker",
@@ -140,7 +189,7 @@ def discover(config: IronCladConfig) -> FileSet:
             elif language == "yaml" and ("k8s" in dirpath.lower() or "kubernetes" in dirpath.lower() or lower_name in ("deployment.yaml", "deployment.yml")):
                 iac_kind = "kubernetes-maybe"
 
-            is_manifest = filename in DEPENDENCY_MANIFESTS
+            is_manifest = is_dependency_manifest(filename, rel_path)
 
             fileset.files.append(DiscoveredFile(
                 path=full_path,

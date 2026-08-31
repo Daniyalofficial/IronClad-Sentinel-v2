@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Policies &middot; IronClad Sentinel{% endblock %}
+{% block content %}
+<h1>Security policies</h1>
+{% if policies %}
+<table class="grid"><thead><tr><th>Name</th><th>Version</th><th>Default</th><th>Updated</th></tr></thead><tbody>
+{% for policy in policies %}<tr>
+  <td>{{ policy.name }}</td><td>v{{ policy.version }}</td>
+  <td>{% if policy.is_default %}yes{% else %}-{% endif %}</td><td>{{ policy.updated_at }}</td>
+</tr>
+<tr><td colspan="4"><pre class="code">{{ documents[policy.id] }}</pre></td></tr>
+{% endfor %}
+</tbody></table>
+{% else %}<p class="muted">No policies defined. Create one with <code>ironclad policy init</code> and
+  <code>POST /policies</code>.</p>{% endif %}
+<p class="muted">Policy decisions are deterministic: the same scan result plus the same policy
+  document always produces the same pass/fail outcome.</p>
+{% endblock %}

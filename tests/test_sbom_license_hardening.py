@@ -52,7 +52,8 @@ def test_sbom_uses_known_license_and_marks_unknown(tmp_path):
     doc = build_sbom([manifest], project_name="test-project")
     components = {component["name"]: component for component in doc["components"]}
     assert components["requests"]["licenses"][0]["license"]["id"] == "Apache-2.0"
-    assert components["not-in-db"]["properties"][0]["value"] == "UNKNOWN"
+    props = {prop["name"]: prop["value"] for prop in components["not-in-db"]["properties"]}
+    assert props["ironclad:license-status"] == "UNKNOWN"
 
 
 def test_sbom_deduplicates_identical_components(tmp_path):

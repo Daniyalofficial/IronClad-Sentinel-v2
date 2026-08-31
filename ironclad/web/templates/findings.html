@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Findings &middot; IronClad Sentinel{% endblock %}
+{% block content %}
+<h1>Findings</h1>
+<form class="filters" method="get" action="/ui/findings">
+  <label>Severity
+    <select name="severity">
+      <option value="">all</option>
+      {% for sev in severity_order %}
+        <option value="{{ sev }}" {{ 'selected' if filters.severity == sev else '' }}>{{ sev }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Status
+    <select name="status">
+      {% for st in ['open', 'resolved', 'suppressed', ''] %}
+        <option value="{{ st }}" {{ 'selected' if filters.status == st else '' }}>{{ st or 'all' }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Project
+    <select name="project_id">
+      <option value="0">all</option>
+      {% for pid, pname in projects.items() %}
+        <option value="{{ pid }}" {{ 'selected' if filters.project_id == pid else '' }}>{{ pname }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Rule <input name="rule" value="{{ filters.rule }}" placeholder="PY-AST-..."></label>
+  <button type="submit" class="primary">Filter</button>
+</form>
+
+<p class="muted">{{ findings|length }} finding(s) shown.</p>
+{% if findings %}
+<table class="grid"><thead><tr><th>Severity</th><th>Rule</th><th>Title</th><th>Location</th>
+  <th>Confidence</th><th>Status</th></tr></thead><tbody>
+{% for finding in findings %}<tr>
+  <td class="{{ finding.severity }}">{{ finding.severity }}</td>
+  <td><code>{{ finding.rule_id }}</code></td>
+  <td><a href="/ui/findings/{{ finding.id }}">{{ finding.title }}</a></td>
+  <td>{{ finding.file_path }}:{{ finding.start_line }}</td>
+  <td>{{ finding.confidence }}</td>
+  <td>{{ finding.status }}</td>
+</tr>{% endfor %}
+</tbody></table>
+{% else %}<p class="muted">No findings match these filters.</p>{% endif %}
+
+<h2>Top rules</h2>
+<ul class="inline-list">
+  {% for rule, count in rule_counts %}<li><code>{{ rule }}</code> &times; {{ count }}</li>{% endfor %}
+</ul>
+{% endblock %}

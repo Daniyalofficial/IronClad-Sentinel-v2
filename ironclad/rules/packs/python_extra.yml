@@ -1,0 +1,84 @@
+# IronClad Sentinel rule pack. Schema: ironclad/rules/schema.py
+# Every rule needs: id, severity, confidence, category, pattern, message, remediation.
+rules:
+- id: JWT-ALGORITHM-NONE
+  title: JWT accepted with the "none" algorithm
+  languages:
+  - python
+  - javascript
+  - typescript
+  - go
+  - ruby
+  - php
+  severity: critical
+  category: broken-access-control
+  cwe: CWE-347
+  owasp: A07:2021-Identification and Authentication Failures
+  pattern: (?i)algorithms?["']?\s*[=:]\s*[\[\(\{]?\s*["']none["']
+  message: Accepting the "none" algorithm lets an attacker strip the signature from a token and forge
+    any claim.
+  remediation: Pin an explicit algorithm allowlist; never accept none.
+  confidence: high
+  references:
+  - https://cwe.mitre.org/data/definitions/347.html
+- id: PY-DJANGO-DEBUG-TRUE
+  title: Django DEBUG enabled
+  languages:
+  - python
+  severity: high
+  category: misconfiguration
+  cwe: CWE-489
+  owasp: A05:2021-Security Misconfiguration
+  pattern: ^\s*DEBUG\s*=\s*True
+  message: DEBUG=True returns stack traces, settings and SQL to any visitor, leaking secrets and schema
+    details.
+  remediation: Read DEBUG from the environment and keep it False in production.
+  confidence: high
+  references:
+  - https://cwe.mitre.org/data/definitions/489.html
+- id: PY-DJANGO-SECRET-HARDCODED
+  title: Django SECRET_KEY hardcoded
+  languages:
+  - python
+  severity: critical
+  category: secrets
+  cwe: CWE-798
+  owasp: A07:2021-Identification and Authentication Failures
+  pattern: ^\s*SECRET_KEY\s*=\s*["'][^"']{8,}["']
+  message: A hardcoded SECRET_KEY lets anyone forge session cookies and signed data for the application.
+  remediation: Load SECRET_KEY from an environment variable or secret manager and rotate it.
+  confidence: high
+  exclude_if_matches: (?i)(os\.environ|getenv|example|changeme)
+  references:
+  - https://cwe.mitre.org/data/definitions/798.html
+- id: PY-ALLOWED-HOSTS-WILDCARD
+  title: Django ALLOWED_HOSTS set to a wildcard
+  languages:
+  - python
+  severity: medium
+  category: misconfiguration
+  cwe: CWE-644
+  owasp: A05:2021-Security Misconfiguration
+  pattern: ALLOWED_HOSTS\s*=\s*\[\s*["']\*["']
+  message: Accepting every Host header enables host-header poisoning, cache poisoning and password-reset
+    link hijacking.
+  remediation: List the exact hostnames the application serves.
+  confidence: medium
+  references:
+  - https://cwe.mitre.org/data/definitions/644.html
+- id: PY-PICKLE-REQUEST-DATA
+  title: Pickle used on request-derived data
+  languages:
+  - python
+  severity: critical
+  category: deserialization
+  cwe: CWE-502
+  owasp: A08:2021-Software and Data Integrity Failures
+  pattern: pickle\.loads?\s*\(\s*(request|resp|response|body|payload|raw|content)\b
+  message: Data that originated from a request/response is unpickled; pickle executes arbitrary code during
+    load.
+  remediation: Use a data-only format (JSON/protobuf) with a validated schema for anything crossing a
+    trust boundary.
+  confidence: high
+  references:
+  - https://cwe.mitre.org/data/definitions/502.html

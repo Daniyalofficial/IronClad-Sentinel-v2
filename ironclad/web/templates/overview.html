@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Overview &middot; IronClad Sentinel{% endblock %}
+{% block content %}
+<h1>Security overview</h1>
+<section class="tiles">
+  <div class="tile"><span class="label">Projects</span><strong>{{ summary.projects }}</strong></div>
+  <div class="tile"><span class="label">Open findings</span><strong>{{ summary.open_findings }}</strong></div>
+  <div class="tile critical"><span class="label">Critical</span><strong>{{ summary.severity_counts.critical }}</strong></div>
+  <div class="tile high"><span class="label">High</span><strong>{{ summary.severity_counts.high }}</strong></div>
+  <div class="tile"><span class="label">Medium</span><strong>{{ summary.severity_counts.medium }}</strong></div>
+  <div class="tile"><span class="label">Low</span><strong>{{ summary.severity_counts.low }}</strong></div>
+  <div class="tile ok"><span class="label">Resolved</span><strong>{{ summary.resolved_findings }}</strong></div>
+  <div class="tile warn"><span class="label">Secret findings</span><strong>{{ summary.secret_findings }}</strong></div>
+  <div class="tile warn"><span class="label">IaC findings</span><strong>{{ summary.iac_findings }}</strong></div>
+  <div class="tile"><span class="label">Policies failing</span><strong>{{ summary.policies_failing }}</strong></div>
+  <div class="tile"><span class="label">Scans</span><strong>{{ summary.scans_total }}</strong>
+    <small>{{ summary.scans_succeeded }} ok / {{ summary.scans_failed }} failed / {{ summary.scans_running }} running</small></div>
+</section>
+
+<h2>Risk trend</h2>
+{% if trend %}
+<table class="grid">
+  <thead><tr><th>Scan</th><th>When</th><th>Grade</th><th>Risk</th>
+    <th>Crit</th><th>High</th><th>Med</th><th>Low</th></tr></thead>
+  <tbody>
+  {% for point in trend %}
+    <tr>
+      <td><a href="/ui/projects">#{{ point.scan_id }}</a></td>
+      <td>{{ point.created_at }}</td>
+      <td class="grade">{{ point.grade }}</td>
+      <td>{{ point.risk_score }}</td>
+      <td class="critical">{{ point.counts.critical }}</td>
+      <td class="high">{{ point.counts.high }}</td>
+      <td>{{ point.counts.medium }}</td>
+      <td>{{ point.counts.low }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}<p class="muted">No completed scans yet. Queue one with <code>POST /scan</code> or the CLI.</p>{% endif %}
+
+<h2>Recent scans</h2>
+{% if recent_scans %}
+<table class="grid">
+  <thead><tr><th>Scan</th><th>Project</th><th>Status</th><th>Grade</th><th>Risk</th>
+    <th>Files</th><th>Policy</th><th>Started</th></tr></thead>
+  <tbody>
+  {% for view in recent_scans %}
+    <tr>
+      <td>#{{ view.scan.id }}</td>
+      <td>{{ view.project_name }}</td>
+      <td class="status-{{ view.scan.status }}">{{ view.scan.status }}</td>
+      <td class="grade">{{ view.scan.grade or '-' }}</td>
+      <td>{{ view.scan.risk_score }}</td>
+      <td>{{ view.scan.files_scanned }}</td>
+      <td>{% if view.scan.policy_passed is none %}-{% elif view.scan.policy_passed %}pass{% else %}<strong>fail</strong>{% endif %}</td>
+      <td>{{ view.scan.created_at }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}<p class="muted">Nothing scanned yet.</p>{% endif %}
+
+<h2>Runtime</h2>
+<table class="grid narrow">
+  <tbody>
+    <tr><td>Queued jobs</td><td>{{ queue.queued }}</td></tr>
+    <tr><td>Running jobs</td><td>{{ queue.running }}</td></tr>
+    <tr><td>Failed jobs</td><td>{{ queue.failed }}</td></tr>
+    <tr><td>Scans executed (process)</td><td>{{ metrics.get('ironclad_scans_total', 0) }}</td></tr>
+    <tr><td>Files scanned (process)</td><td>{{ metrics.get('ironclad_files_scanned_total', 0) }}</td></tr>
+    <tr><td>Findings persisted (process)</td><td>{{ metrics.get('ironclad_findings_total', 0) }}</td></tr>
+  </tbody>
+</table>
+<p class="muted">Full Prometheus metrics are exposed at <a href="/metrics">/metrics</a>.</p>
+{% endblock %}

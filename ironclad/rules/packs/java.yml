@@ -1,0 +1,99 @@
+# IronClad Sentinel rule pack. Schema: ironclad/rules/schema.py
+# Every rule needs: id, severity, confidence, category, pattern, message, remediation.
+rules:
+- id: JAVA-SQL-CONCATENATION
+  title: SQL built by string concatenation
+  languages:
+  - java
+  severity: critical
+  category: injection
+  cwe: CWE-89
+  owasp: A03:2021-Injection
+  pattern: (executeQuery|executeUpdate|prepareStatement|createQuery|createNativeQuery)\s*\(\s*"[^"]*"\s*\+
+  message: A SQL statement is assembled by concatenating strings. If any concatenated value is attacker-controlled
+    this is SQL injection.
+  remediation: Use PreparedStatement with ? placeholders and setXxx() bind parameters; never concatenate
+    values into SQL text.
+  confidence: high
+  exclude_if_matches: ^\s*(//|\*)
+  references:
+  - https://cwe.mitre.org/data/definitions/89.html
+- id: JAVA-OBJECT-DESERIALIZATION
+  title: Untrusted object deserialization
+  languages:
+  - java
+  severity: critical
+  category: deserialization
+  cwe: CWE-502
+  owasp: A08:2021-Software and Data Integrity Failures
+  pattern: new\s+ObjectInputStream\s*\(
+  message: ObjectInputStream.readObject() instantiates arbitrary classes from the byte stream. With a
+    gadget chain on the classpath this is remote code execution.
+  remediation: Do not deserialize untrusted data with native Java serialization. Use a data-only format
+    with an explicit schema, or a look-ahead ObjectInputStream with a strict class allowlist.
+  confidence: high
+  references:
+  - https://cwe.mitre.org/data/definitions/502.html
+- id: JAVA-XXE-DOCUMENT-BUILDER
+  title: XML parser without external entities disabled
+  languages:
+  - java
+  severity: high
+  category: xxe
+  cwe: CWE-611
+  owasp: A05:2021-Security Misconfiguration
+  pattern: DocumentBuilderFactory\.newInstance\s*\(\s*\)
+  message: DocumentBuilderFactory resolves external entities by default, so parsing attacker-supplied
+    XML can read local files or pivot into the internal network.
+  remediation: Set FEATURE_SECURE_PROCESSING and disallow-doctype-decl / external-general-entities before
+    parsing.
+  confidence: medium
+  references:
+  - https://cwe.mitre.org/data/definitions/611.html
+- id: JAVA-WEAK-RANDOM-SECURITY
+  title: java.util.Random used for a security value
+  languages:
+  - java
+  severity: high
+  category: crypto
+  cwe: CWE-330
+  owasp: A02:2021-Cryptographic Failures
+  pattern: new\s+Random\s*\(|Math\.random\s*\(\s*\)
+  message: java.util.Random and Math.random() are linear congruential generators whose state can be recovered
+    from a few outputs. Tokens, salts, session IDs and nonces derived from them are guessable.
+  remediation: Use java.security.SecureRandom for any security value.
+  confidence: medium
+  exclude_if_matches: (?i)(test|sample|demo|shuffle)
+  references:
+  - https://cwe.mitre.org/data/definitions/330.html
+- id: JAVA-MESSAGE-DIGEST-MD5
+  title: MD5 or SHA-1 used as a digest
+  languages:
+  - java
+  severity: medium
+  category: crypto
+  cwe: CWE-327
+  owasp: A02:2021-Cryptographic Failures
+  pattern: MessageDigest\.getInstance\s*\(\s*"(MD5|SHA-?1)"
+  message: MD5 and SHA-1 are collision-broken and must not be used for signatures, integrity checks or
+    password hashing.
+  remediation: Use SHA-256 or better for integrity, and PBKDF2/bcrypt/argon2 for password storage.
+  confidence: high
+  references:
+  - https://cwe.mitre.org/data/definitions/327.html
+- id: JAVA-RUNTIME-EXEC-CONCAT
+  title: OS command built by concatenation
+  languages:
+  - java
+  severity: critical
+  category: injection
+  cwe: CWE-78
+  owasp: A03:2021-Injection
+  pattern: Runtime\.getRuntime\s*\(\s*\)\s*\.\s*exec\s*\(\s*"[^"]*"\s*\+|ProcessBuilder\s*\(\s*"[^"]*"\s*\+
+  message: A shell command string is assembled by concatenation. Any attacker-controlled fragment allows
+    command injection.
+  remediation: Pass the command as an argument list to ProcessBuilder and validate each element against
+    an allowlist.
+  confidence: high
+  references:
+  - https://cwe.mitre.org/data/definitions/78.html

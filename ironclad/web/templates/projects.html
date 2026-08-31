@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Projects &middot; IronClad Sentinel{% endblock %}
+{% block content %}
+<h1>Projects</h1>
+{% if views %}
+<table class="grid">
+  <thead><tr><th>Project</th><th>Latest scan</th><th>Status</th><th>Grade</th>
+    <th>Open findings</th><th>Licenses (allowed/warn/blocked/unknown)</th></tr></thead>
+  <tbody>
+  {% for view in views %}
+    <tr>
+      <td><a href="/ui/projects/{{ view.project.id }}">{{ view.project.name }}</a>
+          <div class="muted">{{ view.project.description }}</div></td>
+      <td>{% if view.latest %}#{{ view.latest.id }}{% else %}-{% endif %}</td>
+      <td class="status-{{ view.latest.status if view.latest else 'none' }}">{{ view.latest.status if view.latest else 'never' }}</td>
+      <td class="grade">{{ view.latest.grade if view.latest else '-' }}</td>
+      <td>{{ view.open_findings }}</td>
+      <td>{{ view.licenses.allowed }} / {{ view.licenses.warning }} /
+          <span class="critical">{{ view.licenses.blocked }}</span> /
+          <span class="warn">{{ view.licenses.unknown }}</span></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}<p class="muted">No projects yet. Create one with <code>POST /projects</code>.</p>{% endif %}
+{% endblock %}

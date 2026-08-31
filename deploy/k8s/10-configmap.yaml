@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ironclad-config
+  namespace: ironclad
+data:
+  IRONCLAD_LOG_LEVEL: "INFO"
+  IRONCLAD_SCAN_ROOT: "/work"
+  IRONCLAD_ENABLE_DOCS: "0"
+  IRONCLAD_API_WORKERS: "1"
+  # Populated only when an organization has explicitly enabled a feed.
+  # The default (bundled) source never opens a socket.
+  IRONCLAD_ADVISORY_SOURCE: "bundled"

@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ironclad
+  namespace: ironclad
+  annotations:
+    # TLS terminates here; the app also sets HSTS-ready security headers.
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "16m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [ironclad.example.com]
+      secretName: ironclad-tls
+  rules:
+    - host: ironclad.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ironclad-api
+                port: {name: http}

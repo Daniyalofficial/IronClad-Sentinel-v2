@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Integrations &middot; IronClad Sentinel{% endblock %}
+{% block content %}
+<h1>Integrations</h1>
+{% if integrations %}
+<table class="grid"><thead><tr><th>Name</th><th>Kind</th><th>Enabled</th><th>Last status</th>
+  <th>Last run</th><th>Last error</th><th>Config</th></tr></thead><tbody>
+{% for item in integrations %}<tr>
+  <td>{{ item.row.name }}</td>
+  <td>{{ item.row.kind }}</td>
+  <td>{{ 'yes' if item.row.enabled else 'no' }}</td>
+  <td class="status-{{ 'succeeded' if item.row.last_status == 'ok' else 'failed' }}">{{ item.row.last_status }}</td>
+  <td>{{ item.row.last_run_at or '-' }}</td>
+  <td>{{ item.row.last_error or '-' }}</td>
+  <td><code>{{ item.config }}</code>{% if item.row.secret %} <span class="muted">(secret set)</span>{% endif %}</td>
+</tr>{% endfor %}
+</tbody></table>
+{% else %}<p class="muted">No integrations configured.</p>{% endif %}
+<p class="muted">Webhook payloads are HMAC-SHA256 signed with the integration secret and delivered
+  with bounded retries and a hard timeout. Secrets are never displayed here.</p>
+{% endblock %}

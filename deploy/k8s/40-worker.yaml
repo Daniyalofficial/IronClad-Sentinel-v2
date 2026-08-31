@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ironclad-worker
+  namespace: ironclad
+  labels: {app: ironclad-worker}
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: ironclad-worker}
+  template:
+    metadata:
+      labels: {app: ironclad-worker}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: worker
+          image: ghcr.io/daniyalofficial/ironclad-sentinel:1.1.0
+          args: ["worker"]
+          envFrom:
+            - configMapRef: {name: ironclad-config}
+            - secretRef: {name: ironclad-secrets}
+          resources:
+            requests: {cpu: 500m, memory: 512Mi}
+            limits: {cpu: "2", memory: 2Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: work, mountPath: /work, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: work
+          persistentVolumeClaim: {claimName: ironclad-scan-targets}
+        - name: tmp
+          emptyDir: {}

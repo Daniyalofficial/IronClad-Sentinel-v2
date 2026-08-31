@@ -1,0 +1,42 @@
+# Workers scale on CPU because a scan is CPU-bound; the API scales on request
+# rate. Both keep a floor of 2 replicas so a rollout cannot drop capacity to 0.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ironclad-worker
+  namespace: ironclad
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ironclad-worker
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: 70}
+  behavior:
+    scaleDown:
+      # Never scale down while a scan may be mid-flight; a claimed job is
+      # reclaimable after the stale timeout, but waiting is cheaper.
+      stabilizationWindowSeconds: 300
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ironclad-api
+  namespace: ironclad
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ironclad-api
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: 75}

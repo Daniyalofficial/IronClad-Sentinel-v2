@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in &middot; IronClad Sentinel</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="centered">
+<form class="card login" method="post" action="/ui/login">
+  <h1>IronClad <span>Sentinel</span></h1>
+  <p class="muted">Self-hosted application security platform &middot; v{{ version }}</p>
+  {% if error %}
+    <p class="alert">
+      {% if error == 'invalid' %}Invalid email or password.
+      {% elif error == 'locked' %}Too many failed attempts. Try again in a few minutes.
+      {% elif error == 'inactive' %}This account has been deactivated.
+      {% else %}Sign-in failed.{% endif %}
+    </p>
+  {% endif %}
+  <label>Email <input type="email" name="email" autocomplete="username" required autofocus></label>
+  <label>Password <input type="password" name="password" autocomplete="current-password" required></label>
+  <button type="submit" class="primary">Sign in</button>
+</form>
+</body>
+</html>

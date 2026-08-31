@@ -1,0 +1,70 @@
+# Single-host IronClad Sentinel: API + worker + PostgreSQL.
+#
+#   docker compose up -d
+#   docker compose run --rm api migrate
+#   curl -fsS http://localhost:8000/ready
+#
+# Production notes are in docs/DEPLOYMENT.md. The API and worker are
+# separate services so a heavy scan cannot block API requests.
+name: ironclad
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ironclad}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-ironclad}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ironclad} -d ${POSTGRES_DB:-ironclad}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # Not published to the host: only the services on this network reach it.
+
+  api:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      IRONCLAD_DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-ironclad}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-ironclad}
+      IRONCLAD_SIGNING_KEY: ${IRONCLAD_SIGNING_KEY:?set a 32+ character signing key}
+      IRONCLAD_SCAN_ROOT: /work
+      IRONCLAD_LOG_LEVEL: ${IRONCLAD_LOG_LEVEL:-INFO}
+      IRONCLAD_CORS_ORIGINS: ${IRONCLAD_CORS_ORIGINS:-}
+      IRONCLAD_ENABLE_DOCS: ${IRONCLAD_ENABLE_DOCS:-0}
+    ports:
+      - "${IRONCLAD_PORT:-8000}:8000"
+    volumes:
+      # Read-only mount of the repositories to scan. Read-only is the point:
+      # the scanner has no reason to write to a target tree.
+      - ${IRONCLAD_SCAN_HOST_DIR:-./scan-targets}:/work:ro
+    command: ["api"]
+
+  worker:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      IRONCLAD_DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-ironclad}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-ironclad}
+      IRONCLAD_SIGNING_KEY: ${IRONCLAD_SIGNING_KEY}
+      IRONCLAD_SCAN_ROOT: /work
+      IRONCLAD_LOG_LEVEL: ${IRONCLAD_LOG_LEVEL:-INFO}
+    volumes:
+      - ${IRONCLAD_SCAN_HOST_DIR:-./scan-targets}:/work:ro
+    command: ["worker"]
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2g
+
+volumes:
+  pgdata:
