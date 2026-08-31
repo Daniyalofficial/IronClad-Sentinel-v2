@@ -42,7 +42,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ironclad.core.config import IronCladConfig  # noqa: E402
 from ironclad.core.engine import run_scan  # noqa: E402
-from ironclad.scanners.dependency import _satisfies_affected_range  # noqa: E402
+from ironclad.scanners.dependency import (  # noqa: E402
+    _satisfies_affected_range,
+    range_permits_version,
+)
 from ironclad.scanners.advisories import BundledAdvisorySource  # noqa: E402
 
 DEFAULT_REPOS = [
@@ -54,7 +57,11 @@ DEFAULT_REPOS = [
     "encode/uvicorn",
 ]
 
-GHSA_ID = re.compile(r"^GHSA(-[23456789cfghjmpqrvwx]{4}){3}$")
+# Both feeds the bundled database is built from. GHSA ids are base32-ish;
+# PyPA's are PYSEC-<year>-<n>. Anything else means the database gained a
+# source this check does not know about, which should fail loudly rather than
+# be quietly accepted.
+ADVISORY_ID = re.compile(r"^(?:GHSA(-[23456789cfghjmpqrvwx]{4}){3}|PYSEC-\d{4}-\d+)$")
 
 
 def clone(repo: str, dest: str) -> bool:
@@ -77,10 +84,20 @@ def audit(repo_root: str):
         extra = finding.extra
         advisory_id = str(extra.get("advisory_id") or "")
         if not extra.get("is_pinned"):
-            false_positives.append(f"{extra.get('package')}: reported on an unpinned range")
+            # A range does not say what is installed, so reporting one is only
+            # legitimate when no patched release can satisfy it -- including
+            # when the advisory has no patched release at all. Re-derive that
+            # here instead of trusting the scanner's own decision.
+            fixed = str(extra.get("fixed_version") or "").strip()
+            if fixed and range_permits_version(extra.get("declared_spec"), fixed) is not False:
+                false_positives.append(
+                    f"{extra.get('package')}: reported on the range "
+                    f"{extra.get('declared_spec')!r}, which admits the patched "
+                    f"release {fixed}")
             continue
-        if not GHSA_ID.match(advisory_id):
-            false_positives.append(f"{extra.get('package')}: id {advisory_id!r} is not a GHSA id")
+        if not ADVISORY_ID.match(advisory_id):
+            false_positives.append(
+                f"{extra.get('package')}: id {advisory_id!r} is not from a known feed")
             continue
         # Re-check the match independently of the scanner's own code path.
         advisories = source.lookup(extra.get("ecosystem"), extra.get("package"))

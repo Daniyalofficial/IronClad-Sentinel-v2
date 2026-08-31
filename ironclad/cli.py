@@ -841,8 +841,9 @@ def advisories_group():
 
 
 @advisories_group.command("import-osv")
-@click.option("--source", required=True,
-              help="Directory of OSV records (osv.dev dump or github/advisory-database).")
+@click.option("--source", "sources", required=True, multiple=True,
+              help="Directory of OSV records. Repeatable: later feeds are merged "
+                   "into earlier ones, deduplicated by CVE.")
 @click.option("--output", required=True, help="Path for the generated IronClad database JSON.")
 @click.option("--ecosystems", default="",
               help="Comma-separated IronClad ecosystems to keep (default: all supported).")
@@ -851,19 +852,28 @@ def advisories_group():
 @click.option("--source-label", default="",
               help="Free-text provenance recorded in _meta (e.g. the upstream repo and commit).")
 @click.option("--json", "as_json", is_flag=True, help="Emit machine-readable JSON")
-def advisories_import_osv(source, output, ecosystems, limit, source_label, as_json):
-    """Convert an OSV dump into IronClad's offline advisory database.
+def advisories_import_osv(sources, output, ecosystems, limit, source_label, as_json):
+    """Convert OSV records into IronClad's offline advisory database.
 
-    Runs entirely offline: point --source at a directory of OSV JSON records
-    (an osv.dev dump, or a checkout of github/advisory-database) and this
-    writes a database you can ship or point `advisory_path` at. GIT ranges
-    and ecosystems IronClad has no manifest parser for are dropped, and the
-    counts of each are reported so a narrow import is never silent.
+    Runs entirely offline. Point --source at a directory of OSV records and
+    this writes a database you can ship or point `advisory_path` at. Both
+    encodings are read: JSON (osv.dev, github/advisory-database) and YAML
+    (pypa/advisory-database, which uses PYSEC identifiers).
+
+    --source may be repeated to merge several feeds. Because feeds assign
+    different identifiers to the same vulnerability (GHSA-... vs PYSEC-...),
+    entries are deduplicated by CVE where one exists and by advisory id
+    otherwise, so merging two feeds does not report the same vulnerability
+    twice. Earlier sources win, so list the feed you trust most first.
+
+    GIT ranges and ecosystems IronClad has no manifest parser for are
+    dropped, and the counts are reported so a narrow import is never silent.
     """
     from ironclad.scanners import osv
 
-    if not os.path.isdir(source):
-        _die(f"--source is not a directory: {source}", ec.TARGET_ERROR)
+    for source in sources:
+        if not os.path.isdir(source):
+            _die(f"--source is not a directory: {source}", ec.TARGET_ERROR)
     wanted = {e.strip().lower() for e in ecosystems.split(",") if e.strip()}
     unknown = sorted(wanted - set(osv.ECOSYSTEM_TO_OSV))
     if unknown:
@@ -872,31 +882,57 @@ def advisories_import_osv(source, output, ecosystems, limit, source_label, as_js
 
     records = 0
     unreadable = 0
+    duplicates = 0
     database: Dict[str, Dict[str, List[Dict[str, object]]]] = {}
-    for root, _dirs, files in os.walk(source):
-        for filename in files:
-            if not filename.endswith(".json"):
-                continue
-            path = os.path.join(root, filename)
-            try:
-                with open(path, "r", encoding="utf-8") as fh:
-                    payload = json.load(fh)
-            except (OSError, json.JSONDecodeError):
-                unreadable += 1
-                continue
-            for record in osv.iter_records(payload):
-                records += 1
-                for eco, name, advisory in osv.record_to_entries(record):
-                    if wanted and eco not in wanted:
-                        continue
-                    # Keys must be lowercased: the scanner normalises package
-                    # names (PEP 503 for Python, lowercase elsewhere) before
-                    # looking them up, so a mixed-case key such as "PyYAML" or
-                    # "github.com/Traefik/traefik" would never be found.
-                    bucket = database.setdefault(eco, {}).setdefault(name.lower(), [])
-                    if any(existing.get("id") == advisory["id"] for existing in bucket):
-                        continue
-                    bucket.append(advisory)
+    seen: set = set()
+
+    for source in sources:
+        for root, _dirs, files in os.walk(source):
+            for filename in files:
+                lowered = filename.lower()
+                is_json = lowered.endswith(".json")
+                # PyPA's advisory database publishes the same OSV records as
+                # YAML with PYSEC identifiers. Accepting both encodings lets a
+                # second, independently maintained feed be merged in -- which
+                # is how the bundled database gained coverage for packages the
+                # GitHub-reviewed set does not carry.
+                is_yaml = lowered.endswith((".yaml", ".yml"))
+                if not (is_json or is_yaml):
+                    continue
+                path = os.path.join(root, filename)
+                try:
+                    with open(path, "r", encoding="utf-8") as fh:
+                        if is_json:
+                            payload = json.load(fh)
+                        else:
+                            import yaml
+
+                            payload = yaml.safe_load(fh)
+                except (OSError, ValueError):
+                    unreadable += 1
+                    continue
+                for record in osv.iter_records(payload):
+                    records += 1
+                    for eco, name, advisory in osv.record_to_entries(record):
+                        if wanted and eco not in wanted:
+                            continue
+                        # Two feeds assign different identifiers to the same
+                        # vulnerability, so dedupe on the CVE when there is
+                        # one and on the advisory id otherwise. Without this,
+                        # merging GHSA and PyPA would report most Python
+                        # vulnerabilities twice.
+                        dedupe_key = (eco, name.lower(),
+                                      advisory.get("cve") or advisory["id"])
+                        if dedupe_key in seen:
+                            duplicates += 1
+                            continue
+                        seen.add(dedupe_key)
+                        # Keys are lowercased: the scanner normalises package
+                        # names (PEP 503 for Python, lowercase elsewhere)
+                        # before looking them up, so a mixed-case key such as
+                        # "PyYAML" would never be found.
+                        bucket = database.setdefault(eco, {}).setdefault(name.lower(), [])
+                        bucket.append(advisory)
 
     if limit > 0:
         for packages in database.values():
@@ -911,9 +947,10 @@ def advisories_import_osv(source, output, ecosystems, limit, source_label, as_js
                            "from OSV records by `ironclad advisories import-osv`.",
             "schema_version": 1,
             "generator_version": __version__,
-            "source": source_label or os.path.abspath(source),
+            "sources": [source_label] if source_label else [os.path.abspath(x) for x in sources],
             "osv_records_read": records,
             "unreadable_files": unreadable,
+            "duplicate_cves_merged": duplicates,
             "ecosystems": sorted(database),
             "package_count": packages,
             "advisory_count": advisories,
@@ -928,10 +965,11 @@ def advisories_import_osv(source, output, ecosystems, limit, source_label, as_js
         fh.write("\n")
 
     summary = {
-        "source": source_label or os.path.abspath(source),
+        "sources": [source_label] if source_label else [os.path.abspath(x) for x in sources],
         "output": os.path.abspath(output),
         "osv_records_read": records,
         "unreadable_files": unreadable,
+        "duplicate_cves_merged": duplicates,
         "ecosystems": {eco: len(database[eco]) for eco in sorted(database)},
         "package_count": packages,
         "advisory_count": advisories,
@@ -943,6 +981,8 @@ def advisories_import_osv(source, output, ecosystems, limit, source_label, as_js
         console.print(f"[green]\u2713[/] read {records} OSV records from {source}")
         if unreadable:
             console.print(f"[yellow]![/] skipped {unreadable} unreadable file(s)")
+        if duplicates:
+            console.print(f"[dim]  merged {duplicates} duplicate CVE(s) across feeds[/]")
         for eco in sorted(database):
             console.print(f"    {eco:<12} {len(database[eco]):>6} packages")
         console.print(f"[green]\u2713[/] wrote {packages} packages / {advisories} advisories "

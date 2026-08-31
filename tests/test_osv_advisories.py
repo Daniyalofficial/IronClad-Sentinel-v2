@@ -630,4 +630,164 @@ def test_machine_readable_output_stays_parseable_with_long_values(tmp_path):
                                        "--source-label", long_label, "--json"])
     assert result.exit_code == 0, result.output
     parsed = _json.loads(result.output)
-    assert parsed["source"] == long_label, "the value must survive intact"
+    assert parsed["sources"] == [long_label], "the value must survive intact"
+
+
+# --------------------------------------------------------------------------- #
+# Second feed: pypa/advisory-database (YAML, PYSEC identifiers)
+# --------------------------------------------------------------------------- #
+def _yaml_fixture(name: str) -> str:
+    with open(os.path.join(FIXTURES, name), encoding="utf-8") as fh:
+        return fh.read()
+
+
+def test_yaml_osv_records_are_imported(tmp_path):
+    """PyPA publishes the same OSV schema as YAML, so the importer must read it."""
+    from click.testing import CliRunner
+
+    from ironclad.cli import main
+
+    source = tmp_path / "pypa"
+    source.mkdir()
+    (source / "PYSEC-2025-3.yaml").write_text(_yaml_fixture("PYSEC-2025-3.yaml"),
+                                              encoding="utf-8")
+    out = tmp_path / "db.json"
+    result = CliRunner().invoke(main, ["advisories", "import-osv", "--source", str(source),
+                                       "--output", str(out), "--json"])
+    assert result.exit_code == 0, result.output
+    summary = json.loads(result.output)
+    assert summary["osv_records_read"] == 1
+    assert summary["package_count"] == 1
+
+    written = json.loads(out.read_text(encoding="utf-8"))
+    advisory = written["python"]["autodzee"][0]
+    assert advisory["id"] == "PYSEC-2025-3"
+    assert advisory["affected"] == ">=0"
+
+
+def test_record_with_no_version_information_is_dropped():
+    """Missing data must not become "every version is vulnerable".
+
+    PYSEC-2025-74 describes a vulnerability in **Nautobot**, names `jinja2` as
+    the affected package, and carries no ranges and no versions. Converted
+    naively it asserted that every jinja2 release ever published is
+    vulnerable to someone else's bug -- and because jinja2 is declared as a
+    range in most projects, it fired on real repositories.
+    """
+    import yaml
+
+    record = yaml.safe_load(_yaml_fixture("PYSEC-2025-74.yaml"))
+    assert record["affected"][0]["package"]["name"] == "jinja2", (
+        "fixture must still be the Nautobot/jinja2 mismatch this guards against")
+    assert osv.record_to_entries(record) == []
+
+
+def test_malicious_package_advisory_with_no_fix_is_still_kept():
+    """The control for the test above: no fix really does mean every version.
+
+    PYSEC-2025-3 is a malicious PyPI package with `introduced: 0` and no
+    patched release. Dropping it would hide a real vulnerability, so the rule
+    is specifically about *absent* version data, not about unbounded ranges.
+    """
+    import yaml
+
+    record = yaml.safe_load(_yaml_fixture("PYSEC-2025-3.yaml"))
+    entries = osv.record_to_entries(record)
+    assert len(entries) == 1
+    eco, name, advisory = entries[0]
+    assert (eco, name) == ("python", "autodzee")
+    assert advisory["affected"] == ">=0"
+    assert advisory["fixed_in"] == ""
+
+
+def test_merging_two_feeds_dedupes_by_cve(tmp_path):
+    """Two feeds name the same vulnerability differently.
+
+    GHSA and PyPA assign different identifiers to one CVE, so merging them
+    without deduplicating would report most Python vulnerabilities twice.
+    """
+    from click.testing import CliRunner
+
+    from ironclad.cli import main
+
+    ghsa = tmp_path / "ghsa"
+    ghsa.mkdir()
+    (ghsa / "a.json").write_text(json.dumps({
+        "id": "GHSA-aaaa-bbbb-cccc",
+        "aliases": ["CVE-2024-0001"],
+        "database_specific": {"severity": "HIGH"},
+        "summary": "first feed",
+        "affected": [{"package": {"ecosystem": "PyPI", "name": "demo-lib"},
+                      "ranges": [{"type": "ECOSYSTEM",
+                                  "events": [{"introduced": "0"}, {"fixed": "1.2.3"}]}]}],
+    }), encoding="utf-8")
+
+    pypa = tmp_path / "pypa"
+    pypa.mkdir()
+    (pypa / "b.yaml").write_text(
+        "id: PYSEC-2024-1\n"
+        "aliases:\n  - CVE-2024-0001\n"
+        "summary: second feed\n"
+        "affected:\n"
+        "  - package:\n      ecosystem: PyPI\n      name: demo-lib\n"
+        "    ranges:\n"
+        "      - type: ECOSYSTEM\n"
+        "        events:\n"
+        "          - introduced: '0'\n"
+        "          - fixed: 1.2.3\n",
+        encoding="utf-8")
+
+    out = tmp_path / "db.json"
+    result = CliRunner().invoke(main, ["advisories", "import-osv",
+                                       "--source", str(ghsa), "--source", str(pypa),
+                                       "--output", str(out), "--json"])
+    assert result.exit_code == 0, result.output
+    summary = json.loads(result.output)
+    assert summary["osv_records_read"] == 2
+    assert summary["advisory_count"] == 1, "the same CVE must not be stored twice"
+    assert summary["duplicate_cves_merged"] == 1
+
+    written = json.loads(out.read_text(encoding="utf-8"))
+    kept = written["python"]["demo-lib"]
+    assert [a["id"] for a in kept] == ["GHSA-aaaa-bbbb-cccc"], (
+        "the first source listed wins, so precedence is predictable")
+
+
+def test_importer_reports_every_source_in_provenance(tmp_path):
+    from click.testing import CliRunner
+
+    from ironclad.cli import main
+
+    source = tmp_path / "ghsa"
+    source.mkdir()
+    (source / "a.json").write_text(
+        open(os.path.join(FIXTURES, "GHSA-x84v-xcm2-53pg.json"), encoding="utf-8").read(),
+        encoding="utf-8")
+    out = tmp_path / "db.json"
+    result = CliRunner().invoke(main, ["advisories", "import-osv", "--source", str(source),
+                                       "--output", str(out),
+                                       "--source-label", "feed-a@abc123 + feed-b@def456",
+                                       "--json"])
+    assert result.exit_code == 0, result.output
+    written = json.loads(out.read_text(encoding="utf-8"))
+    assert written["_meta"]["sources"] == ["feed-a@abc123 + feed-b@def456"]
+
+
+def test_bundled_database_contains_no_version_less_advisories():
+    """Guard the shipped database itself, not just the converter."""
+    import json as _json
+
+    path = os.path.join(os.path.dirname(__file__), "..", "ironclad", "data", "vuln_db.json")
+    with open(path, encoding="utf-8") as fh:
+        db = _json.load(fh)
+    offenders = []
+    for eco, packages in db.items():
+        if eco.startswith("_"):
+            continue
+        for package, advisories in packages.items():
+            for advisory in advisories:
+                spec = str(advisory.get("affected", ""))
+                if spec in {"", ">=0"} and not advisory.get("fixed_in") and not spec:
+                    offenders.append(f"{eco}/{package}: {advisory.get('id')}")
+                assert spec, f"{eco}/{package} has an empty affected range"
+    assert not offenders

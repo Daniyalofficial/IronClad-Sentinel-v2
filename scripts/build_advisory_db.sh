@@ -18,33 +18,51 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# Two independently maintained feeds are merged. They disagree with each
+# other often enough to be worth having: the GitHub-reviewed set carries no
+# advisory at all for some packages (click, for one), and PyPA's NVD-derived
+# feed has records the reviewed set lacks. Merging is deduplicated by CVE,
+# because the two feeds assign different identifiers to the same
+# vulnerability.
 SOURCE_REPO="https://github.com/github/advisory-database"
+SOURCE_SUBDIR="advisories/github-reviewed"
+SECOND_REPO="https://github.com/pypa/advisory-database"
+SECOND_SUBDIR="vulns"
 WORKDIR="${TMPDIR:-/tmp}/ironclad-advisory-src"
+SECOND_WORKDIR="${TMPDIR:-/tmp}/ironclad-advisory-pypa"
 OUTPUT="ironclad/data/vuln_db.json"
 DRY_RUN=0
 [[ "${1:-}" == "--dry-run" ]] && DRY_RUN=1 && OUTPUT="$(mktemp -t ironclad-vulndb.XXXXXX.json)"
 
-echo "==> advisory source: $SOURCE_REPO"
-if [[ -d "$WORKDIR/.git" ]]; then
-  git -C "$WORKDIR" fetch --depth 1 -q origin main
-  git -C "$WORKDIR" reset --hard -q FETCH_HEAD
-else
-  rm -rf "$WORKDIR"
-  # --filter=blob:none --sparse keeps the checkout to the reviewed advisories
-  # rather than the full repository history.
-  git clone --depth 1 --filter=blob:none --sparse -q "$SOURCE_REPO" "$WORKDIR"
-  git -C "$WORKDIR" sparse-checkout set advisories/github-reviewed
-fi
+sync_feed() {  # <repo> <subdir> <workdir>
+  local repo="$1" subdir="$2" workdir="$3"
+  echo "==> advisory source: $repo"
+  if [[ -d "$workdir/.git" ]]; then
+    git -C "$workdir" fetch --depth 1 -q origin main
+    git -C "$workdir" reset --hard -q FETCH_HEAD
+  else
+    rm -rf "$workdir"
+    # --filter=blob:none --sparse keeps the checkout to the advisory records
+    # rather than the full repository history.
+    git clone --depth 1 --filter=blob:none --sparse -q "$repo" "$workdir"
+    git -C "$workdir" sparse-checkout set "$subdir"
+  fi
+  [[ -d "$workdir/$subdir" ]] || { echo "error: $workdir/$subdir not found" >&2; exit 1; }
+}
 
-ADVISORY_DIR="$WORKDIR/advisories/github-reviewed"
-[[ -d "$ADVISORY_DIR" ]] || { echo "error: $ADVISORY_DIR not found" >&2; exit 1; }
-echo "==> $(find "$ADVISORY_DIR" -name '*.json' | wc -l) advisory records available"
+sync_feed "$SOURCE_REPO" "$SOURCE_SUBDIR" "$WORKDIR"
+sync_feed "$SECOND_REPO" "$SECOND_SUBDIR" "$SECOND_WORKDIR"
 
-UPSTREAM_COMMIT="$(git -C "$WORKDIR" rev-parse HEAD)"
-LABEL="github/advisory-database (advisories/github-reviewed) at ${UPSTREAM_COMMIT}"
+ADVISORY_DIR="$WORKDIR/$SOURCE_SUBDIR"
+SECOND_DIR="$SECOND_WORKDIR/$SECOND_SUBDIR"
+echo "==> $(find "$ADVISORY_DIR" -name '*.json' | wc -l) GHSA records, $(find "$SECOND_DIR" -name '*.yaml' | wc -l) PyPA records"
+
+GHSA_COMMIT="$(git -C "$WORKDIR" rev-parse HEAD)"
+PYPA_COMMIT="$(git -C "$SECOND_WORKDIR" rev-parse HEAD)"
+LABEL="github/advisory-database@${GHSA_COMMIT:0:12} + pypa/advisory-database@${PYPA_COMMIT:0:12}"
 echo "==> generating $OUTPUT from $LABEL"
-ironclad advisories import-osv --source "$ADVISORY_DIR" --output "$OUTPUT" \
-  --source-label "$LABEL"
+ironclad advisories import-osv --source "$ADVISORY_DIR" --source "$SECOND_DIR" \
+  --output "$OUTPUT" --source-label "$LABEL"
 
 if [[ "$DRY_RUN" == "1" ]]; then
   echo "==> dry run: wrote $OUTPUT ($(wc -c < "$OUTPUT") bytes); bundled database unchanged"

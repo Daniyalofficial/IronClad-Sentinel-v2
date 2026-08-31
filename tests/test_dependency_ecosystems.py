@@ -301,14 +301,15 @@ def test_ecosystem_pairs_are_still_valid_against_the_shipped_database():
                        + "\n  ".join(stale))
 
 
-def test_bundled_advisory_ids_are_real_ghsa_identifiers():
-    """Every advisory id must be a genuine GHSA identifier.
+def test_bundled_advisory_ids_come_from_a_real_feed():
+    """Every advisory id must be a genuine identifier from a known feed.
 
     The database used to ship invented ids such as "GHSA-django-2023-sql" and
     "GHSA-log4j-2021-shell". Those look authoritative and resolve to nothing:
     a customer searching the GitHub Advisory Database for a finding we
-    reported would find no such advisory. Ids now come from a real feed, and
-    this pins the shape so a hand-edited entry cannot reintroduce the problem.
+    reported would find no such advisory. Ids now come from real feeds, and
+    this pins the shape of both so a hand-edited entry cannot reintroduce the
+    problem.
     """
     import json
     import os
@@ -317,24 +318,48 @@ def test_bundled_advisory_ids_are_real_ghsa_identifiers():
     path = os.path.join(os.path.dirname(__file__), "..", "ironclad", "data", "vuln_db.json")
     with open(path, encoding="utf-8") as fh:
         db = json.load(fh)
-    pattern = re.compile(r"^GHSA(-[23456789cfghjmpqrvwx]{4}){3}$")
+    # GHSA ids are base32-ish; PyPA's feed uses PYSEC-<year>-<n>.
+    pattern = re.compile(r"^(?:GHSA(-[23456789cfghjmpqrvwx]{4}){3}|PYSEC-\d{4}-\d+)$")
     bad = []
     count = 0
+    feeds = set()
     for eco, packages in db.items():
         if eco.startswith("_"):
             continue
         for package, advisories in packages.items():
             for advisory in advisories:
                 count += 1
-                if not pattern.match(str(advisory.get("id", ""))):
-                    bad.append(f"{eco}/{package}: {advisory.get('id')}")
+                identifier = str(advisory.get("id", ""))
+                feeds.add(identifier.split("-")[0])
+                if not pattern.match(identifier):
+                    bad.append(f"{eco}/{package}: {identifier}")
     assert count > 10000, f"expected a real advisory feed, found {count} advisories"
-    assert not bad[:20], f"{len(bad)} advisory ids are not real GHSA identifiers: {bad[:5]}"
+    assert feeds == {"GHSA", "PYSEC"}, f"unexpected advisory feeds: {sorted(feeds)}"
+    assert not bad[:20], f"{len(bad)} advisory ids are not real feed identifiers: {bad[:5]}"
 
 
-# --------------------------------------------------------------------------- #
-# pip-compile layout: requirements/<environment>.txt
-# --------------------------------------------------------------------------- #
+def test_bundled_database_merges_both_feeds_without_duplicating_cves():
+    """Two feeds name the same vulnerability differently; the DB must not."""
+    import collections
+    import json
+    import os
+
+    path = os.path.join(os.path.dirname(__file__), "..", "ironclad", "data", "vuln_db.json")
+    with open(path, encoding="utf-8") as fh:
+        db = json.load(fh)
+    duplicated = []
+    for eco, packages in db.items():
+        if eco.startswith("_"):
+            continue
+        for package, advisories in packages.items():
+            cves = [a.get("cve") for a in advisories if a.get("cve")]
+            for cve, n in collections.Counter(cves).items():
+                if n > 1:
+                    duplicated.append(f"{eco}/{package}: {cve} x{n}")
+    assert not duplicated[:20], (
+        f"{len(duplicated)} CVEs are listed more than once for one package, "
+        f"which would double-report them: {duplicated[:5]}")
+
 @pytest.mark.parametrize("filename,rel_path,expected", [
     ("requirements.txt", "requirements.txt", True),
     ("requirements-dev.txt", "requirements-dev.txt", True),

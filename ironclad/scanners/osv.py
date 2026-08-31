@@ -202,10 +202,23 @@ def record_to_entries(record: Dict[str, Any]) -> List[Tuple[str, str, Dict[str, 
         versions = affected.get("versions") or []
         if not isinstance(versions, list):
             versions = []
+        ranges = affected.get("ranges") or []
+        if not isinstance(ranges, list):
+            ranges = []
+        if not ranges and not versions:
+            # No version information whatsoever. This is not the same as a
+            # record declaring that every version is affected -- it is an
+            # absence of data, and turning it into ">=0" would claim that
+            # every release of the package is vulnerable. Real upstream data
+            # does this: PYSEC-2025-74 describes a Nautobot vulnerability,
+            # names `jinja2` as the affected package, and carries no ranges
+            # and no versions. Reporting it would flag every jinja2 install
+            # in existence for someone else's bug.
+            continue
         advisory = dict(base)
-        advisory["affected"] = affected_range_from_osv(affected.get("ranges"), versions)
-        advisory["fixed_in"] = _first_fixed(affected.get("ranges"))
-        if advisory["affected"] == ">=0" and _has_git_range(affected.get("ranges")):
+        advisory["affected"] = affected_range_from_osv(ranges, versions)
+        advisory["fixed_in"] = _first_fixed(ranges)
+        if advisory["affected"] == ">=0" and _has_git_range(ranges):
             # We refused to guess a version range out of commit hashes, so
             # every declared version will be reported. Say so in the finding
             # text instead of letting it look version-scoped.
