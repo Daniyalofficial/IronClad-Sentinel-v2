@@ -21,7 +21,7 @@ import json
 import os
 import sys
 import traceback
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import click
 from rich.console import Console
@@ -829,6 +829,152 @@ def serve(host, port, database_url, reload):
         os.environ.setdefault("IRONCLAD_DATABASE_URL", database_url)
     console.print(f"[dim]Serving IronClad Sentinel on http://{host}:{port}[/]")
     uvicorn.run("ironclad.api.app:create_app", factory=True, host=host, port=port, reload=reload)
+    sys.exit(ec.SUCCESS)
+
+
+# --------------------------------------------------------------------------- #
+# advisories
+# --------------------------------------------------------------------------- #
+@main.group("advisories")
+def advisories_group():
+    """Build and inspect the offline advisory database."""
+
+
+@advisories_group.command("import-osv")
+@click.option("--source", required=True,
+              help="Directory of OSV records (osv.dev dump or github/advisory-database).")
+@click.option("--output", required=True, help="Path for the generated IronClad database JSON.")
+@click.option("--ecosystems", default="",
+              help="Comma-separated IronClad ecosystems to keep (default: all supported).")
+@click.option("--limit", default=0, type=int,
+              help="Cap advisories per package (0 = no cap). Keeps the database bounded.")
+@click.option("--as-json", is_flag=True, help="Print the summary as JSON.")
+def advisories_import_osv(source, output, ecosystems, limit, as_json):
+    """Convert an OSV dump into IronClad's offline advisory database.
+
+    Runs entirely offline: point --source at a directory of OSV JSON records
+    (an osv.dev dump, or a checkout of github/advisory-database) and this
+    writes a database you can ship or point `advisory_path` at. GIT ranges
+    and ecosystems IronClad has no manifest parser for are dropped, and the
+    counts of each are reported so a narrow import is never silent.
+    """
+    from ironclad.scanners import osv
+
+    if not os.path.isdir(source):
+        _die(f"--source is not a directory: {source}", ec.TARGET_ERROR)
+    wanted = {e.strip().lower() for e in ecosystems.split(",") if e.strip()}
+    unknown = sorted(wanted - set(osv.ECOSYSTEM_TO_OSV))
+    if unknown:
+        _die(f"unknown ecosystem(s): {', '.join(unknown)}. "
+             f"Supported: {', '.join(sorted(osv.ECOSYSTEM_TO_OSV))}", ec.CONFIG_ERROR)
+
+    records = 0
+    unreadable = 0
+    database: Dict[str, Dict[str, List[Dict[str, object]]]] = {}
+    for root, _dirs, files in os.walk(source):
+        for filename in files:
+            if not filename.endswith(".json"):
+                continue
+            path = os.path.join(root, filename)
+            try:
+                with open(path, "r", encoding="utf-8") as fh:
+                    payload = json.load(fh)
+            except (OSError, json.JSONDecodeError):
+                unreadable += 1
+                continue
+            for record in osv.iter_records(payload):
+                records += 1
+                for eco, name, advisory in osv.record_to_entries(record):
+                    if wanted and eco not in wanted:
+                        continue
+                    bucket = database.setdefault(eco, {}).setdefault(name, [])
+                    if any(existing.get("id") == advisory["id"] for existing in bucket):
+                        continue
+                    bucket.append(advisory)
+
+    if limit > 0:
+        for packages in database.values():
+            for name, entries in packages.items():
+                packages[name] = entries[:limit]
+
+    packages = sum(len(v) for v in database.values())
+    advisories = sum(len(a) for v in database.values() for a in v.values())
+    payload_out = {
+        "_meta": {
+            "description": "IronClad Sentinel offline advisory database, generated "
+                           "from OSV records by `ironclad advisories import-osv`.",
+            "schema_version": 1,
+            "generator_version": __version__,
+            "source_directory": os.path.abspath(source),
+            "osv_records_read": records,
+            "unreadable_files": unreadable,
+            "ecosystems": sorted(database),
+            "package_count": packages,
+            "advisory_count": advisories,
+            "per_package_limit": limit or None,
+        },
+    }
+    payload_out.update({eco: database[eco] for eco in sorted(database)})
+
+    os.makedirs(os.path.dirname(os.path.abspath(output)) or ".", exist_ok=True)
+    with open(output, "w", encoding="utf-8") as fh:
+        json.dump(payload_out, fh, indent=1, sort_keys=True)
+        fh.write("\n")
+
+    summary = {
+        "source": os.path.abspath(source),
+        "output": os.path.abspath(output),
+        "osv_records_read": records,
+        "unreadable_files": unreadable,
+        "ecosystems": {eco: len(database[eco]) for eco in sorted(database)},
+        "package_count": packages,
+        "advisory_count": advisories,
+        "size_bytes": os.path.getsize(output),
+    }
+    if as_json:
+        console.print(json.dumps(summary, indent=2))
+    else:
+        console.print(f"[green]\u2713[/] read {records} OSV records from {source}")
+        if unreadable:
+            console.print(f"[yellow]![/] skipped {unreadable} unreadable file(s)")
+        for eco in sorted(database):
+            console.print(f"    {eco:<12} {len(database[eco]):>6} packages")
+        console.print(f"[green]\u2713[/] wrote {packages} packages / {advisories} advisories "
+                      f"to {output} ({summary['size_bytes']:,} bytes)")
+    sys.exit(ec.SUCCESS)
+
+
+@advisories_group.command("stats")
+@click.option("--database", "database_path", default=None,
+              help="Database to inspect (default: the bundled one).")
+@click.option("--as-json", is_flag=True)
+def advisories_stats(database_path, as_json):
+    """Show what the active advisory database actually covers."""
+    from ironclad.scanners.advisories import BundledAdvisorySource
+
+    source = BundledAdvisorySource(path=database_path) if database_path else BundledAdvisorySource()
+    data = source._load()
+    per_eco = {eco: len(pkgs) for eco, pkgs in sorted(data.items())
+               if not eco.startswith("_") and isinstance(pkgs, dict)}
+    summary = {
+        "path": source.path,
+        "ecosystems": per_eco,
+        "package_count": sum(per_eco.values()),
+        "advisory_count": sum(
+            len(v) for eco, pkgs in data.items() if not eco.startswith("_")
+            and isinstance(pkgs, dict) for entries in pkgs.values()
+            if isinstance(entries, list) for v in [entries]),
+        "warnings": source.warnings,
+    }
+    if as_json:
+        console.print(json.dumps(summary, indent=2))
+    else:
+        for eco, count in per_eco.items():
+            console.print(f"    {eco:<12} {count:>6} packages")
+        console.print(f"[green]\u2713[/] {summary['package_count']} packages / "
+                      f"{summary['advisory_count']} advisories")
+        for warning in source.warnings:
+            console.print(f"[yellow]![/] {warning}")
     sys.exit(ec.SUCCESS)
 
 

@@ -50,6 +50,11 @@ class ParsedDependency:
     declared_spec: Optional[str] = None
     is_direct: bool = True
     manifest_kind: str = ""
+    # True only when the manifest pins an exact version (a lockfile entry, an
+    # `==` pin, a go.mod requirement). False when the manifest declares a
+    # *range*: in that case `version` is merely the lowest version the range
+    # permits, which is not evidence of what is actually installed.
+    is_pinned: bool = True
 
 
 @dataclass
@@ -123,6 +128,128 @@ def _minimum_candidate(spec: str) -> Optional[str]:
     return match.group(0) if match else None
 
 
+_BARE_VERSION = re.compile(r"^v?\d+(?:\.\d+){0,3}$")
+# A single comparator token, matched in full. Using `match` here let a token
+# like ">=1.0 ||" through on its prefix and produced a corrupt range.
+_COMPARATOR = re.compile(r"^(?:>=|<=|==|!=|=|>|<)?v?\d+(?:\.\d+){0,3}(?:[.-][0-9A-Za-z.+-]*)?$")
+
+
+def spec_is_pinned(spec: Optional[str]) -> bool:
+    """Whether a declaration pins one exact version.
+
+    Only exact pins and bare version numbers count. Anything with an
+    operator, a comma, a caret/tilde, a wildcard or a Maven-style bracket is
+    a *range*: it constrains what may be installed without saying what is.
+    """
+    if not spec:
+        return False
+    text = str(spec).strip()
+    if not text:
+        return False
+    if _BARE_VERSION.match(text):
+        return True
+    if text.startswith(("==", "=")) and "," not in text and " " not in text.strip("= "):
+        return _BARE_VERSION.match(text.lstrip("=").strip()) is not None
+    return False
+
+
+def normalize_spec(spec: str) -> Optional[str]:
+    """Rewrite ecosystem range syntax into the comparators the matcher knows.
+
+    Handles npm/Cargo carets and tildes, Ruby pessimistic ``~>``, ``1.x``
+    wildcards and Maven/NuGet bracket ranges. Returns ``None`` when the
+    declaration uses syntax this cannot faithfully translate -- callers must
+    then treat the range as unknown rather than guess.
+    """
+    text = str(spec).strip()
+    if not text:
+        return None
+    if text in {"*", "x", "latest", "workspace:*"}:
+        return ">=0"
+
+    # npm/Cargo OR ranges: ">=1.0 || <0.5". Normalise each side; if either
+    # side is untranslatable the whole declaration is unknown.
+    if "||" in text:
+        parts = [normalize_spec(part) for part in text.split("||")]
+        if any(part is None for part in parts):
+            return None
+        return " || ".join(parts)
+
+    # Ruby pessimistic operator: "~> 7.0" allows 7.x but not 8.
+    if text.startswith("~>"):
+        body = text[2:].strip().lstrip("v")
+        parts = [p for p in body.split(".") if p != ""]
+        if not parts:
+            return None
+        upper = parts[:-1]
+        if not upper:
+            return None
+        upper[-1] = str(int(upper[-1]) + 1)
+        return f">={body}, <{'.'.join(upper)}"
+
+    # Caret: ^1.5.0 -> >=1.5.0,<2.0.0 ; ^0.5.0 -> >=0.5.0,<0.6.0 (npm semantics)
+    if text.startswith("^"):
+        body = text[1:].strip().lstrip("v")
+        parts = [p for p in body.split(".") if p != ""]
+        if not parts or not parts[0].isdigit():
+            return None
+        if parts[0] != "0":
+            return f">={body}, <{int(parts[0]) + 1}.0.0"
+        if len(parts) > 1 and parts[1].isdigit():
+            return f">={body}, <0.{int(parts[1]) + 1}.0"
+        return f">={body}, <1.0.0"
+
+    # Tilde: ~1.5.0 -> >=1.5.0,<1.6.0
+    if text.startswith("~"):
+        body = text[1:].strip().lstrip("v")
+        parts = [p for p in body.split(".") if p != ""]
+        if not parts or not parts[0].isdigit():
+            return None
+        if len(parts) >= 2 and parts[1].isdigit():
+            return f">={body}, <{parts[0]}.{int(parts[1]) + 1}.0"
+        return f">={body}, <{int(parts[0]) + 1}.0.0"
+
+    # Wildcard: 1.x / 1.2.*
+    wildcard = re.match(r"^(\d+)(?:\.(\d+))?\.[xX*]$", text)
+    if wildcard:
+        major, minor = wildcard.group(1), wildcard.group(2)
+        if minor is not None:
+            return f">={major}.{minor}.0, <{major}.{int(minor) + 1}.0"
+        return f">={major}.0.0, <{int(major) + 1}.0.0"
+
+    # Maven / NuGet bracket ranges: [1.0,2.0) (1.0,2.0] etc.
+    bracket = re.match(r"^([\[\(])\s*([\d.]+)?\s*,\s*([\d.]+)?\s*([\]\)])$", text)
+    if bracket:
+        low_open, low, high, high_close = bracket.groups()
+        tokens = []
+        if low:
+            tokens.append((">" if low_open == "(" else ">=") + low)
+        if high:
+            tokens.append(("<" if high_close == ")" else "<=") + high)
+        return ", ".join(tokens) if tokens else None
+
+    # Plain comparator lists: ">=1.26,<3", "==2.3.2"
+    tokens = [t.strip() for t in re.split(r"\s*,\s*|\s+(?=[<>=])", text) if t.strip()]
+    if tokens and all(_COMPARATOR.match(t) for t in tokens):
+        return ", ".join(tokens)
+    return None
+
+
+def range_permits_version(spec: Optional[str], version: str) -> Optional[bool]:
+    """Whether a declared range admits ``version``. ``None`` means "cannot tell".
+
+    Used to decide whether an unpinned dependency is worth reporting: if the
+    range admits the patched release, the manifest is not itself evidence of
+    a vulnerable install -- the lockfile is, and that is scanned separately.
+    """
+    if not spec or not version:
+        return None
+    normalized = normalize_spec(spec)
+    if normalized is None:
+        return None
+    return _satisfies_affected_range(version, normalized)
+
+
 # --------------------------------------------------------------------------- #
 # Name normalization
 # --------------------------------------------------------------------------- #
@@ -142,7 +269,7 @@ def normalize_name(ecosystem: str, name: str) -> str:
 # --------------------------------------------------------------------------- #
 def _dep(name: str, version: Optional[str], ecosystem: str, discovered: DiscoveredFile,
          line: int = 1, spec: Optional[str] = None, direct: bool = True,
-         kind: str = "") -> ParsedDependency:
+         kind: str = "", pinned: Optional[bool] = None) -> ParsedDependency:
     return ParsedDependency(
         name=normalize_name(ecosystem, name),
         version=version,
@@ -152,6 +279,9 @@ def _dep(name: str, version: Optional[str], ecosystem: str, discovered: Discover
         declared_spec=spec,
         is_direct=direct,
         manifest_kind=kind or os.path.basename(discovered.path),
+        # Inferred from the declaration unless the parser knows better (Cargo,
+        # where a bare "1.0" is a caret range rather than a pin).
+        is_pinned=spec_is_pinned(spec) if pinned is None else pinned,
     )
 
 
@@ -417,7 +547,10 @@ def _parse_cargo_toml(discovered: DiscoveredFile) -> ParseOutcome:
         for name, spec in (data.get(section) or {}).items():
             version = spec if isinstance(spec, str) else (spec or {}).get("version")
             outcome.dependencies.append(_dep(name, _minimum_candidate(str(version or "")), "rust",
-                                             discovered, 1, str(version)))
+                                             discovered, 1, str(version),
+                                             # Cargo treats a bare "1.0" as "^1.0", so only an
+                                             # explicit "=" prefix pins the version.
+                                             pinned=str(version or "").strip().startswith("=")))
     return outcome
 
 
@@ -718,17 +851,43 @@ def scan_dependencies(manifests: List[DiscoveredFile],
                 if not _satisfies_affected_range(dep.version, str(advisory.get("affected", ""))):
                     continue
                 declared = dep.declared_spec or f"=={dep.version}"
+                if not dep.is_pinned:
+                    # `version` here is only the lowest version the declared
+                    # range permits -- it is not evidence of what is
+                    # installed, so reporting "known vulnerability in
+                    # pkg@X" would be a false positive. Report only when the
+                    # range provably cannot be satisfied by a patched
+                    # release; otherwise the lockfile (scanned separately) is
+                    # where the installed version is actually recorded.
+                    fixed_in = str(advisory.get("fixed_in") or "").strip()
+                    if fixed_in and range_permits_version(dep.declared_spec, fixed_in) is not False:
+                        # True  -> the range admits the patched release.
+                        # None  -> syntax this cannot translate; not guessed at.
+                        continue
+                    title = (f"Dependency range for {dep.name} cannot be satisfied by a "
+                             f"patched release: {advisory.get('cve') or advisory['id']}")
+                    description = (
+                        f"{advisory.get('summary', '')} The declared range '{declared}' excludes "
+                        f"the patched release {fixed_in}, so every version it permits is affected "
+                        f"by {advisory['affected']}. Narrow the range to exclude vulnerable "
+                        f"versions, or check the lockfile for the version actually installed.")
+                    confidence = "medium"
+                else:
+                    title = (f"Known vulnerability in {dep.name}@{dep.version}: "
+                             f"{advisory.get('cve') or advisory['id']}")
+                    description = (f"{advisory.get('summary', '')} Resolved/declared version "
+                                   f"{dep.version} from '{declared}' matches vulnerable range "
+                                   f"{advisory['affected']}. Fixed in "
+                                   f"{advisory.get('fixed_in', 'unknown')}.")
+                    confidence = "high"
                 findings.append(Finding(
                     rule_id=f"DEP-{advisory['id']}",
-                    title=(f"Known vulnerability in {dep.name}@{dep.version}: "
-                           f"{advisory.get('cve') or advisory['id']}"),
-                    description=(f"{advisory.get('summary', '')} Resolved/declared version "
-                                 f"{dep.version} from '{declared}' matches vulnerable range "
-                                 f"{advisory['affected']}. Fixed in {advisory.get('fixed_in', 'unknown')}."),
+                    title=title,
+                    description=description,
                     severity=SEVERITY_MAP.get(str(advisory.get("severity", "medium")), Severity.MEDIUM),
                     engine=Engine.DEPENDENCY,
                     category="vulnerable-dependency",
-                    confidence="high",
+                    confidence=confidence,
                     remediation=f"Upgrade {dep.name} to version {advisory.get('fixed_in', 'a patched release')} or later.",
                     references=([f"https://nvd.nist.gov/vuln/detail/{advisory['cve']}"]
                                 if advisory.get("cve") else []),
@@ -738,6 +897,7 @@ def scan_dependencies(manifests: List[DiscoveredFile],
                            "declared_spec": declared, "fixed_version": advisory.get("fixed_in"),
                            "cve": advisory.get("cve"), "ecosystem": dep.ecosystem,
                            "is_direct": dep.is_direct, "advisory_id": advisory["id"],
-                           "advisory_source": advisory_source.name},
+                           "advisory_source": advisory_source.name,
+                           "is_pinned": dep.is_pinned},
                 ))
     return findings

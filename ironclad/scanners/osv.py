@@ -205,8 +205,22 @@ def record_to_entries(record: Dict[str, Any]) -> List[Tuple[str, str, Dict[str, 
         advisory = dict(base)
         advisory["affected"] = affected_range_from_osv(affected.get("ranges"), versions)
         advisory["fixed_in"] = _first_fixed(affected.get("ranges"))
+        if advisory["affected"] == ">=0" and _has_git_range(affected.get("ranges")):
+            # We refused to guess a version range out of commit hashes, so
+            # every declared version will be reported. Say so in the finding
+            # text instead of letting it look version-scoped.
+            advisory["summary"] = (
+                f"{advisory['summary']} [This advisory tracks commits rather than "
+                f"released versions and publishes no affected version range, so "
+                f"every declared version is reported.]"
+            ).strip()
         entries.append((eco, name, advisory))
     return entries
+
+
+def _has_git_range(ranges: Any) -> bool:
+    return any(isinstance(r, dict) and str(r.get("type", "")).upper() == "GIT"
+               for r in ranges or [])
 
 
 def _first_fixed(ranges: Any) -> str:

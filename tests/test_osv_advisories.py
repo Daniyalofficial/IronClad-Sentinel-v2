@@ -137,6 +137,28 @@ def test_git_ranges_are_dropped_rather_than_guessed():
     assert spec == ">=0", "a GIT-only record must not emit a bogus version range"
 
 
+def test_git_only_advisory_says_it_is_not_version_scoped():
+    """Refusing to guess must not look like a version-scoped match.
+
+    A GIT-only record has no published version range, so every declared
+    version is reported. The finding text has to say that, or an operator
+    reads ">=0" as a real range and cannot tell why every release of the
+    package is flagged.
+    """
+    entries = osv.record_to_entries({
+        "id": "GHSA-gitonly",
+        "summary": "Command injection in the plugin loader",
+        "affected": [{"package": {"ecosystem": "PyPI", "name": "demo-lib"},
+                      "ranges": [{"type": "GIT",
+                                  "events": [{"introduced": "abc123"}, {"fixed": "def456"}]}]}],
+    })
+    advisory = entries[0][2]
+    assert advisory["affected"] == ">=0"
+    assert "commits rather than released versions" in advisory["summary"]
+    assert "Command injection in the plugin loader" in advisory["summary"], (
+        "the original summary must survive the annotation")
+
+
 def test_limit_event_is_treated_as_exclusive_upper_bound():
     spec = osv.affected_range_from_osv(
         [{"type": "ECOSYSTEM", "events": [{"introduced": "1.0.0"}, {"limit": "2.0.0"}]}])
