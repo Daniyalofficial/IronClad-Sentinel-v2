@@ -17,6 +17,8 @@ import os
 import uuid
 
 import pytest
+
+pytest.importorskip("fastapi", reason="requires the server extra: pip install -e '.[server]'")
 from fastapi.testclient import TestClient
 
 from ironclad.api.app import create_app
