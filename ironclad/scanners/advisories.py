@@ -38,6 +38,8 @@ import os
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
+from ironclad.scanners import osv
+
 BUNDLED_DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "vuln_db.json")
 
 # Hard ceiling for the opt-in remote source. Scans must never hang on a
@@ -107,8 +109,17 @@ class BundledAdvisorySource(AdvisorySource):
 class DirectoryAdvisorySource(AdvisorySource):
     """Organization-specific overlay merged over the bundled database.
 
-    Every ``*.json`` file in the directory must have the same shape as the
-    bundled database. Later files (alphabetical) win for the same package.
+    Two file formats are accepted, detected per file:
+
+    * IronClad's own schema -- ``{ecosystem: {package: [advisories]}}`` --
+      the same shape as the bundled database. Later files (alphabetical) win
+      for the same package.
+    * Native OSV records, an OSV batch response (``{"vulns": [...]}``), or a
+      JSON array of records. This is what ``osv.dev`` publishes and what the
+      ``github/advisory-database`` repository contains, so a mirror of either
+      can be dropped in directly. Ranges are converted through
+      :mod:`ironclad.scanners.osv`; records for ecosystems IronClad has no
+      manifest parser for are dropped with a recorded warning.
     """
 
     directory: str = ""
@@ -135,6 +146,21 @@ class DirectoryAdvisorySource(AdvisorySource):
                     payload = json.load(fh)
             except (OSError, json.JSONDecodeError) as exc:
                 self.warnings.append(f"skipping unreadable advisory file {filename}: {exc}")
+                continue
+            if not isinstance(payload, (dict, list)):
+                self.warnings.append(f"skipping {filename}: not a JSON object")
+                continue
+            if osv.is_osv_payload(payload):
+                # A real OSV record, batch response or array of records.
+                converted = 0
+                for eco, packages in osv.build_database(osv.iter_records(payload)).items():
+                    for package, advisories in packages.items():
+                        overlay.setdefault(eco, {})[package] = advisories
+                        converted += 1
+                if converted == 0:
+                    self.warnings.append(
+                        f"{filename}: OSV records found, but none for an ecosystem "
+                        f"IronClad scans -- nothing merged")
                 continue
             if not isinstance(payload, dict):
                 self.warnings.append(f"skipping {filename}: not a JSON object")
@@ -198,7 +224,7 @@ class RemoteAdvisorySource(AdvisorySource):
     def _fetch(self, ecosystem: str, package: str) -> List[Dict[str, object]]:
         import urllib.request
 
-        payload = json.dumps({"package": {"name": package, "ecosystem": _osv_ecosystem(ecosystem)}}).encode()
+        payload = json.dumps({"package": {"name": package, "ecosystem": osv.osv_ecosystem(ecosystem)}}).encode()
         request = urllib.request.Request(
             self.endpoint.rstrip("/") + "/query",
             data=payload,
@@ -207,45 +233,18 @@ class RemoteAdvisorySource(AdvisorySource):
         )
         with urllib.request.urlopen(request, timeout=self.timeout) as response:  # noqa: S310 - https enforced above
             body = json.loads(response.read().decode("utf-8"))
+        # Converted through the same OSV code path as the directory overlay.
+        # The previous hand-rolled conversion here read only the last
+        # `fixed` event of the first range: it ignored `introduced` (so
+        # versions *before* the vulnerable range were flagged) and emitted
+        # "<0" when a record had no `fixed` event at all, which the matcher
+        # treats as "matches nothing" -- silently hiding those advisories.
         out: List[Dict[str, object]] = []
-        for vuln in body.get("vulns", []) or []:
-            severity = "medium"
-            for database_specific in (vuln.get("database_specific") or {}).items():
-                if database_specific[0].lower() == "severity":
-                    severity = str(database_specific[1]).lower()
-            affected = ", ".join(
-                f"<{rng.get('events', [{}])[-1].get('fixed')}"
-                for rng in (vuln.get("affected") or [{}])[0].get("ranges", [])
-                if rng.get("events") and rng["events"][-1].get("fixed")
-            ) or "<0"
-            fixed = ""
-            for rng in (vuln.get("affected") or [{}])[0].get("ranges", []):
-                for event in rng.get("events", []):
-                    if event.get("fixed"):
-                        fixed = str(event["fixed"])
-            out.append({
-                "id": vuln.get("id", "UNKNOWN"),
-                "cve": next((a.get("url", "").rsplit("/", 1)[-1] for a in vuln.get("aliases", [])
-                             if isinstance(a, dict)), None),
-                "affected": affected,
-                "severity": severity,
-                "summary": vuln.get("summary") or vuln.get("details", "")[:200],
-                "fixed_in": fixed,
-            })
+        for record in osv.iter_records(body):
+            for eco, name, advisory in osv.record_to_entries(record):
+                if eco == ecosystem and name.lower() == package.lower():
+                    out.append(advisory)
         return out
-
-
-def _osv_ecosystem(ecosystem: str) -> str:
-    return {
-        "python": "PyPI",
-        "javascript": "npm",
-        "go": "Go",
-        "ruby": "RubyGems",
-        "php": "Packagist",
-        "java": "Maven",
-        "rust": "crates.io",
-        "nuget": "NuGet",
-    }.get(ecosystem, ecosystem.capitalize())
 
 
 def build_source(
@@ -257,6 +256,14 @@ def build_source(
     """Construct an advisory source from configuration values."""
     kind = (kind or "bundled").lower()
     if kind == "bundled":
+        # `advisory_path` pointing at a *directory* is the documented overlay
+        # workflow ("point advisory_path at your own maintained overlay
+        # directory"). Honour it instead of handing the directory to the
+        # bundled file loader, which would fail to open it, warn, and then
+        # scan with an empty database -- silently disabling every dependency
+        # vulnerability check while the scan still exited 0.
+        if path and os.path.isdir(path):
+            return DirectoryAdvisorySource(directory=path)
         return BundledAdvisorySource(path=path or BUNDLED_DB_PATH)
     if kind == "directory":
         if not path:
