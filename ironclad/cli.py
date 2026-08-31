@@ -848,8 +848,10 @@ def advisories_group():
               help="Comma-separated IronClad ecosystems to keep (default: all supported).")
 @click.option("--limit", default=0, type=int,
               help="Cap advisories per package (0 = no cap). Keeps the database bounded.")
+@click.option("--source-label", default="",
+              help="Free-text provenance recorded in _meta (e.g. the upstream repo and commit).")
 @click.option("--as-json", is_flag=True, help="Print the summary as JSON.")
-def advisories_import_osv(source, output, ecosystems, limit, as_json):
+def advisories_import_osv(source, output, ecosystems, limit, source_label, as_json):
     """Convert an OSV dump into IronClad's offline advisory database.
 
     Runs entirely offline: point --source at a directory of OSV JSON records
@@ -887,7 +889,11 @@ def advisories_import_osv(source, output, ecosystems, limit, as_json):
                 for eco, name, advisory in osv.record_to_entries(record):
                     if wanted and eco not in wanted:
                         continue
-                    bucket = database.setdefault(eco, {}).setdefault(name, [])
+                    # Keys must be lowercased: the scanner normalises package
+                    # names (PEP 503 for Python, lowercase elsewhere) before
+                    # looking them up, so a mixed-case key such as "PyYAML" or
+                    # "github.com/Traefik/traefik" would never be found.
+                    bucket = database.setdefault(eco, {}).setdefault(name.lower(), [])
                     if any(existing.get("id") == advisory["id"] for existing in bucket):
                         continue
                     bucket.append(advisory)
@@ -905,7 +911,7 @@ def advisories_import_osv(source, output, ecosystems, limit, as_json):
                            "from OSV records by `ironclad advisories import-osv`.",
             "schema_version": 1,
             "generator_version": __version__,
-            "source_directory": os.path.abspath(source),
+            "source": source_label or os.path.abspath(source),
             "osv_records_read": records,
             "unreadable_files": unreadable,
             "ecosystems": sorted(database),
@@ -922,7 +928,7 @@ def advisories_import_osv(source, output, ecosystems, limit, as_json):
         fh.write("\n")
 
     summary = {
-        "source": os.path.abspath(source),
+        "source": source_label or os.path.abspath(source),
         "output": os.path.abspath(output),
         "osv_records_read": records,
         "unreadable_files": unreadable,

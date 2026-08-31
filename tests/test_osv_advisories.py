@@ -471,3 +471,132 @@ def test_advisory_path_pointing_at_a_file_still_replaces_the_database(tmp_path):
     assert "REPL-1" in ids
     assert not any(str(i).startswith("GHSA-") for i in ids if i), (
         "a replacement database must not be merged with the bundled one")
+
+
+# --------------------------------------------------------------------------- #
+# `ironclad advisories import-osv`
+# --------------------------------------------------------------------------- #
+def test_import_osv_lowercases_package_keys(tmp_path):
+    """The scanner normalises names before lookup, so keys must be lowercase.
+
+    A mixed-case key such as "PyYAML" or "github.com/Traefik/traefik" is never
+    found by a lookup for the normalised name, which silently drops every
+    advisory for that package.
+    """
+    from click.testing import CliRunner
+
+    from ironclad.cli import main
+    from ironclad.scanners.advisories import BundledAdvisorySource
+
+    source = tmp_path / "osv"
+    source.mkdir()
+    (source / "pyyaml.json").write_text(
+        open(os.path.join(FIXTURES, "GHSA-rprw-h62v-c2w7.json"), encoding="utf-8").read(),
+        encoding="utf-8")
+    out = tmp_path / "db.json"
+
+    result = CliRunner().invoke(main, ["advisories", "import-osv",
+                                       "--source", str(source), "--output", str(out),
+                                       "--as-json"])
+    assert result.exit_code == 0, result.output
+    summary = json.loads(result.output)
+    assert summary["osv_records_read"] == 1
+    assert summary["package_count"] == 1
+
+    written = json.loads(out.read_text(encoding="utf-8"))
+    keys = list(written["python"])
+    assert keys == ["pyyaml"], f"keys must be lowercased, got {keys}"
+    assert BundledAdvisorySource(path=str(out)).lookup("python", "pyyaml")
+
+
+def test_import_osv_filters_ecosystems_and_reports_provenance(tmp_path):
+    from click.testing import CliRunner
+
+    from ironclad.cli import main
+
+    source = tmp_path / "osv"
+    source.mkdir()
+    for name in ("GHSA-x84v-xcm2-53pg.json", "GHSA-462w-v97r-4m45.json"):
+        (source / name).write_text(
+            open(os.path.join(FIXTURES, name), encoding="utf-8").read(), encoding="utf-8")
+    out = tmp_path / "db.json"
+
+    result = CliRunner().invoke(main, ["advisories", "import-osv", "--source", str(source),
+                                       "--output", str(out), "--ecosystems", "javascript",
+                                       "--as-json"])
+    assert result.exit_code == 0, result.output
+    written = json.loads(out.read_text(encoding="utf-8"))
+    assert [k for k in written if not k.startswith("_")] == [], (
+        "both fixtures are PyPI records, so filtering to javascript keeps nothing")
+    meta = written["_meta"]
+    assert meta["osv_records_read"] == 2, "records are still counted even when filtered out"
+    assert meta["package_count"] == 0
+    assert meta["generator_version"]
+
+
+def test_import_osv_keeps_only_the_requested_ecosystem(tmp_path):
+    """Positive control for the filter above."""
+    from click.testing import CliRunner
+
+    from ironclad.cli import main
+
+    source = tmp_path / "osv"
+    source.mkdir()
+    (source / "requests.json").write_text(
+        open(os.path.join(FIXTURES, "GHSA-x84v-xcm2-53pg.json"), encoding="utf-8").read(),
+        encoding="utf-8")
+    out = tmp_path / "db.json"
+
+    result = CliRunner().invoke(main, ["advisories", "import-osv", "--source", str(source),
+                                       "--output", str(out), "--ecosystems", "python",
+                                       "--as-json"])
+    assert result.exit_code == 0, result.output
+    written = json.loads(out.read_text(encoding="utf-8"))
+    assert [k for k in written if not k.startswith("_")] == ["python"]
+    assert written["_meta"]["package_count"] == 1
+
+
+def test_import_osv_rejects_an_unknown_ecosystem(tmp_path):
+    from click.testing import CliRunner
+
+    from ironclad.cli import main
+    from ironclad.core import exit_codes as ec
+
+    result = CliRunner().invoke(main, ["advisories", "import-osv", "--source", str(tmp_path),
+                                       "--output", str(tmp_path / "db.json"),
+                                       "--ecosystems", "cobol"])
+    assert result.exit_code == ec.CONFIG_ERROR
+    assert "unknown ecosystem" in result.output
+
+
+def test_import_osv_requires_a_directory(tmp_path):
+    from click.testing import CliRunner
+
+    from ironclad.cli import main
+    from ironclad.core import exit_codes as ec
+
+    result = CliRunner().invoke(main, ["advisories", "import-osv",
+                                       "--source", str(tmp_path / "missing"),
+                                       "--output", str(tmp_path / "db.json")])
+    assert result.exit_code == ec.TARGET_ERROR
+
+
+def test_import_osv_skips_corrupt_files_and_keeps_going(tmp_path):
+    from click.testing import CliRunner
+
+    from ironclad.cli import main
+
+    source = tmp_path / "osv"
+    source.mkdir()
+    (source / "broken.json").write_text("{not json", encoding="utf-8")
+    (source / "good.json").write_text(
+        open(os.path.join(FIXTURES, "GHSA-x84v-xcm2-53pg.json"), encoding="utf-8").read(),
+        encoding="utf-8")
+    out = tmp_path / "db.json"
+
+    result = CliRunner().invoke(main, ["advisories", "import-osv", "--source", str(source),
+                                       "--output", str(out), "--as-json"])
+    assert result.exit_code == 0, result.output
+    summary = json.loads(result.output)
+    assert summary["unreadable_files"] == 1
+    assert summary["osv_records_read"] == 1

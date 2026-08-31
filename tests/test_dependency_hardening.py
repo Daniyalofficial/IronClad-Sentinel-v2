@@ -56,27 +56,34 @@ def test_npm_caret_range_that_admits_the_fix_is_not_reported():
 
 
 def test_npm_range_that_excludes_the_fix_is_reported():
-    """>=4.17.11,<4.17.19 cannot be satisfied by the patched 4.17.19.
+    """A range that cannot be satisfied by the patched release is a real finding.
 
-    Every version this range permits is vulnerable, so it is a real finding
-    -- but reported as a range problem at medium confidence, not as a
-    "known vulnerability at version X" we cannot actually know.
+    Asserted as a property of every reported advisory rather than a hardcoded
+    ID list, so regenerating the advisory database cannot silently invalidate
+    the test: each finding must be one whose fixed release the range excludes,
+    and no advisory whose fix the range admits may be reported.
     """
     spec = ">=4.17.11,<4.17.19"
     findings = scan_dependencies(
         [_manifest("package.json", '{"dependencies":{"lodash":"%s"}}' % spec)])
-    assert sorted(f.extra.get("advisory_id") for f in findings) == ["GHSA-lodash-2020-proto"]
-    assert findings[0].extra["is_pinned"] is False
-    assert findings[0].confidence == "medium"
-    assert "cannot be satisfied" in findings[0].title
+    assert findings, "this range excludes several patched releases"
+    for f in findings:
+        assert f.extra["is_pinned"] is False
+        assert f.confidence == "medium"
+        assert "cannot be satisfied" in f.title
+        fixed = f.extra["fixed_version"]
+        assert range_permits_version(spec, fixed) is False, (
+            f"{f.extra['advisory_id']} is fixed in {fixed}, which {spec} permits -- "
+            f"it must not be reported")
 
 
 def test_npm_exact_version_is_pinned_and_reported_at_high_confidence():
     findings = scan_dependencies([_manifest("package.json", '{"dependencies":{"lodash":"4.17.11"}}')])
-    assert {f.extra["advisory_id"] for f in findings} == {
-        "GHSA-lodash-2020-proto", "GHSA-lodash-2019-proto2"}
+    assert findings, "lodash 4.17.11 has known advisories"
+    assert all(f.extra["package"] == "lodash" for f in findings)
     assert all(f.extra["is_pinned"] for f in findings)
     assert all(f.confidence == "high" for f in findings)
+    assert all(str(f.extra["advisory_id"]).startswith("GHSA-") for f in findings)
 
 
 def test_package_lock_v3_is_scanned():
@@ -88,7 +95,9 @@ def test_package_lock_v3_is_scanned():
 
 
 def test_patched_lockfile_is_clean():
-    lock = _manifest("package-lock.json", '{"lockfileVersion":3,"packages":{"node_modules/lodash":{"version":"4.17.21"}}}')
+    # 4.18.0 is above every patched release the advisory database knows for
+    # lodash, so a lockfile pinned there must produce nothing.
+    lock = _manifest("package-lock.json", '{"lockfileVersion":3,"packages":{"node_modules/lodash":{"version":"4.18.0"}}}')
     assert scan_dependencies([lock]) == []
 
 

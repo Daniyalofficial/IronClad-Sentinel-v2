@@ -25,14 +25,21 @@ from ironclad.scanners.dependency import (
 )
 
 # (filename, vulnerable content, safe content, expected vulnerable package)
+#
+# Every version pair below was derived from the shipped advisory database
+# rather than invented: the vulnerable version matches at least one real
+# advisory for that package and the safe version matches none. When the
+# bundled database is regenerated from a newer advisory feed these pairs may
+# need refreshing -- `test_ecosystem_pairs_are_still_valid` fails with the
+# exact reason rather than letting a stale pair pass silently.
 ECOSYSTEM_CASES = [
-    ("requirements.txt", "jinja2==3.1.2\n", "jinja2==3.1.4\n", "jinja2"),
-    ("requirements-dev.txt", "werkzeug==2.3.0\n", "werkzeug==3.0.1\n", "werkzeug"),
-    ("package.json", '{"dependencies": {"axios": "1.5.0"}}',
-     '{"dependencies": {"axios": "1.6.2"}}', "axios"),
+    ("requirements.txt", "jinja2==3.1.2\n", "jinja2==3.1.6\n", "jinja2"),
+    ("requirements-dev.txt", "werkzeug==2.3.0\n", "werkzeug==3.1.6\n", "werkzeug"),
+    ("package.json", '{"dependencies": {"lodash": "4.17.11"}}',
+     '{"dependencies": {"lodash": "4.18.0"}}', "lodash"),
     ("package-lock.json",
      '{"lockfileVersion": 3, "packages": {"node_modules/minimist": {"version": "1.2.5"}}}',
-     '{"lockfileVersion": 3, "packages": {"node_modules/minimist": {"version": "1.2.8"}}}',
+     '{"lockfileVersion": 3, "packages": {"node_modules/minimist": {"version": "1.2.6"}}}',
      "minimist"),
     ("yarn.lock",
      '# yarn lockfile v1\n\nsemver@^7.0.0:\n  version "7.3.5"\n  resolved "x"\n',
@@ -43,23 +50,26 @@ ECOSYSTEM_CASES = [
      "packages:\n  /braces@3.0.3:\n    resolution: {integrity: x}\n",
      "braces"),
     ("go.mod", "module demo\n\nrequire golang.org/x/net v0.16.0\n",
-     "module demo\n\nrequire golang.org/x/net v0.17.0\n", "golang.org/x/net"),
+     "module demo\n\nrequire golang.org/x/net v0.55.0\n", "golang.org/x/net"),
     ("go.sum",
      "golang.org/x/net v0.16.0 h1:aaaa\n",
-     "golang.org/x/net v0.17.0 h1:aaaa\n",
+     "golang.org/x/net v0.55.0 h1:aaaa\n",
      "golang.org/x/net"),
-    ("Cargo.toml", '[dependencies]\ntime = "0.1.40"\n', '[dependencies]\ntime = "0.3.30"\n', "time"),
-    ("Cargo.lock", '[[package]]\nname = "smallvec"\nversion = "1.6.0"\n',
-     '[[package]]\nname = "smallvec"\nversion = "1.11.0"\n', "smallvec"),
+    # Cargo treats a bare "0.6.3" as "^0.6.3", so the vulnerable case needs an
+    # explicit "=" pin; a range is not evidence of an installed version.
+    ("Cargo.toml", '[dependencies]\nsmallvec = "=0.6.3"\n',
+     '[dependencies]\nsmallvec = "=0.6.14"\n', "smallvec"),
+    ("Cargo.lock", '[[package]]\nname = "tokio"\nversion = "1.8.1"\n',
+     '[[package]]\nname = "tokio"\nversion = "1.44.2"\n', "tokio"),
     ("pom.xml",
      "<project><dependencies><dependency><groupId>org.springframework</groupId>"
      "<artifactId>spring-core</artifactId><version>5.3.10</version></dependency></dependencies></project>",
      "<project><dependencies><dependency><groupId>org.springframework</groupId>"
-     "<artifactId>spring-core</artifactId><version>5.3.20</version></dependency></dependencies></project>",
+     "<artifactId>spring-core</artifactId><version>7.0.8</version></dependency></dependencies></project>",
      "org.springframework:spring-core"),
     ("build.gradle",
      'dependencies { implementation "org.springframework:spring-core:5.3.10" }',
-     'dependencies { implementation "org.springframework:spring-core:5.3.20" }',
+     'dependencies { implementation "org.springframework:spring-core:7.0.8" }',
      "org.springframework:spring-core"),
     ("composer.json", '{"require": {"phpmailer/phpmailer": "6.1.0"}}',
      '{"require": {"phpmailer/phpmailer": "6.5.0"}}', "phpmailer/phpmailer"),
@@ -67,16 +77,24 @@ ECOSYSTEM_CASES = [
      '{"packages": [{"name": "phpmailer/phpmailer", "version": "v6.1.0"}]}',
      '{"packages": [{"name": "phpmailer/phpmailer", "version": "v6.5.0"}]}',
      "phpmailer/phpmailer"),
-    ("Gemfile", 'gem "json", "2.6.0"\n', 'gem "json", "2.7.5"\n', "json"),
+    ("Gemfile", 'gem "rack", "1.1.3"\n', 'gem "rack", "3.2.6"\n', "rack"),
     ("Gemfile.lock",
-     "GEM\n  specs:\n    json (2.6.0)\n",
-     "GEM\n  specs:\n    json (2.7.5)\n",
-     "json"),
+     "GEM\n  specs:\n    rack (1.1.3)\n",
+     "GEM\n  specs:\n    rack (3.2.6)\n",
+     "rack"),
     ("packages.config",
      '<packages><package id="Newtonsoft.Json" version="12.0.1" /></packages>',
      '<packages><package id="Newtonsoft.Json" version="13.0.3" /></packages>',
      "newtonsoft.json"),
 ]
+
+
+def tmpdir_helper():
+    """A fresh directory as a Path, for tests that are not fixture-driven."""
+    import pathlib
+    import tempfile
+
+    return pathlib.Path(tempfile.mkdtemp())
 
 
 def _manifest(tmp_path, filename, content):
@@ -255,3 +273,58 @@ def test_custom_source_can_be_injected_into_the_scanner(tmp_path):
     assert len(findings) == 1
     assert findings[0].rule_id == "DEP-CUSTOM-1"
     assert findings[0].extra["advisory_source"] == "bundled"
+
+
+def test_ecosystem_pairs_are_still_valid_against_the_shipped_database():
+    """Guard the version pairs in ECOSYSTEM_CASES against a database refresh.
+
+    The pairs are real advisory data, so regenerating the bundled database
+    from a newer feed could invalidate one. Without this guard a stale pair
+    shows up as a confusing parser failure; with it, the reason is explicit.
+    """
+    from ironclad.scanners.advisories import BundledAdvisorySource
+    from ironclad.scanners.dependency import _satisfies_affected_range
+
+    source = BundledAdvisorySource()
+    stale = []
+    for filename, vulnerable, safe, package in ECOSYSTEM_CASES:
+        vuln_found = scan_dependencies([_manifest(tmpdir_helper(), filename, vulnerable)])
+        safe_found = scan_dependencies([_manifest(tmpdir_helper(), filename, safe)])
+        hit = any(f.extra.get("package") == package for f in vuln_found)
+        clean = not any(f.extra.get("package") == package for f in safe_found)
+        if not (hit and clean):
+            stale.append(f"{filename}/{package}: vulnerable_hit={hit} safe_clean={clean}")
+    assert not stale, ("ECOSYSTEM_CASES version pairs no longer match the shipped advisory "
+                       "database; re-derive them from ironclad/data/vuln_db.json:\n  "
+                       + "\n  ".join(stale))
+
+
+def test_bundled_advisory_ids_are_real_ghsa_identifiers():
+    """Every advisory id must be a genuine GHSA identifier.
+
+    The database used to ship invented ids such as "GHSA-django-2023-sql" and
+    "GHSA-log4j-2021-shell". Those look authoritative and resolve to nothing:
+    a customer searching the GitHub Advisory Database for a finding we
+    reported would find no such advisory. Ids now come from a real feed, and
+    this pins the shape so a hand-edited entry cannot reintroduce the problem.
+    """
+    import json
+    import os
+    import re
+
+    path = os.path.join(os.path.dirname(__file__), "..", "ironclad", "data", "vuln_db.json")
+    with open(path, encoding="utf-8") as fh:
+        db = json.load(fh)
+    pattern = re.compile(r"^GHSA(-[23456789cfghjmpqrvwx]{4}){3}$")
+    bad = []
+    count = 0
+    for eco, packages in db.items():
+        if eco.startswith("_"):
+            continue
+        for package, advisories in packages.items():
+            for advisory in advisories:
+                count += 1
+                if not pattern.match(str(advisory.get("id", ""))):
+                    bad.append(f"{eco}/{package}: {advisory.get('id')}")
+    assert count > 10000, f"expected a real advisory feed, found {count} advisories"
+    assert not bad[:20], f"{len(bad)} advisory ids are not real GHSA identifiers: {bad[:5]}"
