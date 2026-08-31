@@ -10,6 +10,87 @@ system in a way it had not been executed before, not by reading it.
 
 ### Added
 
+- **A real advisory database.** The bundled database covered 44 packages and
+  its advisory identifiers were invented — `GHSA-django-2023-sql`,
+  `GHSA-log4j-2021-shell`, `GHSA-pyyaml-2017-rce` resolve to nothing in the
+  GitHub Advisory Database, so a customer checking a finding we reported
+  would find no such advisory. It is now generated from
+  `github/advisory-database` (the data `osv.dev` serves):
+  **13,095 packages / 44,499 advisories** across the same 8 ecosystems, with
+  real GHSA identifiers and CVE aliases. No previously covered package was
+  lost. `_meta.source` records the exact upstream commit, so any shipped
+  database states where it came from. 10.9 MB on disk, 1.8 MB compressed in
+  git; load cost 0.3 ms → 67 ms and peak RSS 12 MB → 57 MB, measured, with
+  scan throughput unchanged (1,264 / 1,426 files per second at the 1k / 10k
+  tiers).
+
+- **`ironclad advisories import-osv` and `ironclad advisories stats`.** The
+  importer converts an OSV dump into IronClad's database shape entirely
+  offline, reports how many records it read and how many files it could not
+  parse, and can filter by ecosystem. `scripts/build_advisory_db.sh` wraps
+  the whole regeneration so provenance is reproducible rather than asserted.
+
+- **Native OSV format support in the advisory overlay.** `advisory_path`
+  previously accepted only IronClad's own schema, so the documented workflow
+  — "point `advisory_path` at your own overlay or an internal OSV mirror" —
+  did not work with actual OSV data. `ironclad/scanners/osv.py` is now the
+  single implementation of the OSV encoding, shared with the opt-in remote
+  endpoint: disjoint ranges become `||` alternatives, comparators within a
+  range become `,` conjunctions, `introduced: 0` contributes no lower bound,
+  open-ended ranges emit `>=X`, `last_affected` becomes `<=`, and `GIT`
+  ranges are dropped rather than guessed at — with the finding text saying so
+  when that means every declared version is reported. Proven against four
+  unmodified records vendored from `github/advisory-database`
+  (CC-BY-4.0, `tests/fixtures/osv/PROVENANCE.md`).
+
+- **`benchmarks/real_world_corpus.py`**, wired into `scripts/verify_all.sh`.
+  Clones real repositories and asserts that every dependency finding is on a
+  genuinely pinned version, carries a real GHSA identifier, and matches an
+  advisory that actually covers that version — re-checked independently of
+  the scanner's own code path. Self-skips when github.com is unreachable.
+  Current result: 6 repositories, 20 findings, **0 false positives**.
+
+### Fixed
+
+- **A version range was treated as an installed version.** Reproduced
+  against six real repositories: with a real advisory feed the scanner
+  reported 33 findings, most of them false, including
+  `urllib3>=1.26,<3` → "known vulnerability in urllib3@1.26" (8 advisories)
+  and `h11>=0.8` → a CRITICAL. A manifest declaring a range does not say
+  what is installed; installing against `>=1.26,<3` yields the newest 2.x,
+  which is patched. `ParsedDependency` now carries `is_pinned`, and an
+  unpinned dependency is reported only when the declared range provably
+  cannot be satisfied by the patched release. Range syntax is normalised in
+  one place: npm/Cargo carets (including the 0.x rule), tildes, Ruby `~>`,
+  `1.x` wildcards, Maven/NuGet bracket ranges, npm `||` OR-ranges and
+  PEP 440 comparator lists. The same six repositories now give 20 findings,
+  all on pinned versions.
+
+- **`advisory_path` silently disabled dependency scanning.** The bundled
+  database's own guidance told operators to point `advisory_path` at their
+  overlay directory, but `advisory_source` defaults to `bundled`, so the
+  directory went to the bundled *file* loader: it raised `OSError`, the
+  error was caught and turned into an empty database, and the scan reported
+  **zero** vulnerable dependencies and exited 0. A clean bill of health
+  produced entirely by a configuration mistake. `advisory_path` now resolves
+  by type — a directory becomes an overlay merged over the bundled data, a
+  file stays a replacement database.
+
+- **The opt-in remote OSV endpoint mistranslated ranges.** Its hand-rolled
+  conversion read only the last `fixed` event of the first range: it ignored
+  `introduced` (flagging versions *below* the vulnerable range) and emitted
+  `<0` for any record with no fixed version, which the matcher reads as
+  "matches nothing" — silently hiding every unfixed advisory. It now
+  converts through the shared OSV module.
+
+- **887 advisory entries were unreachable.** The importer keyed packages by
+  their original spelling, but the scanner looks up normalised
+  (lowercased) names, so keys such as `PyYAML` and
+  `github.com/Traefik/traefik` never matched and every advisory for those
+  packages was dropped. Keys are lowercased, with a regression test.
+
+### Added
+
 - **Per-organization egress policy.** The process-global
   `IRONCLAD_EGRESS_ALLOWLIST` forced every organization in a multi-tenant
   deployment onto one egress set, contradicting the tenancy model enforced

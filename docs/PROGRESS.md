@@ -119,9 +119,17 @@ No loss of detection: the labelled corpus stayed at 12 TP / 0 FN / precision
 - **One reviewer**, hand-classified, not a consensus labelling.
 
 ### Advisory data
-44 packages across 8 ecosystems. That is a demonstration dataset, not a
-feed. The architecture supports an organization overlay (`advisory_path`)
-and an OSV-compatible remote source, but no feed is bundled or vendored.
+13,095 packages / 44,499 advisories across 8 ecosystems, generated from
+`github/advisory-database` (see `_meta.source` in `vuln_db.json` for the
+exact upstream commit). It is a **snapshot, not a live feed**: regenerate it
+with `scripts/build_advisory_db.sh`, layer an organization overlay over it
+with `advisory_path`, or point `advisory_endpoint` at an internal OSV
+mirror. No advisory data is fetched at scan time.
+
+A dependency declared as a *range* (`urllib3>=1.26,<3`) is not treated as an
+installed version. Ranges are reported only when no patched release can
+satisfy them; the lockfile is where the installed version is actually
+recorded.
 
 ### Analysis depth
 * Intra-procedural taint only — flows crossing a function boundary are

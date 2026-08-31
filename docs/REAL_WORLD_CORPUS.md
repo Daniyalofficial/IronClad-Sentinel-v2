@@ -210,3 +210,59 @@ should not guess which directories are vendored.
    libraries. This document measures noise, not coverage.
 4. **A snapshot.** These are shallow clones of the default branch on the
    measurement date; results will drift as the projects change.
+
+## Fourth measurement: dependency findings on real repositories
+
+Everything above measured the *code* rules. This measures the dependency
+engine, which is a different failure mode: its precision depends on the
+advisory database and on whether a manifest declaration is evidence of an
+installed version at all.
+
+    python benchmarks/real_world_corpus.py
+
+Six repositories, shallow clones of the default branch:
+
+| Repository | Findings | False positives | Packages |
+|---|---|---|---|
+| `pallets/flask` | 12 | 0 | flask, jinja2, werkzeug |
+| `pallets/click` | 0 | 0 | — |
+| `pallets/jinja` | 0 | 0 | — |
+| `psf/requests` | 0 | 0 | — |
+| `encode/httpx` | 8 | 0 | cryptography, pytest |
+| `encode/uvicorn` | 0 | 0 | — |
+| **Total** | **20** | **0** | |
+
+Every finding is on a version that is genuinely pinned in the repository
+(`flask==2.3.2`, `jinja2==3.1.2` and `werkzeug==2.3.3` in flask's
+`examples/celery/requirements.txt`; `cryptography==45.0.7` and
+`pytest==8.4.1` in httpx's `requirements.txt`), and the script re-checks each
+one independently against the advisory database rather than trusting the
+scanner's own code path.
+
+### The false-positive class this exposed
+
+Before the pinned/range distinction existed, the same six repositories
+produced **33** findings, and most were false:
+
+```
+urllib3  declared=urllib3>=1.26,<3  resolved=1.26  ->  8 advisories
+idna     declared=idna>=2.5,<4      resolved=2.5   ->  2 advisories
+pytest   declared=>=2.8.0,<10       resolved=2.8.0 ->  1 advisory
+h11      declared=h11>=0.8          resolved=0.8   ->  1 CRITICAL
+```
+
+`urllib3>=1.26,<3` does not say urllib3 1.26 is installed; installing against
+it yields the newest 2.x, which is patched. The scanner was reporting the
+lowest version the range *permits* as though it were the version in use. With
+the 44-package demonstration database this almost never fired, because few
+range floors happened to match an advisory; a real advisory feed turns it on
+immediately. Ranges are now reported only when no patched release can satisfy
+them.
+
+### What this still does not measure
+
+**Recall.** Scoring against the same advisory database the scanner reads
+would be circular — it would only prove the lookup works. A real recall
+figure needs an independently labelled set of vulnerable revisions, which
+this project does not have. The 0-false-positive result above is a precision
+statement and nothing more.

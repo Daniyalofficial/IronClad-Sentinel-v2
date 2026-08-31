@@ -138,6 +138,8 @@ step "baseline then gate passes" bash -c "
 
 header "6. Integrations (real local HTTP server)"
 step "integration checks"      python benchmarks/integration_check.py
+# Clones real repositories; self-skips (exit 0) when github.com is unreachable.
+step "real-world corpus"       python benchmarks/real_world_corpus.py
 
 header "7. PostgreSQL"
 PG_URL=""

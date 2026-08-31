@@ -151,9 +151,11 @@ stall a scan. Mitigation: `--fail-on` runs are time-boxed in CI; the
    rate limiting.
 4. **Client-side compromise.** A stolen session token is valid until
    expiry or revocation; there is no device binding.
-5. **Correctness of the bundled advisory data.** It is a curated subset of
-   44 packages. Absence of a finding is not evidence of absence of a
-   vulnerability.
+5. **Currency of the bundled advisory data.** It is a snapshot of
+   `github/advisory-database` taken at release time (the exact upstream
+   commit is recorded in `_meta.source`). Advisories published after that
+   snapshot are unknown to an unrefreshed install, so absence of a finding
+   is not evidence of absence of a vulnerability.
 
 ## Detection-quality honesty
 

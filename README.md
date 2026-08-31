@@ -201,11 +201,14 @@ than one that under-delivers — the full list is in
 * Taint analysis is **intra-procedural**; flows crossing a function
   boundary are missed.
 * Deep analysis is **Python-only**. Other languages are regex rules.
-* The bundled advisory database is **44 packages** — a demonstration
-  dataset, not a feed. Point `advisory_path` at your own overlay.
-* **No OIDC/OAuth2**, no rate limiting, no mail transport for password
-  reset. Local auth and API tokens only.
-* PostgreSQL is supported but the test suite proves **SQLite**.
+* The bundled advisory database is a **snapshot** of
+  `github/advisory-database` (13,095 packages / 44,499 advisories across 8
+  ecosystems), regenerated at release time by `scripts/build_advisory_db.sh`.
+  It is not a live feed — refresh it, or point `advisory_path` at your own
+  overlay.
+* **No OIDC/OAuth2.** Local auth and API tokens only.
+* PostgreSQL is supported and tested against a live server, but the default
+  suite proves **SQLite**.
 * The dashboard is read-only; triage happens through the API.
 
 No telemetry, no analytics, no auto-update, no live feed at scan time. If a
