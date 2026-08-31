@@ -374,6 +374,97 @@ def _parse_pyproject(discovered: DiscoveredFile) -> ParseOutcome:
     return outcome
 
 
+def _parse_pipfile(discovered: DiscoveredFile) -> ParseOutcome:
+    """Pipenv's Pipfile.
+
+    This file was already in DEPENDENCY_MANIFESTS, so it was discovered and
+    flagged as a manifest -- but nothing in MANIFEST_PARSERS handled it, so
+    `parser_for` returned None and the scan produced zero dependencies *and
+    zero errors*. A Pipenv project looked fully scanned and was not scanned
+    at all.
+    """
+    outcome = ParseOutcome()
+    try:
+        import tomllib
+    except ModuleNotFoundError:  # pragma: no cover - Python 3.9/3.10
+        outcome.errors.append(("UNPARSED", 1,
+                               "Pipfile needs tomllib (Python 3.11+) to be parsed"))
+        return outcome
+    try:
+        with open(discovered.path, "rb") as fh:
+            data = tomllib.load(fh)
+    except (OSError, ValueError) as exc:
+        outcome.errors.append(("MALFORMED", 1, f"Pipfile is malformed: {exc}"))
+        return outcome
+    if not isinstance(data, dict):
+        outcome.errors.append(("MALFORMED", 1, "Pipfile is not a TOML table"))
+        return outcome
+    for section in ("packages", "dev-packages"):
+        entries = data.get(section)
+        if not isinstance(entries, dict):
+            continue
+        for name, spec in entries.items():
+            if isinstance(spec, dict):
+                version = spec.get("version")
+                if not version:
+                    # A git/path/VCS requirement: no version to match.
+                    continue
+            else:
+                version = spec
+            text = str(version or "").strip()
+            if text in {"", "*"}:
+                continue
+            outcome.dependencies.append(
+                _dep(name, _minimum_candidate(text), "python", discovered, 1, text,
+                     direct=(section == "packages")))
+    return outcome
+
+
+_SETUP_REQUIRES = re.compile(r"(install_requires|setup_requires)\s*=\s*\[(.*?)\]",
+                             re.DOTALL)
+_QUOTED = re.compile(r"""['\"]([^'\"]+)['\"]""")
+
+
+def _parse_setup_py(discovered: DiscoveredFile) -> ParseOutcome:
+    """`install_requires` / `setup_requires` in a setuptools setup.py.
+
+    Regex-based on purpose: setup.py is executable Python, so a faithful
+    parse would mean importing it, which a scanner must never do. This reads
+    only the literal list form, which is what the overwhelming majority of
+    setup.py files use, and reports nothing when the declaration is computed
+    rather than literal -- a gap, but a silent-wrong-answer is worse.
+    `extras_require` is a dict of lists and is not parsed.
+    """
+    outcome = ParseOutcome()
+    content = read_text_safely(discovered.path)
+    if not content:
+        return outcome
+    found = False
+    for match in _SETUP_REQUIRES.finditer(content):
+        found = True
+        line = content[:match.start()].count("\n") + 1
+        for raw in _QUOTED.findall(match.group(2)):
+            requirement = re.match(
+                r"^\s*([A-Za-z0-9_.\-]+)\s*(?:(===|==|~=|>=|<=|>|<|!=)\s*([^;,\s]+))?", raw)
+            if not requirement:
+                continue
+            operator, version = requirement.group(2), requirement.group(3)
+            # The declared spec must be the version specifier alone, not the
+            # whole "name==1.2.3" requirement: spec_is_pinned() reads a
+            # leading package name as "not a pin", which would suppress every
+            # setup.py finding as an unresolvable range.
+            spec = f"{operator}{version}" if operator and version else raw.strip()
+            outcome.dependencies.append(
+                _dep(requirement.group(1), _minimum_candidate(version or ""),
+                     "python", discovered, line, spec))
+    if not found and "setuptools" in content:
+        outcome.errors.append((
+            "UNPARSED", 1,
+            "setup.py declares no literal install_requires/setup_requires list; "
+            "dependencies computed at build time are not inventoried"))
+    return outcome
+
+
 def _parse_package_json(discovered: DiscoveredFile) -> ParseOutcome:
     outcome = ParseOutcome()
     try:
@@ -742,6 +833,9 @@ def _parse_json_lock(discovered: DiscoveredFile, ecosystem: str, sections, versi
 # Registry: exact manifest filename -> parser.
 MANIFEST_PARSERS: Dict[str, Callable[[DiscoveredFile], ParseOutcome]] = {
     "requirements.txt": _parse_requirements_txt,
+    "constraints.txt": _parse_requirements_txt,
+    "Pipfile": _parse_pipfile,
+    "setup.py": _parse_setup_py,
     "Pipfile.lock": _parse_pipfile_lock,
     "poetry.lock": _parse_poetry_lock,
     "pyproject.toml": _parse_pyproject,
@@ -809,6 +903,14 @@ def parse_package_lock(discovered: DiscoveredFile) -> List[ParsedDependency]:
 
 def parse_go_mod(discovered: DiscoveredFile) -> List[ParsedDependency]:
     return _parse_go_mod(discovered).dependencies
+
+
+def parse_pipfile(discovered: DiscoveredFile) -> List[ParsedDependency]:
+    return _parse_pipfile(discovered).dependencies
+
+
+def parse_setup_py(discovered: DiscoveredFile) -> List[ParsedDependency]:
+    return _parse_setup_py(discovered).dependencies
 
 
 def extract_dependencies(manifests: List[DiscoveredFile]) -> List[ParsedDependency]:

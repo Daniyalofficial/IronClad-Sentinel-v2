@@ -18,6 +18,8 @@ from ironclad.scanners.advisories import (
     build_source,
 )
 from ironclad.scanners.dependency import (
+    parse_pipfile,
+    parse_setup_py,
     extract_dependencies,
     normalize_name,
     parser_for,
@@ -343,7 +345,7 @@ def test_bundled_advisory_ids_are_real_ghsa_identifiers():
     ("notes.txt", "notes.txt", False),                  # loose txt at the root
     ("notes.txt", "docs/notes.txt", False),             # unrelated directory
     ("README.md", "requirements/README.md", False),     # not a .txt
-    ("setup.py", "setup.py", False),
+    ("setup.py", "setup.py", True),   # setuptools manifest, now parsed
 ])
 def test_requirements_directory_layout_is_recognised(filename, rel_path, expected):
     """`requirements/tests.txt` must count as a manifest.
@@ -387,3 +389,127 @@ def test_scan_finds_vulnerable_pins_inside_a_requirements_directory(tmp_path):
         f"pinned vulnerable dependencies in requirements/ were not scanned; got {found}")
     assert all(f.extra["is_pinned"] for f in result.findings
                if f.category == "vulnerable-dependency")
+
+
+# --------------------------------------------------------------------------- #
+# Pipfile, setup.py and constraints.txt
+#
+# All three were invisible before. Pipfile is the worst of the three: it was
+# already listed in DEPENDENCY_MANIFESTS, so discovery flagged it as a
+# manifest, but no parser was registered -- parse produced zero dependencies
+# *and zero errors*, so a Pipenv project looked scanned and was not.
+# --------------------------------------------------------------------------- #
+def test_pipfile_is_parsed(tmp_path):
+    content = ('[packages]\nrequests = "==2.19.1"\ndjango = "==2.2.0"\npytest = "*"\n'
+               '[dev-packages]\nblack = {version = "==22.3.0"}\n'
+               'requests = {git = "https://github.com/psf/requests.git"}\n')
+    deps = parse_pipfile(_manifest(tmp_path, "Pipfile", content))
+    by_name = {d.name: d for d in deps}
+    assert by_name["requests"].version == "2.19.1"
+    assert by_name["requests"].is_direct is True
+    assert by_name["django"].version == "2.2.0"
+    assert by_name["black"].version == "22.3.0"
+    assert by_name["black"].is_direct is False, "dev-packages are not direct"
+    assert "pytest" not in by_name, 'a "*" version pins nothing'
+
+
+def test_pipfile_produces_findings_end_to_end(tmp_path):
+    manifest = _manifest(tmp_path, "Pipfile", '[packages]\njinja2 = "==3.1.2"\n')
+    findings = scan_dependencies([manifest])
+    assert any(f.extra.get("package") == "jinja2" for f in findings), (
+        f"a Pipfile-only project must be scanned; got {[f.rule_id for f in findings]}")
+
+
+def test_pipfile_malformed_is_reported_not_silent(tmp_path):
+    from ironclad.scanners.dependency import parse_manifest
+
+    outcome = parse_manifest(_manifest(tmp_path, "Pipfile", "[packages\nthis is not toml"))
+    assert outcome.errors, "a malformed Pipfile must be reported, not skipped silently"
+
+
+def test_setup_py_install_requires_is_parsed(tmp_path):
+    content = ('from setuptools import setup\n'
+               'setup(name="demo",\n'
+               '      install_requires=["requests==2.19.1", "jinja2==3.1.2", "urllib3>=1.26,<3"],\n'
+               '      setup_requires=["setuptools>=40"])\n')
+    deps = parse_setup_py(_manifest(tmp_path, "setup.py", content))
+    by_name = {d.name: d for d in deps}
+    assert by_name["requests"].version == "2.19.1"
+    assert by_name["requests"].declared_spec == "==2.19.1", (
+        "the spec must be the version specifier alone, or it reads as unpinned")
+    assert by_name["requests"].is_pinned is True
+    assert by_name["jinja2"].is_pinned is True
+    assert by_name["urllib3"].is_pinned is False
+    assert "setuptools" in by_name
+
+
+def test_setup_py_pinned_dependencies_produce_findings(tmp_path):
+    manifest = _manifest(tmp_path, "setup.py",
+                         'from setuptools import setup\n'
+                         'setup(name="demo", install_requires=["jinja2==3.1.2"])\n')
+    findings = scan_dependencies([manifest])
+    assert any(f.extra.get("package") == "jinja2" for f in findings), (
+        f"setup.py-only project must be scanned; got {[f.rule_id for f in findings]}")
+
+
+def test_setup_py_with_computed_requirements_says_so(tmp_path):
+    """Declaring install_requires from a variable cannot be parsed statically.
+
+    That is a real limitation, so it is reported rather than passing silently
+    as "no dependencies".
+    """
+    from ironclad.scanners.dependency import parse_manifest
+
+    outcome = parse_manifest(_manifest(
+        tmp_path, "setup.py",
+        'from setuptools import setup\nREQ = read_requirements()\n'
+        'setup(name="demo", install_requires=REQ)\n'))
+    assert outcome.dependencies == []
+    assert outcome.errors and "not inventoried" in outcome.errors[0][2]
+
+
+def test_setup_py_without_setuptools_is_not_flagged(tmp_path):
+    """A setup.py that is not a setuptools manifest should not warn."""
+    from ironclad.scanners.dependency import parse_manifest
+
+    outcome = parse_manifest(_manifest(tmp_path, "setup.py", "print('not a package')\n"))
+    assert outcome.dependencies == []
+    assert outcome.errors == []
+
+
+def test_constraints_txt_is_parsed_like_requirements(tmp_path):
+    manifest = _manifest(tmp_path, "constraints.txt", "jinja2==3.1.2\nwerkzeug==2.3.3\n")
+    findings = scan_dependencies([manifest])
+    assert {"jinja2", "werkzeug"} <= {f.extra.get("package") for f in findings}
+
+
+def test_all_three_are_registered_and_discovered():
+    """Guard against the Pipfile failure mode: discovered but unparseable."""
+    from ironclad.scanners.dependency import MANIFEST_PARSERS, parser_for
+
+    for filename in ("Pipfile", "setup.py", "constraints.txt"):
+        assert filename in MANIFEST_PARSERS, f"{filename} has no parser"
+        assert is_dependency_manifest(filename, filename), f"{filename} is not discovered"
+        discovered = DiscoveredFile(path=filename, rel_path=filename, language="other",
+                                    size_bytes=1, is_dependency_manifest=True)
+        assert parser_for(discovered) is not None, f"{filename} routes to no parser"
+
+
+def test_every_discovered_manifest_has_a_parser():
+    """No file may be discoverable as a manifest without a parser behind it.
+
+    That combination is the silent-failure mode this test exists to prevent:
+    the scan reports a dependency engine run, finds nothing, and records no
+    error.
+    """
+    from ironclad.core.walker import DEPENDENCY_MANIFESTS
+    from ironclad.scanners.dependency import parser_for
+
+    unparseable = []
+    for filename in sorted(DEPENDENCY_MANIFESTS):
+        discovered = DiscoveredFile(path=filename, rel_path=filename, language="other",
+                                    size_bytes=1, is_dependency_manifest=True)
+        if parser_for(discovered) is None:
+            unparseable.append(filename)
+    assert not unparseable, (
+        f"discovered as manifests but no parser is registered: {unparseable}")

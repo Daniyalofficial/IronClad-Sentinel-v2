@@ -43,7 +43,8 @@ LANGUAGE_EXTENSIONS = {
 
 DEPENDENCY_MANIFESTS = {
     # Python
-    "requirements.txt", "Pipfile", "Pipfile.lock", "poetry.lock", "pyproject.toml",
+    "requirements.txt", "constraints.txt", "Pipfile", "Pipfile.lock", "poetry.lock",
+    "pyproject.toml", "setup.py",
     # npm / JavaScript
     "package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
     # Go
