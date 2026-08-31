@@ -243,7 +243,7 @@ plain `.[dev]` install it silently reports a skip rather than a failure.
 Step 9 (wheel build) needs the `build` module, which is now part of the
 `dev` extra.
 
-Inventory: 66 rules in 9 packs · 20 manifest parsers across 8 ecosystems ·
+Inventory: 66 rules in 9 packs · 23 manifest parsers across 8 ecosystems ·
 53 API operations across 45 paths · 14 dashboard routes (10 pages) ·
 3 migrations per dialect · 13 documents · 9 Kubernetes manifests ·
-35 test modules.
+37 test modules.

@@ -55,12 +55,18 @@ TARGETS = [
     ("psf/requests", "v2.9.1"),
     ("psf/requests", "v2.20.0"),
     ("pallets/jinja", "3.0.0"),
+    ("pallets/click", "7.1.2"),
+    ("encode/uvicorn", "0.15.0"),
 ]
-
-MANIFEST_NAMES = ("requirements.txt", "requirements-dev.txt", "dev-requirements.txt")
 
 # Deliberately simple: "name==version", ignoring extras and markers.
 PIN = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*==\s*([^\s;#]+)")
+
+# Independent extraction of literal install_requires from setup.py. This is a
+# second, simpler implementation of what _parse_setup_py does, so a bug in
+# either shows up as a disagreement rather than as agreement.
+SETUP_REQUIRES = re.compile(r"(?:install_requires|setup_requires)\s*=\s*\[(.*?)\]", re.DOTALL)
+SETUP_PIN = re.compile(r"""['\"]([A-Za-z0-9][A-Za-z0-9._-]*)\s*==\s*([^'\",;\s]+)""")
 
 
 def pep503(name: str) -> str:
@@ -109,6 +115,16 @@ def ground_truth_pins(root: str):
                             pins.setdefault(pep503(match.group(1)), match.group(2))
             except OSError:
                 continue
+        if "setup.py" in filenames:
+            path = os.path.join(dirpath, "setup.py")
+            try:
+                with open(path, encoding="utf-8", errors="replace") as fh:
+                    content = fh.read()
+            except OSError:
+                continue
+            for block in SETUP_REQUIRES.findall(content):
+                for name, version in SETUP_PIN.findall(block):
+                    pins.setdefault(pep503(name), version)
     return pins
 
 

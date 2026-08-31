@@ -284,7 +284,14 @@ truth; whatever the scanner does not report is a miss.
 | `pallets/flask@2.2.0` | 67 | 52 | 52 | 0 |
 | `pallets/jinja@3.0.0` | 50 | 27 | 27 | 0 |
 | `psf/requests@v2.9.1` | 6 | 3 | 3 | 0 |
+| `encode/uvicorn@0.15.0` | 2 | 0 | 0 | 0 |
+| `pallets/click@7.1.2`, `flask@1.1.0`, `requests@v2.20.0` | 0 | 0 | 0 | 0 |
 | **Total** | | **110** | **110** | **0** |
+
+The revisions with zero pins are not failures: `requests@v2.20.0` declares
+`install_requires=requires`, a value computed at build time, which cannot be
+read statically. The scanner records an `UNPARSED` manifest finding for that
+rather than reporting "no dependencies", which is the honest outcome.
 
 **Pipeline recall = 110/110 = 1.0000.**
 
@@ -306,6 +313,28 @@ matters: the scanner was precise, fast, self-consistent and entirely blind
 to the most common Python lockfile layout. Nothing in the existing test
 suite could have caught it, because every test fixture put its manifest at
 the repository root.
+
+Probing for more of the same class found three further manifests that were
+not parsed at all:
+
+* **`Pipfile`** — the worst case. It was already listed in
+  `DEPENDENCY_MANIFESTS`, so discovery flagged it as a manifest, but no
+  parser was registered. The scan produced zero dependencies *and zero
+  errors*, and reported that the dependency engine had run. A Pipenv project
+  looked scanned and was not scanned at all.
+* **`setup.py`** — `install_requires` / `setup_requires` were never read, so
+  any project declaring dependencies only there was invisible.
+* **`constraints.txt`** — pip constraint files pin exact versions and were
+  not recognised.
+
+All three now parse. `setup.py` is handled by regex on purpose: it is
+executable Python and a scanner must never import it. When the requirement
+list is computed rather than literal, an `UNPARSED` finding is recorded
+instead of a silent "no dependencies".
+
+A structural test now asserts that no filename can be discoverable as a
+manifest without a parser registered behind it — that combination is the
+exact silent-failure mode these four bugs shared.
 
 ### Scope of this recall figure
 

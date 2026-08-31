@@ -60,7 +60,7 @@ developing.
 | **Python AST + taint** | Real source → sanitizer → sink analysis: SQL injection, command injection, `eval`/`exec`, path traversal, SSRF, XSS, open redirect, template injection, XXE, unsafe deserialization, weak TLS, insecure randomness, debug flags, assert-based auth |
 | **Multi-language rules** | 9 YAML packs, **66 rules** across Python, JS/TS, Java, Go, Ruby, PHP, C#, SQL, shell, Terraform, Kubernetes, Dockerfiles. Extend without touching code |
 | **Secrets** | Provider patterns (AWS, GitHub, Stripe, Slack, Google, DB URIs, PEM keys), Shannon-entropy detection, and a name-based credential rule that catches weak literals an entropy detector misses. **Secret values are never emitted** |
-| **Dependencies** | **8 ecosystems, 20 manifest parsers**: Python, npm, Go, Rust, Java (Maven + Gradle), PHP, Ruby, NuGet. Ranges handled conservatively; malformed manifests reported, not silently skipped |
+| **Dependencies** | **8 ecosystems, 23 manifest parsers**: Python (incl. `Pipfile`, `setup.py`, `constraints.txt` and pip-compile `requirements/*.txt`), npm, Go, Rust, Java (Maven + Gradle), PHP, Ruby, NuGet. A version *range* is never reported as an installed version; malformed manifests reported, not silently skipped |
 | **IaC** | Dockerfiles, Kubernetes and Terraform: privileged containers, host networking, root users, world-open ingress, disabled encryption, exposed ports, secrets in ENV/ARG, floating tags |
 | **SBOM** | CycloneDX 1.5 **and** SPDX 2.3 from one component model, deterministic output, both schema-validated |
 | **Licenses** | SPDX expression parsing (`OR`/`AND`/`WITH`), allow/warn/block policy. Unknown is **never** assumed permissive |
