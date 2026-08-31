@@ -16,6 +16,23 @@ from ironclad.core.models import ScanResult, Severity
 FAILING_SEVERITIES = {Severity.CRITICAL, Severity.HIGH}
 
 
+_ATTR_ENTITIES = {'"': "&quot;", "'": "&apos;"}
+
+
+def _attr(value: str) -> str:
+    """Escape a value for use inside a double-quoted XML attribute.
+
+    ``xml.sax.saxutils.escape`` alone is not enough: it covers ``& < >`` but
+    not the quote characters, so a scanned file named
+    ``a" onmouseover="alert(1).py`` broke out of the ``name`` attribute and
+    injected a live event-handler attribute into the document. Escaping is
+    done explicitly rather than with ``quoteattr`` so the delimiter is always
+    a double quote -- some consumers of JUnit XML mishandle single-quoted
+    attributes.
+    """
+    return escape(str(value), _ATTR_ENTITIES)
+
+
 def render_junit(result: ScanResult) -> str:
     findings = result.sorted_findings()
     failures = sum(1 for f in findings if f.severity in FAILING_SEVERITIES)
@@ -30,13 +47,14 @@ def render_junit(result: ScanResult) -> str:
         lines.append('  <testcase classname="IronCladSentinel" name="no_findings" time="0"/>')
     else:
         for f in findings:
-            classname = escape(f"IronCladSentinel.{f.category}")
-            name = escape(f"{f.rule_id}::{f.location.file_path}:{f.location.start_line}")
+            classname = _attr(f"IronCladSentinel.{f.category}")
+            name = _attr(f"{f.rule_id}::{f.location.file_path}:{f.location.start_line}")
             lines.append(f'  <testcase classname="{classname}" name="{name}" time="0">')
             if f.severity in FAILING_SEVERITIES:
-                message = escape(f.title)
+                message = _attr(f.title)
+                severity = _attr(f.severity.value)
                 body = escape(f"{f.description}\n\nRemediation: {f.remediation}")
-                lines.append(f'    <failure message="{message}" type="{f.severity.value}">{body}</failure>')
+                lines.append(f'    <failure message="{message}" type="{severity}">{body}</failure>')
             lines.append('  </testcase>')
 
     lines.append('</testsuite>')
