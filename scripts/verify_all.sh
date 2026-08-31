@@ -140,6 +140,9 @@ header "6. Integrations (real local HTTP server)"
 step "integration checks"      python benchmarks/integration_check.py
 # Clones real repositories; self-skips (exit 0) when github.com is unreachable.
 step "real-world corpus"       python benchmarks/real_world_corpus.py
+# Recall of the parse -> normalise -> lookup -> range-match pipeline against
+# real pinned revisions. Also self-skips without network.
+step "pipeline recall"         python benchmarks/pipeline_recall.py
 
 header "7. PostgreSQL"
 PG_URL=""

@@ -266,3 +266,52 @@ would be circular — it would only prove the lookup works. A real recall
 figure needs an independently labelled set of vulnerable revisions, which
 this project does not have. The 0-false-positive result above is a precision
 statement and nothing more.
+
+## Fifth measurement: pipeline recall on real revisions
+
+`benchmarks/pipeline_recall.py` measures the other half from the precision
+run above. It checks out real repositories at **old revisions** whose
+requirements files pin exact versions, extracts those pins with a trivial
+regex -- deliberately not the production parsers -- and asks the advisory
+database directly which of them are vulnerable. That set is the ground
+truth; whatever the scanner does not report is a miss.
+
+    python benchmarks/pipeline_recall.py
+
+| Revision | Pinned | Expected vulnerable | Found | Missed |
+|---|---|---|---|---|
+| `pallets/flask@2.0.0` | 55 | 28 | 28 | 0 |
+| `pallets/flask@2.2.0` | 67 | 52 | 52 | 0 |
+| `pallets/jinja@3.0.0` | 50 | 27 | 27 | 0 |
+| `psf/requests@v2.9.1` | 6 | 3 | 3 | 0 |
+| **Total** | | **110** | **110** | **0** |
+
+**Pipeline recall = 110/110 = 1.0000.**
+
+### The gap this measurement found
+
+The first run scored **3/110 — 2.7%**. Almost every miss was in
+`requirements/<environment>.txt`. pip-compile projects keep one pinned
+lockfile per environment in a `requirements/` directory, and
+`is_dependency_manifest()` matched on *filename*: `requirements/tests.txt`
+has the basename `tests.txt`, which matches nothing. flask 2.0.0 pins 55
+dependencies in that directory and **not one was scanned**.
+
+Fixed by recognising `.txt` files directly inside a `requirements*`
+directory, in both discovery (`ironclad/core/walker.py`) and parser routing
+(`parser_for` in `ironclad/scanners/dependency.py`).
+
+This is the clearest example in the project of why a recall measurement
+matters: the scanner was precise, fast, self-consistent and entirely blind
+to the most common Python lockfile layout. Nothing in the existing test
+suite could have caught it, because every test fixture put its manifest at
+the repository root.
+
+### Scope of this recall figure
+
+It measures the **pipeline**: parse → normalise → look up → compare ranges.
+It does **not** measure the completeness of the advisory data. A
+vulnerability absent from the bundled snapshot is invisible to both the
+ground truth and the scanner, so it cannot be counted as a miss. A true
+end-to-end recall figure would need a labelled corpus of vulnerabilities
+from a source other than the one the scanner reads.

@@ -328,3 +328,62 @@ def test_bundled_advisory_ids_are_real_ghsa_identifiers():
                     bad.append(f"{eco}/{package}: {advisory.get('id')}")
     assert count > 10000, f"expected a real advisory feed, found {count} advisories"
     assert not bad[:20], f"{len(bad)} advisory ids are not real GHSA identifiers: {bad[:5]}"
+
+
+# --------------------------------------------------------------------------- #
+# pip-compile layout: requirements/<environment>.txt
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("filename,rel_path,expected", [
+    ("requirements.txt", "requirements.txt", True),
+    ("requirements-dev.txt", "requirements-dev.txt", True),
+    ("tests.txt", "requirements/tests.txt", True),      # pip-compile lockfile
+    ("dev.txt", "requirements/dev.txt", True),
+    ("docs.txt", "requirements/docs.txt", True),
+    ("tests.txt", "requirements-dev/tests.txt", True),
+    ("notes.txt", "notes.txt", False),                  # loose txt at the root
+    ("notes.txt", "docs/notes.txt", False),             # unrelated directory
+    ("README.md", "requirements/README.md", False),     # not a .txt
+    ("setup.py", "setup.py", False),
+])
+def test_requirements_directory_layout_is_recognised(filename, rel_path, expected):
+    """`requirements/tests.txt` must count as a manifest.
+
+    pip-compile projects keep one pinned lockfile per environment in a
+    `requirements/` directory. The filename carries no "requirements"
+    prefix, so filename-only matching skipped the entire dev/test inventory:
+    flask 2.0.0 pins 55 dependencies there and not one was scanned.
+    """
+    assert is_dependency_manifest(filename, rel_path) is expected
+
+
+def test_manifest_detection_is_unchanged_without_a_rel_path():
+    """Backwards compatibility: the old one-argument call still works."""
+    assert is_dependency_manifest("requirements.txt") is True
+    assert is_dependency_manifest("tests.txt") is False
+
+
+def test_requirements_directory_parser_is_the_requirements_parser():
+    from ironclad.core.walker import DiscoveredFile
+    from ironclad.scanners.dependency import _parse_requirements_txt, parser_for
+
+    discovered = DiscoveredFile(path="requirements/tests.txt", rel_path="requirements/tests.txt",
+                                language="other", size_bytes=10, is_dependency_manifest=True)
+    assert parser_for(discovered) is _parse_requirements_txt
+
+
+def test_scan_finds_vulnerable_pins_inside_a_requirements_directory(tmp_path):
+    """End to end: discovery, parser routing and matching all have to work."""
+    from ironclad.core.config import IronCladConfig
+    from ironclad.core.engine import run_scan
+
+    (tmp_path / "requirements").mkdir()
+    (tmp_path / "requirements" / "tests.txt").write_text(
+        "jinja2==3.1.2\nwerkzeug==2.3.3\n", encoding="utf-8")
+
+    result = run_scan(IronCladConfig(target=str(tmp_path), enabled_engines={"dependency"}))
+    found = {f.extra.get("package") for f in result.findings
+             if f.category == "vulnerable-dependency"}
+    assert {"jinja2", "werkzeug"} <= found, (
+        f"pinned vulnerable dependencies in requirements/ were not scanned; got {found}")
+    assert all(f.extra["is_pinned"] for f in result.findings
+               if f.category == "vulnerable-dependency")

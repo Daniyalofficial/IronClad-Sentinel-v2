@@ -33,7 +33,11 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 
 from ironclad.core.models import CodeLocation, Engine, Finding, Severity
-from ironclad.core.walker import DiscoveredFile, read_text_safely
+from ironclad.core.walker import (
+    DiscoveredFile,
+    in_requirements_directory,
+    read_text_safely,
+)
 from ironclad.scanners.advisories import AdvisorySource, BundledAdvisorySource
 
 SEVERITY_MAP = {"critical": Severity.CRITICAL, "high": Severity.HIGH,
@@ -769,6 +773,10 @@ def parser_for(discovered: DiscoveredFile) -> Optional[Callable[[DiscoveredFile]
     if parser:
         return parser
     if _REQUIREMENTS_VARIANT.match(basename):
+        return _parse_requirements_txt
+    # pip-compile layout: `requirements/tests.txt` and friends are plain
+    # requirements files whose basename says nothing about their format.
+    if basename.lower().endswith(".txt") and in_requirements_directory(discovered.rel_path):
         return _parse_requirements_txt
     if basename.lower().endswith(".csproj"):
         return _parse_csproj
