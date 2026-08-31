@@ -50,6 +50,33 @@ system in a way it had not been executed before, not by reading it.
   the scanner's own code path. Self-skips when github.com is unreachable.
   Current result: 6 repositories, 20 findings, **0 false positives**.
 
+### Security
+
+- **Scanned repositories could inject script into reports.** Every value in a
+  report comes from the code being scanned, and reports are opened in
+  browsers and posted as PR comments, so this was an attack path rather than
+  a formatting bug. Reproduced with real files carrying the payload.
+
+  * *HTML*: `render_html` used `select_autoescape(["html"])`, which keys off
+    the template's own extension. The template is `report.html.j2` —
+    extension `j2` — so autoescape resolved to `False` and every
+    interpolation was emitted raw, including code snippets and file names.
+    Now `autoescape=True` unconditionally.
+  * *JUnit XML*: `xml.sax.saxutils.escape` does not escape quotes, and every
+    value lands inside a double-quoted attribute while `name` embeds the file
+    path. A file named `a" onmouseover="alert(1).py` injected a live
+    event-handler attribute. Now escaped with an explicit `&quot;`/`&apos;`
+    map, so the delimiter is always a double quote.
+  * *Markdown*: a single-backtick code span is closable from inside, so a
+    file named ``a`<img src=x onerror=alert(9)>.py`` broke out and rendered
+    as live HTML. Code spans now use a fence longer than any backtick run in
+    the content (CommonMark), and prose values have `& < >` neutralised and
+    `|` escaped so they cannot split a table cell.
+
+  SARIF and CycloneDX go through `json.dumps` and were already safe. All five
+  are now covered by `tests/test_report_injection.py` using real files with
+  the payload in their name or a source line.
+
 ### Fixed
 
 - **A version range was treated as an installed version.** Reproduced

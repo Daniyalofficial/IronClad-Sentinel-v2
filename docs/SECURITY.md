@@ -100,6 +100,33 @@ integrations and audit records in `tests/test_api.py`.
 * Error responses never contain stack traces — those go to the structured
   log, and the client gets a bare `{"detail": "internal error"}`.
 
+## Report generation is a trust boundary
+
+Every value in a report — file path, code snippet, package name, manifest
+error text — comes from the repository being scanned, which is untrusted by
+definition. Reports are then opened in a browser, posted as a pull-request
+comment, or parsed by CI tooling, so an injection here is an attack path
+rather than a formatting bug: submit a repository, wait for it to be scanned,
+and the reviewer's browser runs your script.
+
+* **HTML** — rendered with `autoescape=True`, unconditionally. Not
+  `select_autoescape(["html"])`: that helper keys off the template's own
+  extension, and the template is `report.html.j2` (extension `j2`), so it
+  resolved to `False` and emitted every interpolated value raw. The template
+  contains no `|safe`, so nothing legitimate is lost by escaping.
+* **JUnit XML** — attribute values are escaped with an explicit
+  `&quot;`/`&apos;` map. `xml.sax.saxutils.escape` alone covers `& < >` but
+  not quotes, and `name` embeds the file path, so a file named
+  `a" onmouseover="alert(1).py` injected a live event-handler attribute.
+* **Markdown** — code spans use a backtick fence longer than any run in the
+  content (CommonMark), because a single-backtick span is closable from
+  inside; prose values have `& < >` neutralised and `|` escaped so a value
+  cannot split a table cell.
+* **SARIF and CycloneDX** — JSON via `json.dumps`, which escapes correctly.
+
+`tests/test_report_injection.py` covers all five with real files carrying the
+payload in their name or in a source line, scanned end to end.
+
 ## Secrets handling
 
 * Findings never contain the secret itself. `SECRETS-HARDCODED-CREDENTIAL`

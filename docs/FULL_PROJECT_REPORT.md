@@ -2,9 +2,9 @@
 
 **Report date:** 2026-08-31
 **Branch:** `arena/01a03853-ironclad-sentinel-v2`
-**HEAD (local and remote):** `5809cf0`
-**Pull request:** #8 — `OPEN`, `MERGEABLE`, **57 commits**
-**GitHub CI:** **4/4 checks pass** on `5809cf0`
+**HEAD (local and remote):** `902747b`
+**Pull request:** #8 — `OPEN`, `MERGEABLE`
+**GitHub CI:** **4/4 checks pass**
 
 A GitHub token expiry mid-session briefly blocked pushes; it recovered and
 everything is now pushed and CI-verified.
@@ -71,7 +71,13 @@ Found by executing the system, not by reading it.
 7. **`--json` output was not valid JSON.** Printed through a wrapping rich
    console, so a long string value was split across lines *inside* the
    quoted string. Silently, and only once a value was long enough to wrap.
-8. **887 advisory entries were unreachable** because the importer keyed
+8. **Scanned repositories could inject script into reports.** The HTML
+   renderer had autoescape silently disabled (`select_autoescape(["html"])`
+   keys off the template extension, and the template is `report.html.j2`);
+   JUnit XML escaped `& < >` but not quotes inside double-quoted attributes;
+   Markdown code spans were closable from inside by a backtick in a filename.
+   All three reproduced with real files carrying the payload.
+9. **887 advisory entries were unreachable** because the importer keyed
    packages by original spelling while lookups use normalised lowercase
    names (`PyYAML`, `github.com/Traefik/traefik`).
 
@@ -194,14 +200,35 @@ new commands were renamed from `--as-json` to `--json` for consistency.
 `verify_all.sh` gained an *installed advisory db is usable* step that
 installs the wheel into a clean venv and asserts real coverage.
 
+### 4.9 Report renderers were injectable (`902747b`)
+
+Reports are opened in browsers and posted as PR comments, and every value in
+one comes from the repository being scanned. Three renderers were injectable,
+each reproduced with a real file carrying the payload:
+
+* **HTML** — `select_autoescape(["html"])` keys off the template's own
+  extension; the template is `report.html.j2`, so it resolved to `False` and
+  emitted everything raw, including `<pre class="snippet">` content and file
+  names. Now `autoescape=True`.
+* **JUnit XML** — `escape()` covers `& < >` but not quotes, and `name` embeds
+  the file path, so `a" onmouseover="alert(1).py` injected a live
+  event-handler attribute. Now an explicit `&quot;`/`&apos;` map.
+* **Markdown** — a single-backtick code span is closable from inside, so
+  ``a`<img src=x onerror=alert(9)>.py`` broke out. Code spans now use a fence
+  longer than any backtick run in the content; prose values have `& < >`
+  neutralised and `|` escaped.
+
+SARIF and CycloneDX go through `json.dumps` and were already safe — pinned by
+a test rather than assumed.
+
 ---
 
 ## 5. Test results
 
 | | |
 |---|---|
-| Full suite, live PostgreSQL 16.2 | **1,417 passed, 0 skipped** (167s) |
-| Full suite, no server URL | **1,401 passed, 16 skipped** |
+| Full suite, live PostgreSQL 16.2 | **1,431 passed, 0 skipped** |
+| Full suite, no server URL | **1,415 passed, 16 skipped** |
 | Core-only (`pip install -e .`) | **571 passed, 16 skipped** |
 | `scripts/verify_all.sh` | **35 passed, 0 failed, 1 skipped** (Docker) |
 | Dependency pipeline recall | `benchmarks/pipeline_recall.py` | **110/110 = 1.0000** on 8 real revisions |
@@ -212,7 +239,7 @@ installs the wheel into a clean venv and asserts real coverage.
 | Test modules | **37**, 1,394 collected |
 | Product code | 14,944 lines of Python in `ironclad/` |
 
-Tests added this session: **567** (850 → 1,417).
+Tests added this session: **581** (850 → 1,431).
 
 Largest modules: `test_api_malformed` 442, `test_api` 102,
 `test_rule_packs_extended` 71, `test_python_flows` 54,
