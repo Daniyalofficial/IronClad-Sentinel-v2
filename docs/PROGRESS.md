@@ -215,24 +215,27 @@ All numbers below are produced by running the commands shown, not estimated.
 
 | Claim | Command | Result |
 |---|---|---|
-| Full test suite | `pytest -q` | **850 passed**, 1 skipped |
-| Full suite incl. PostgreSQL | live PostgreSQL 16.2 + `IRONCLAD_TEST_POSTGRES_URL` | **866 passed**, 0 skipped |
-| Core-only (what CI installs) | fresh venv, `pip install -e .` + pytest | **485 passed**, 15 skipped |
+| Full test suite | `pytest -q` | **1,378 passed**, 16 skipped |
+| Full suite incl. PostgreSQL | live PostgreSQL 16.2 + `IRONCLAD_TEST_POSTGRES_URL` | **1,394 passed**, 0 skipped |
+| Core-only (what CI installs) | fresh venv, `pip install -e .` + pytest | **571 passed**, 16 skipped |
 | PostgreSQL behavioural suite | live PostgreSQL 16.2, `pytest tests/test_postgres.py` | **16 passed** |
-| Detection false positives | `benchmarks/corpus_metrics.py` | precision **1.00**, recall **1.00** on the synthetic corpus |
+| Synthetic-corpus precision/recall | `benchmarks/corpus_metrics.py` | precision **1.0000**, recall **1.0000** (12 TP, 0 FP, 0 FN) |
+| Real-world dependency corpus | `benchmarks/real_world_corpus.py` | 6 repositories, 20 findings, **0 false positives** |
+| Advisory database coverage | `ironclad advisories stats` | **13,095 packages / 44,499 advisories**, 8 ecosystems |
 | Detection false negatives | `pytest tests/test_detection_coverage.py` | **19/19** classes detected, safe variants not flagged |
 | SSRF / DNS rebinding | `pytest tests/test_ssrf.py` | 45 tests, rebinding reproduced then blocked |
 | Egress allowlist | `pytest tests/test_egress_allowlist.py tests/test_org_egress_policy.py` | 100 tests |
+| HTTP malformed-input robustness | `pytest tests/test_api_malformed.py` | **442 tests**, no request produces a 5xx |
 | Integration delivery | `benchmarks/integration_check.py` | **51/51** against a real local HTTP server |
 | Self-scan | `ironclad scan ironclad --fail-on high` | exit 0, **0 findings**, grade A+ |
 | Company demo | `bash demo/run_demo.sh` | exit 0, full story asserts itself |
-| Reproducible verification | `bash scripts/verify_all.sh` | **32 passed**, 0 failed, 1 skipped (Docker) |
-| GitHub CI | PR #8 | **4/4 checks pass** |
+| Reproducible verification | `bash scripts/verify_all.sh` | **34 passed**, 0 failed, 1 skipped (Docker) |
+| GitHub CI | PR #8 | **4/4 checks pass** at `7c4a1b1` |
 
 Skip counts move with the environment, so both are stated above: without
-`psycopg2` the PostgreSQL module skips as one unit (850 passed, 1 skipped);
-with `psycopg2` installed but no server URL its 16 tests skip individually
-(850 passed, 16 skipped); with a live server nothing skips (866 passed).
+`psycopg2` the PostgreSQL module skips as one unit; with `psycopg2`
+installed but no server URL its 16 tests skip individually (1,378 passed,
+16 skipped); with a live server nothing skips (1,394 passed).
 
 `scripts/verify_all.sh` step 7 (PostgreSQL) only runs when `psycopg2` is
 importable, so install with `pip install -e ".[server,dev,postgres]"` — on a
