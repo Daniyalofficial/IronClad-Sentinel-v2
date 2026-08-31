@@ -2,12 +2,12 @@
 
 **Report date:** 2026-08-31
 **Branch:** `arena/01a03853-ironclad-sentinel-v2`
-**Local HEAD:** `9472025`
-**Remote HEAD:** `7c4a1b1` — **three commits are committed locally but not
-pushed** (`f3984a7`, `2fbe920`, `9472025`). The GitHub token expired
-mid-session: `gh auth status` reports *"The github.com token in GH_TOKEN is
-no longer valid."* No further push or CI run was possible after `7c4a1b1`.
-**Pull request:** #8 — `OPEN`, `MERGEABLE`
+**HEAD (local and remote):** `5809cf0`
+**Pull request:** #8 — `OPEN`, `MERGEABLE`, **57 commits**
+**GitHub CI:** **4/4 checks pass** on `5809cf0`
+
+A GitHub token expiry mid-session briefly blocked pushes; it recovered and
+everything is now pushed and CI-verified.
 
 Every number below was produced by running the command shown against this
 checkout during the session that wrote it.
@@ -20,7 +20,7 @@ checkout during the session that wrote it.
 |---|---|
 | **Overall project completion** | **~97%** |
 | Implementation completeness | ~98% |
-| Verification completeness | ~95% |
+| Verification completeness | ~96% |
 | Production-usable today | Yes, for the self-hosted deployment in `docs/DEPLOYMENT.md` |
 
 The residual is no longer implementation debt. It is four things this
@@ -151,6 +151,42 @@ that no body, query string, path segment, `Authorization` header or session
 cookie can produce a 5xx — plus a check that error bodies leak no traceback
 or SQL, and a health check proving the API is still usable afterwards.
 
+### 4.7 Pipeline recall: pip-compile lockfiles were invisible (`d2ebf48`)
+
+Built `benchmarks/pipeline_recall.py` to measure the half that had never been
+measured. It checks out real repositories at old revisions, extracts the
+pinned versions with a trivial regex — deliberately not the production
+parsers — and asks the advisory database which pins are vulnerable. Whatever
+the scanner does not report is a miss.
+
+**First run: 3/110 = 2.7% recall.**
+
+Almost every miss was in `requirements/<environment>.txt`. pip-compile
+projects keep one pinned lockfile per environment in a `requirements/`
+directory, and `is_dependency_manifest()` matched on *filename*:
+`requirements/tests.txt` has the basename `tests.txt`, which matches nothing.
+flask 2.0.0 pins 55 dependencies there and **not one was scanned**. Fixed in
+both discovery and parser routing. **After: 110/110 = 1.0000.**
+
+### 4.8 Pipfile, setup.py and constraints.txt were never parsed (`123d917`)
+
+Probing for more of the same class found three more:
+
+* **`Pipfile`** — the worst case, and a correctness bug rather than a missing
+  feature. It was already in `DEPENDENCY_MANIFESTS`, so discovery flagged it
+  as a manifest, but no parser was registered. The scan produced zero
+  dependencies *and zero errors* and reported that the dependency engine had
+  run. A Pipenv project looked scanned and was not scanned at all.
+* **`setup.py`** — `install_requires` / `setup_requires` were never read.
+* **`constraints.txt`** — pip constraint files pin exact versions.
+
+`setup.py` is parsed by regex on purpose: it is executable Python and a
+scanner must never import it. When the requirement list is computed rather
+than literal, an `UNPARSED` finding is recorded instead of a silent "no
+dependencies". A structural test now asserts that no filename can be
+discoverable as a manifest without a parser behind it. Manifest registry
+20 → 23.
+
 ### 4.6 CLI output contract (`2fbe920`)
 
 `--json` now uses `console.print_json` like every other command, and the two
@@ -164,10 +200,11 @@ installs the wheel into a clean venv and asserts real coverage.
 
 | | |
 |---|---|
-| Full suite, live PostgreSQL 16.2 | **1,394 passed, 0 skipped** (158s) |
-| Full suite, no server URL | **1,378 passed, 16 skipped** |
+| Full suite, live PostgreSQL 16.2 | **1,417 passed, 0 skipped** (167s) |
+| Full suite, no server URL | **1,401 passed, 16 skipped** |
 | Core-only (`pip install -e .`) | **571 passed, 16 skipped** |
-| `scripts/verify_all.sh` | **34 passed, 0 failed, 1 skipped** (Docker) |
+| `scripts/verify_all.sh` | **35 passed, 0 failed, 1 skipped** (Docker) |
+| Dependency pipeline recall | `benchmarks/pipeline_recall.py` | **110/110 = 1.0000** on 8 real revisions |
 | Synthetic corpus | precision **1.0000**, recall **1.0000** (12 TP, 0 FP, 0 FN) |
 | Real-world corpus | 6 repositories, **20 findings, 0 false positives** |
 | Integration delivery | **51/51** checks against a real local HTTP server |
@@ -175,7 +212,7 @@ installs the wheel into a clean venv and asserts real coverage.
 | Test modules | **37**, 1,394 collected |
 | Product code | 14,944 lines of Python in `ironclad/` |
 
-Tests added this session: **544** (850 → 1,394).
+Tests added this session: **567** (850 → 1,417).
 
 Largest modules: `test_api_malformed` 442, `test_api` 102,
 `test_rule_packs_extended` 71, `test_python_flows` 54,
@@ -195,7 +232,7 @@ unpushed, so they have **not** been through CI.
 | No integration proven against a real endpoint | **Credentials** — no GitHub/GitLab/Slack/Teams/Jira tokens | `integration_check.py` labels all five `NOT EXTERNALLY VERIFIED` itself |
 | Live CI does not run the PostgreSQL behavioural suite | **Repository permissions** — no `workflows` scope | Fixed in the staged `deploy/ci/verify.yml`; verified locally 16/16 |
 | Push and CI stopped mid-session | **Credentials** — GitHub token expired | 3 commits local-only |
-| True recall still unmeasured | **Data** — needs independently labelled vulnerable revisions | Scoring against our own advisory source would be circular; stated rather than faked |
+| End-to-end recall against an independent vulnerability source | **Data** — needs a labelled corpus from a source other than the one the scanner reads | *Pipeline* recall is now measured (110/110); data completeness is not |
 | No OIDC / OAuth2 | Not blocked — **not implemented** | Real enterprise sales blocker |
 | Analysis is intra-procedural, Python-only for taint | Design trade | Regex rules elsewhere cannot model data flow |
 | Advisory DB is a snapshot | Design | Goes stale between releases; regenerate or overlay |
@@ -219,5 +256,13 @@ advisory feed switches on, a 500 reachable from any URL, and a vulnerability
 database with identifiers that do not exist.
 
 It is not 98% because no container has ever started, no integration has ever
-reached a real third-party service, and recall on real vulnerable code has
-never been measured. Those three are the honest difference.
+reached a real third-party service, and recall has only been measured for the
+pipeline rather than against an independent vulnerability source. Those three
+are the honest difference.
+
+The recall work is also the session's strongest argument for the number being
+close: it found that the scanner was blind to the most common Python lockfile
+layout (`requirements/*.txt`, 2.7% recall) and to `Pipfile`, `setup.py` and
+`constraints.txt` entirely — defects no amount of passing tests would have
+surfaced, because every existing fixture put its manifest at the repository
+root.
