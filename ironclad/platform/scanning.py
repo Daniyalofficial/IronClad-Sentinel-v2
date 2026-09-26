@@ -20,7 +20,7 @@ import os
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from ironclad.core.config import IronCladConfig
@@ -110,10 +110,17 @@ def record_scan_failure(session: Session, *, org_id: int, scan_id: int,
         Scan.id == scan_id, Scan.org_id == org_id)).scalar_one_or_none()
     if row is None or row.status in ("succeeded", "cancelled"):
         return
-    row.status = "failed"
-    row.finished_at = utcnow()
-    row.error = f"{type(error).__name__}: {error}"[:2000]
-    session.flush()
+    message = f"{type(error).__name__}: {error}"[:2000]
+    # A cancellation or another attempt can commit between SELECT and this
+    # write. Only an unfinished scan can acquire a new failure marker.
+    changed = session.execute(
+        update(Scan).where(Scan.id == scan_id, Scan.org_id == org_id,
+                           Scan.status.in_(("queued", "running", "failed")))
+        .values(status="failed", finished_at=utcnow(), error=message)
+    )
+    if changed.rowcount != 1:
+        return
+    session.refresh(row)
     events.default_bus.publish(session, events.SCAN_FAILED, org_id,
                                {"scan_id": row.id, "error": row.error},
                                subject_id=str(row.id), correlation_id=correlation_id)
@@ -163,9 +170,21 @@ def perform_scan(
     A missing target returns a failed outcome; on an engine exception the
     caller rolls back partial results and persists the failure separately
     with :func:`record_scan_failure` before retrying or returning an error.
+    A conditional update reserves the scan before reading its files. It
+    serializes cancellation and competing stale attempts on the scan row:
+    neither a cancelled scan nor one already completed can be rescanned.
     """
-    scan_row.status = "running"
-    scan_row.started_at = utcnow()
+    started_at = utcnow()
+    reserved = session.execute(
+        update(Scan).where(Scan.id == scan_row.id, Scan.org_id == org_id,
+                           Scan.status.in_(("queued", "running", "failed")))
+        .values(status="running", started_at=started_at)
+    )
+    if reserved.rowcount != 1:
+        session.refresh(scan_row)
+        return ScanOutcome(scan=scan_row, result=None, decision=None,
+                           new_findings=0, resolved_findings=0)
+    session.refresh(scan_row)
     scan_row.target_path = target
     scan_row.policy_document = json.dumps(policy.to_dict(), sort_keys=True) if policy else ""
     session.flush()

@@ -178,8 +178,8 @@ python benchmarks/corpus_metrics.py           # labelled-corpus accuracy
 ironclad scan ironclad --fail-on high         # high-severity self-scan gate
 ```
 
-The upgrade's PostgreSQL-backed test result and self-scan gate are recorded in
-[`docs/UPGRADE_VALIDATION_2026-09-25.md`](docs/UPGRADE_VALIDATION_2026-09-25.md).
+The latest PostgreSQL-backed test result and self-scan gate are recorded in
+[`docs/UPGRADE_VALIDATION_2026-09-26.md`](docs/UPGRADE_VALIDATION_2026-09-26.md).
 Older self-scan counts in the historical documentation are not current release
 measurements.
 

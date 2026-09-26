@@ -18,7 +18,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import desc, func, or_, select
+from sqlalchemy import desc, func, or_, select, update
 from sqlalchemy.orm import Session as DbSession
 
 from ironclad import __version__
@@ -648,6 +648,8 @@ def request_scan(body: schemas.ScanRequest, request: Request,
         # this request is active. Keep the claim recoverable if the API dies.
         if not queue.claim_if_queued(session, job.id, context.org_id):
             raise RuntimeError("could not claim inline scan job")
+        session.refresh(job)
+        claimed_attempt = job.attempts  # capture at claim, not after a possible reclaim
     events.default_bus.publish(session, events.SCAN_CREATED, context.org_id,
                                {"scan_id": scan.id, "project_id": body.project_id},
                                subject_id=str(scan.id))
@@ -656,19 +658,29 @@ def request_scan(body: schemas.ScanRequest, request: Request,
     session.commit()
 
     if body.wait:
-        _run_scan_inline(request, session, context, scan.id, job.id, payload)
+        _run_scan_inline(request, session, context, scan.id, job.id, payload,
+                         claimed_attempt=claimed_attempt)
         session.refresh(scan)
     return _scan_out(session, scan)
 
 
 def _run_scan_inline(request: Request, session: DbSession, context: RequestContext,
-                     scan_id: int, job_id: int, payload: Dict[str, Any]) -> None:
+                     scan_id: int, job_id: int, payload: Dict[str, Any],
+                     *, claimed_attempt: int) -> None:
     """Execute an inline scan under its reclaimable job claim."""
     from ironclad.platform.scanning import record_scan_failure, resolve_policy
 
     queue: JobQueue = request.app.state.queue
     scan = get_for_org(session, Scan, context.org_id, scan_id)
     job = get_for_org(session, Job, context.org_id, job_id)
+    # Both rows were created in this session. SELECT alone can return their
+    # stale identity-map objects even after another worker commits a reclaim.
+    if scan is not None:
+        session.refresh(scan)
+    if job is not None:
+        session.refresh(job)
+        if job.attempts != claimed_attempt:
+            return  # another worker owns (or already completed) this attempt
     if scan is None or scan.status not in ("queued", "running"):
         if job is not None and job.status == "running":
             queue.cancel(session, job)
@@ -682,7 +694,7 @@ def _run_scan_inline(request: Request, session: DbSession, context: RequestConte
         perform_scan(session, org_id=context.org_id, project_id=scan.project_id, scan_row=scan,
                      target=payload["target"], policy=policy, actor=payload.get("actor", "api"),
                      correlation_id=context.request_id)
-        queue.finish(session, job)
+        queue.finish(session, job, claimed_attempt=claimed_attempt)
         session.commit()
     except Exception as exc:  # noqa: BLE001 - persist the failed scan, not partial findings
         session.rollback()
@@ -690,7 +702,8 @@ def _run_scan_inline(request: Request, session: DbSession, context: RequestConte
                             correlation_id=context.request_id)
         job = get_for_org(session, Job, context.org_id, job_id)
         if job is not None:
-            queue.finish(session, job, error=f"{type(exc).__name__}: {exc}")
+            queue.finish(session, job, claimed_attempt=claimed_attempt,
+                         error=f"{type(exc).__name__}: {exc}")
         session.commit()
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR,
                             f"scan {scan_id} failed; check its status for details") from exc
@@ -729,8 +742,18 @@ def cancel_scan(scan_id: EntityId, request: Request, context: RequestContext = D
         raise HTTPException(status.HTTP_404_NOT_FOUND, "scan not found")
     if scan.status in ("succeeded", "failed", "cancelled"):
         raise HTTPException(status.HTTP_409_CONFLICT, f"scan already {scan.status}")
-    scan.status = "cancelled"
-    scan.finished_at = utcnow()
+    # The initial SELECT is only a hint: a worker can complete the scan before
+    # this request writes. Check again in the UPDATE, after acquiring the row
+    # lock, so we never relabel a completed scan as cancelled.
+    changed = session.execute(
+        update(Scan).where(Scan.id == scan_id, Scan.org_id == context.org_id,
+                           Scan.status.in_(("queued", "running")))
+        .values(status="cancelled", finished_at=utcnow())
+    )
+    if changed.rowcount != 1:
+        session.refresh(scan)
+        raise HTTPException(status.HTTP_409_CONFLICT, f"scan already {scan.status}")
+    session.refresh(scan)
     job = session.execute(
         select(Job).where(Job.org_id == context.org_id, Job.status.in_(("queued", "running")),
                           Job.kind == "scan.run")

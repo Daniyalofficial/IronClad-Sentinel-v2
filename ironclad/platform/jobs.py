@@ -121,7 +121,12 @@ class JobQueue:
             )
             if kinds:
                 update_statement = update_statement.where(Job.kind.in_(kinds))
-            claimed_id = session.execute(update_statement).scalar_one_or_none()
+            # The SQL predicate compares UTC timestamps in the database.
+            # SQLAlchemy's in-memory 'evaluate' synchronization may compare a
+            # naive parameter to a PostgreSQL-aware timestamp and crash.
+            claimed_id = session.execute(
+                update_statement.execution_options(synchronize_session=False)
+            ).scalar_one_or_none()
             if claimed_id is None:
                 # A different worker won; reselect instead of returning idle
                 # while other jobs might still be eligible.
@@ -129,7 +134,9 @@ class JobQueue:
             # Commit the claim itself. A handler rollback must not undo the
             # attempt counter or let an always-failing job retry forever.
             session.commit()
-            return session.get(Job, claimed_id)
+            claimed = session.get(Job, claimed_id)
+            session.refresh(claimed)  # it may predate the conditional UPDATE
+            return claimed
 
     def claim_if_queued(self, session: Session, job_id: int, org_id: int) -> bool:
         """Atomically reserve a new job for an inline request.
@@ -147,29 +154,53 @@ class JobQueue:
         )
         return changed.rowcount == 1
 
-    def finish(self, session: Session, job: Job, *, error: str = "",
-               retry_backoff: Optional[float] = None) -> str:
-        """Mark a job succeeded, or failed/retryable."""
+    def finish(self, session: Session, job: Job, *, claimed_attempt: int,
+               error: str = "", retry_backoff: Optional[float] = None) -> str:
+        """Finish only the attempt this worker actually claimed.
+
+        Keep ``claimed_attempt`` outside the ORM object across handler
+        rollbacks: rollback expires mapped attributes, and refreshing a stale
+        ``job.attempts`` could silently adopt another worker's claim. The
+        conditional UPDATE also protects a concurrent cancellation.
+        """
+        if claimed_attempt < 1:
+            raise JobError("finishing a job requires a claimed attempt")
         if not error:
-            job.status = SUCCEEDED
-            job.finished_at = utcnow()
-            job.error = ""
-            return SUCCEEDED
-        job.error = error[:2000]
-        if job.attempts >= job.max_attempts:
-            job.status = FAILED
-            job.finished_at = utcnow()
-            return FAILED
-        # Exponential backoff so a persistently failing job does not spin.
-        backoff = self.retry_backoff if retry_backoff is None else retry_backoff
-        delay = backoff * (2 ** max(0, job.attempts - 1))
-        job.status = QUEUED
-        job.scheduled_at = _seconds_from_now(delay)
-        return QUEUED
+            outcome = SUCCEEDED
+            values = {"status": outcome, "finished_at": utcnow(), "error": ""}
+        elif claimed_attempt >= job.max_attempts:
+            outcome = FAILED
+            values = {"status": outcome, "finished_at": utcnow(), "error": error[:2000]}
+        else:
+            outcome = QUEUED
+            backoff = self.retry_backoff if retry_backoff is None else retry_backoff
+            delay = backoff * (2 ** max(0, claimed_attempt - 1))
+            values = {"status": outcome, "scheduled_at": _seconds_from_now(delay),
+                      "error": error[:2000]}
+        changed = session.execute(
+            update(Job).where(Job.id == job.id, Job.org_id == job.org_id,
+                              Job.status == RUNNING, Job.attempts == claimed_attempt)
+            .values(**values)
+        )
+        if changed.rowcount == 1:
+            session.refresh(job)
+            return outcome
+        # Read the actual state without refreshing the caller's attempt
+        # counter: an obsolete worker must stay fenced even if called again.
+        current = session.execute(select(Job.status).where(
+            Job.id == job.id, Job.org_id == job.org_id)).scalar_one_or_none()
+        if current is None:
+            raise JobError("job disappeared before its attempt could finish")
+        return current
 
     def cancel(self, session: Session, job: Job) -> None:
-        job.status = CANCELLED
-        job.finished_at = utcnow()
+        """Cancel only pending work; a stale object cannot undo completion."""
+        session.execute(
+            update(Job).where(Job.id == job.id, Job.org_id == job.org_id,
+                              Job.status.in_((QUEUED, RUNNING)))
+            .values(status=CANCELLED, finished_at=utcnow())
+        )
+        session.refresh(job)
 
     def depth(self, session: Session, org_id: Optional[int] = None) -> Dict[str, int]:
         statement = select(Job.status)
@@ -187,18 +218,20 @@ class JobQueue:
             job = self.claim(session)
             if job is None:
                 break
+            claimed_attempt = job.attempts  # immutable token, even if handler rolls back
             handler = self._handlers.get(job.kind)
             try:
                 payload = json.loads(job.payload or "{}")
                 if handler is None:
                     raise JobError(f"no handler registered for job kind {job.kind!r}")
                 handler(session, payload)
-                self.finish(session, job)
+                self.finish(session, job, claimed_attempt=claimed_attempt)
             except Exception as exc:  # noqa: BLE001 - a job failure must not kill the worker
                 session.rollback()
                 job = session.get(Job, job.id)
                 if job is not None:
-                    self.finish(session, job, error=f"{type(exc).__name__}: {exc}")
+                    self.finish(session, job, claimed_attempt=claimed_attempt,
+                                error=f"{type(exc).__name__}: {exc}")
                     session.commit()
             handled += 1
         return handled

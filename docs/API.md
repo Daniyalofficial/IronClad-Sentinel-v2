@@ -150,6 +150,14 @@ Only an **owner** can grant `owner`. An admin cannot demote themselves below
   by default). Scanner exceptions return 500 with a generic message and
   persist a failed scan/event; the job retries with backoff up to its attempt
   limit, so operators can correct transient failures without resubmitting.
+* `POST /scan/{id}/cancel` returns 200 only if an unfinished scan was
+  cancelled. If a worker commits completion first, even after the cancellation
+  request read the old state, it returns **409** and does not relabel the
+  result. Cancellation is not an interrupt: an executing scan can hold its
+  database row lock until it finishes, delaying the response. If cancellation
+  wins before scanning begins, neither a worker nor an inline request writes
+  findings for that scan. A scan marked `failed` may still have a queued retry;
+  this endpoint currently returns **409** instead of cancelling that retry.
 * Server scans do **not** load `.ironclad.yml` from the scanned repository.
   A contributor who controls source files must not be able to disable
   engines or request outbound advisory lookups. Set server scan options in

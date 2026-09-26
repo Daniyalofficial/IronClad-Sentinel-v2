@@ -156,6 +156,19 @@ two workers to see the same first candidate before updating it. An inline
 `wait: true` request claims its own job before the initial commit, finishes
 it with the scan, and leaves it reclaimable by a worker if the API dies.
 
+A worker preserves the numeric claim attempt outside the ORM object: a
+rollback expires mapped attributes, so consulting `job.attempts` afterward
+could adopt another worker's newer claim. `finish(..., claimed_attempt=N)`
+conditionally updates only a still-running job at attempt `N`; cancellation
+likewise updates only pending jobs. Scan start, cancellation and failure
+markers have conditional status updates, so an API request or stale worker
+cannot overwrite a committed terminal scan. An inline request refreshes
+both scan and job rows before starting to detect another worker's reclaim.
+These guarantees concern persisted state; they do not interrupt a scanner
+already executing or prevent duplicate CPU work after the stale timeout.
+See [UPGRADE_VALIDATION_2026-09-26.md](UPGRADE_VALIDATION_2026-09-26.md)
+for exercised PostgreSQL interleavings and remaining limits.
+
 The interface is deliberately narrow (`enqueue` / `claim` / `finish`), so a
 Redis/RQ or Celery backend can replace it without touching the API or the
 scanner.

@@ -89,4 +89,4 @@ python benchmarks/scale_benchmark.py --tiers 10000
 The supplied downloadable source ZIP is **not a database backup**. Back up
 and restore the database separately using [docs/DISASTER_RECOVERY.md](docs/DISASTER_RECOVERY.md).
 For what was actually measured on this upgrade (and the remaining limits),
-see [docs/UPGRADE_VALIDATION_2026-09-25.md](docs/UPGRADE_VALIDATION_2026-09-25.md).
+see [docs/UPGRADE_VALIDATION_2026-09-26.md](docs/UPGRADE_VALIDATION_2026-09-26.md).

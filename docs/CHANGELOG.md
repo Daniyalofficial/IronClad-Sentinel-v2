@@ -79,6 +79,20 @@ system in a way it had not been executed before, not by reading it.
 
 ### Fixed
 
+- **Cancellation, completion and retries could overwrite one another under
+  PostgreSQL concurrency.** A worker paused after loading a scan could write
+  success and findings after the API accepted cancellation; a cancellation
+  request paused after its read could instead relabel an already completed
+  scan. Stale job objects also let a former worker resurrect cancelled jobs,
+  finish another worker's claim after rollback, or let a delayed inline
+  request adopt a reclaimed claim. Conditional scan/job transitions, a
+  separately retained claim-attempt token, and refreshed inline identity-map
+  rows now fence these cases. The scan failure marker and job cancellation
+  are guarded against late writes as well. Real PostgreSQL and HTTP race
+  regressions were observed failing before the fixes and mutation-checked
+  afterward; results and limits are in
+  [UPGRADE_VALIDATION_2026-09-26.md](UPGRADE_VALIDATION_2026-09-26.md).
+
 - **A version range was treated as an installed version.** Reproduced
   against six real repositories: with a real advisory feed the scanner
   reported 33 findings, most of them false, including

@@ -642,3 +642,745 @@ def test_zero_day_retention_preserves_purge_evidence_on_postgres(engine):
     with session_scope(engine) as session:
         events = session.execute(select(AuditEvent).where(AuditEvent.org_id == org_id)).scalars().all()
         assert [event.action for event in events] == ["audit.purged", "audit.purged"]
+
+
+def test_api_cancellation_cannot_be_overwritten_by_a_paused_worker(engine, tmp_path, monkeypatch):
+    """A worker that read a scan before cancellation must not resurrect it."""
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event as ThreadEvent
+    from unittest.mock import patch
+
+    from fastapi.testclient import TestClient
+
+    from ironclad.api.app import create_app
+    from ironclad.platform import worker_jobs
+    from ironclad.platform.models import Event, Finding, Job, Scan
+    from ironclad.platform.scanning import bootstrap_organization
+
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / "app.py").write_text('api_token = "Zk9pQ2xR7vN4mT8sW1yB6dF3hJ0aL5e"\n', encoding="utf-8")
+    monkeypatch.setenv("IRONCLAD_SCAN_ROOT", str(target))
+    monkeypatch.setenv("IRONCLAD_SIGNING_KEY", "test-signing-key-that-is-long-enough-32ch")
+    with session_scope(engine) as session:
+        org, _ = bootstrap_organization(session, name="Cancel Race", slug="cancel-race-pg",
+                                        admin_email="cancel@pg.example.com",
+                                        password="Str0ng!Passw0rd-99")
+        org_id = org.id
+
+    app = create_app(PG_URL, include_web=False)
+    paused, resume = ThreadEvent(), ThreadEvent()
+    original_resolve = worker_jobs.resolve_policy
+
+    def before_scan(*args, **kwargs):
+        paused.set()  # worker has loaded the scan but has not modified it yet
+        if not resume.wait(timeout=15):
+            raise TimeoutError("cancel request did not release the worker")
+        return original_resolve(*args, **kwargs)
+
+    try:
+        with TestClient(app) as client:
+            login = client.post("/auth/login", json={
+                "email": "cancel@pg.example.com", "password": "Str0ng!Passw0rd-99",
+            })
+            assert login.status_code == 200, login.text
+            headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+            project = client.post("/projects", headers=headers, json={"name": "Cancel Race"})
+            assert project.status_code == 201, project.text
+            queued = client.post("/scan", headers=headers, json={
+                "project_id": project.json()["id"], "target": ".", "wait": False,
+            })
+            assert queued.status_code == 202, queued.text
+            scan_id = queued.json()["id"]
+
+            def work():
+                with session_scope(engine) as session:
+                    return app.state.queue.run_pending(session, limit=1)
+
+            with patch("ironclad.platform.worker_jobs.resolve_policy", side_effect=before_scan):
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    future = pool.submit(work)
+                    try:
+                        assert paused.wait(timeout=15), "worker did not reach the scan"
+                        cancelled = client.post(f"/scan/{scan_id}/cancel", headers=headers)
+                        assert cancelled.status_code == 200, cancelled.text
+                        assert cancelled.json()["status"] == "cancelled"
+                    finally:
+                        resume.set()
+                    assert future.result(timeout=30) == 1
+
+        with session_scope(engine) as session:
+            scan = session.get(Scan, scan_id)
+            job = session.execute(select(Job).where(Job.org_id == org_id)).scalar_one()
+            events = session.execute(select(Event.event_type).where(
+                Event.org_id == org_id, Event.subject_id == str(scan_id))).scalars().all()
+            assert scan.status == "cancelled", "cancellation must not become a successful scan"
+            assert job.status == "cancelled", "a worker must not resurrect a cancelled job"
+            assert session.execute(select(Finding).where(Finding.scan_id == scan_id)).scalars().all() == []
+            assert "scan.completed" not in events
+    finally:
+        resume.set()
+        app.state.engine.dispose()
+
+
+def test_cancel_request_racing_completed_scan_returns_conflict_on_postgres(engine, tmp_path, monkeypatch):
+    """An already completed worker scan cannot be relabelled cancelled."""
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event as ThreadEvent
+    from unittest.mock import patch
+
+    from fastapi.testclient import TestClient
+
+    from ironclad.api import routes
+    from ironclad.api.app import create_app
+    from ironclad.platform.models import Event, Finding, Job, Scan
+    from ironclad.platform.scanning import bootstrap_organization
+
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / "app.py").write_text('api_token = "Zk9pQ2xR7vN4mT8sW1yB6dF3hJ0aL5e"\n', encoding="utf-8")
+    monkeypatch.setenv("IRONCLAD_SCAN_ROOT", str(target))
+    monkeypatch.setenv("IRONCLAD_SIGNING_KEY", "test-signing-key-that-is-long-enough-32ch")
+    with session_scope(engine) as session:
+        org, _ = bootstrap_organization(session, name="Finish Race", slug="finish-race-pg",
+                                        admin_email="finish@pg.example.com",
+                                        password="Str0ng!Passw0rd-99")
+        org_id = org.id
+
+    app = create_app(PG_URL, include_web=False)
+    read_scan, resume = ThreadEvent(), ThreadEvent()
+    try:
+        with TestClient(app) as client:
+            login = client.post("/auth/login", json={
+                "email": "finish@pg.example.com", "password": "Str0ng!Passw0rd-99",
+            })
+            assert login.status_code == 200, login.text
+            headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+            project = client.post("/projects", headers=headers, json={"name": "Finish Race"})
+            assert project.status_code == 201, project.text
+            queued = client.post("/scan", headers=headers, json={
+                "project_id": project.json()["id"], "target": ".", "wait": False,
+            })
+            assert queued.status_code == 202, queued.text
+            scan_id = queued.json()["id"]
+
+            original_get = routes.get_for_org
+
+            def paused_get(session, model, org, identifier):
+                row = original_get(session, model, org, identifier)
+                if model is Scan and identifier == scan_id:
+                    read_scan.set()
+                    if not resume.wait(timeout=15):
+                        raise TimeoutError("worker did not release cancel request")
+                return row
+
+            with patch("ironclad.api.routes.get_for_org", side_effect=paused_get):
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    future = pool.submit(client.post, f"/scan/{scan_id}/cancel", headers=headers)
+                    try:
+                        assert read_scan.wait(timeout=15), "cancel request did not read scan"
+                        with session_scope(engine) as session:
+                            assert app.state.queue.run_pending(session, limit=1) == 1
+                    finally:
+                        resume.set()
+                    cancelled = future.result(timeout=30)
+            assert cancelled.status_code == 409, cancelled.text
+
+        with session_scope(engine) as session:
+            scan = session.get(Scan, scan_id)
+            job = session.execute(select(Job).where(Job.org_id == org_id)).scalar_one()
+            events = session.execute(select(Event.event_type).where(
+                Event.org_id == org_id, Event.subject_id == str(scan_id))).scalars().all()
+            assert scan.status == "succeeded" and job.status == "succeeded"
+            assert session.execute(select(Finding).where(Finding.scan_id == scan_id)).scalars().all()
+            assert "scan.completed" in events and "scan.cancelled" not in events
+    finally:
+        resume.set()
+        app.state.engine.dispose()
+
+
+@pytest.mark.parametrize("error", ["", "temporary scanner error"])
+def test_cancelled_job_is_not_resurrected_by_its_old_worker_on_postgres(engine, error):
+    """A stale worker session must not overwrite a committed cancellation."""
+    from ironclad.platform.jobs import JobQueue, JobSpec
+    from ironclad.platform.models import Job
+
+    queue = JobQueue()
+    queue.register("cancellation-race-pg", lambda session, payload: None)
+    with session_scope(engine) as session:
+        org = _org(session, "cancelled-job-pg-" + ("retry" if error else "success"))
+        job_id = queue.enqueue(session, JobSpec(kind="cancellation-race-pg", org_id=org.id,
+                                                 payload={})).id
+
+    with session_scope(engine) as worker:
+        claimed = queue.claim(worker, kinds=["cancellation-race-pg"])
+        assert claimed is not None and claimed.id == job_id
+        claimed_attempt = claimed.attempts
+        with session_scope(engine) as controller:
+            queue.cancel(controller, controller.get(Job, job_id))
+        assert queue.finish(worker, claimed, claimed_attempt=claimed_attempt,
+                            error=error) == "cancelled"
+    with session_scope(engine) as session:
+        assert session.get(Job, job_id).status == "cancelled"
+
+
+def test_older_stale_claim_cannot_finish_newer_worker_attempt_on_postgres(engine):
+    """Reclaiming a stale job must fence out the previous attempt."""
+    from datetime import timedelta
+
+    from ironclad.platform.jobs import JobQueue, JobSpec
+    from ironclad.platform.models import Job, utcnow
+
+    queue = JobQueue(stale_after_seconds=0)
+    queue.register("stale-fence-pg", lambda session, payload: None)
+    with session_scope(engine) as session:
+        org = _org(session, "stale-fence-pg")
+        job_id = queue.enqueue(session, JobSpec(kind="stale-fence-pg", org_id=org.id,
+                                                 payload={})).id
+
+    with session_scope(engine) as old_worker:
+        old_claim = queue.claim(old_worker, kinds=["stale-fence-pg"])
+        assert old_claim is not None and old_claim.attempts == 1
+        old_attempt = old_claim.attempts
+        with session_scope(engine) as session:
+            session.get(Job, job_id).started_at = utcnow() - timedelta(hours=1)
+        with session_scope(engine) as new_worker:
+            new_claim = queue.claim(new_worker, kinds=["stale-fence-pg"])
+            assert new_claim is not None and new_claim.id == job_id
+            assert new_claim.attempts == 2
+            new_attempt = new_claim.attempts
+            assert queue.finish(old_worker, old_claim, claimed_attempt=old_attempt) == "running"
+            with session_scope(engine) as observer:
+                state = observer.get(Job, job_id)
+                assert state.status == "running" and state.attempts == 2
+            assert queue.finish(new_worker, new_claim, claimed_attempt=new_attempt) == "succeeded"
+    with session_scope(engine) as session:
+        final = session.get(Job, job_id)
+        assert final.status == "succeeded" and final.attempts == 2
+
+
+def test_inline_scan_cancelled_while_preparing_does_not_write_findings_on_postgres(
+    engine, tmp_path, monkeypatch,
+):
+    """Inline requests obey the same cancellation guard as background jobs."""
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event as ThreadEvent
+    from unittest.mock import patch
+
+    from fastapi.testclient import TestClient
+
+    from ironclad.api.app import create_app
+    from ironclad.platform import scanning
+    from ironclad.platform.models import Event, Finding, Job, Scan
+    from ironclad.platform.scanning import bootstrap_organization
+
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / "app.py").write_text('api_token = "Zk9pQ2xR7vN4mT8sW1yB6dF3hJ0aL5e"\n', encoding="utf-8")
+    monkeypatch.setenv("IRONCLAD_SCAN_ROOT", str(target))
+    monkeypatch.setenv("IRONCLAD_SIGNING_KEY", "test-signing-key-that-is-long-enough-32ch")
+    with session_scope(engine) as session:
+        org, _ = bootstrap_organization(session, name="Inline Cancel", slug="inline-cancel-pg",
+                                        admin_email="inlinecancel@pg.example.com",
+                                        password="Str0ng!Passw0rd-99")
+        org_id = org.id
+
+    app = create_app(PG_URL, include_web=False)
+    paused, resume = ThreadEvent(), ThreadEvent()
+    original_resolve = scanning.resolve_policy
+
+    def before_scan(*args, **kwargs):
+        paused.set()
+        if not resume.wait(timeout=15):
+            raise TimeoutError("cancel request did not release the inline scan")
+        return original_resolve(*args, **kwargs)
+
+    try:
+        with TestClient(app) as client:
+            login = client.post("/auth/login", json={
+                "email": "inlinecancel@pg.example.com", "password": "Str0ng!Passw0rd-99",
+            })
+            assert login.status_code == 200, login.text
+            headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+            project = client.post("/projects", headers=headers, json={"name": "Inline Cancel"})
+            assert project.status_code == 201, project.text
+
+            with patch("ironclad.platform.scanning.resolve_policy", side_effect=before_scan):
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    future = pool.submit(client.post, "/scan", headers=headers, json={
+                        "project_id": project.json()["id"], "target": ".", "wait": True,
+                    })
+                    try:
+                        assert paused.wait(timeout=15), "inline request did not reach the scanner"
+                        with session_scope(engine) as session:
+                            scan = session.execute(select(Scan).where(Scan.org_id == org_id)).scalar_one()
+                            scan_id = scan.id
+                        cancelled = client.post(f"/scan/{scan_id}/cancel", headers=headers)
+                        assert cancelled.status_code == 200, cancelled.text
+                    finally:
+                        resume.set()
+                    response = future.result(timeout=30)
+            assert response.status_code == 202, response.text
+            assert response.json()["status"] == "cancelled"
+
+        with session_scope(engine) as session:
+            job = session.execute(select(Job).where(Job.org_id == org_id)).scalar_one()
+            events = session.execute(select(Event.event_type).where(
+                Event.org_id == org_id, Event.subject_id == str(scan_id))).scalars().all()
+            assert session.get(Scan, scan_id).status == "cancelled"
+            assert job.status == "cancelled"
+            assert session.execute(select(Finding).where(Finding.scan_id == scan_id)).scalars().all() == []
+            assert "scan.completed" not in events
+    finally:
+        resume.set()
+        app.state.engine.dispose()
+
+
+def test_late_job_cancel_cannot_overwrite_completed_attempt_on_postgres(engine):
+    """A controller with a stale ORM row must not undo completed work."""
+    from ironclad.platform.jobs import JobQueue, JobSpec
+    from ironclad.platform.models import Job
+
+    queue = JobQueue()
+    queue.register("late-cancel-pg", lambda session, payload: None)
+    with session_scope(engine) as session:
+        org = _org(session, "late-cancel-pg")
+        job_id = queue.enqueue(session, JobSpec(kind="late-cancel-pg", org_id=org.id,
+                                                 payload={})).id
+
+    with session_scope(engine) as worker:
+        claimed = queue.claim(worker, kinds=["late-cancel-pg"])
+        assert claimed is not None and claimed.id == job_id
+        claimed_attempt = claimed.attempts
+        with session_scope(engine) as controller:
+            stale = controller.get(Job, job_id)
+            assert stale.status == "running"
+            assert queue.finish(worker, claimed, claimed_attempt=claimed_attempt) == "succeeded"
+            worker.commit()
+            queue.cancel(controller, stale)
+            assert stale.status == "succeeded"
+    with session_scope(engine) as session:
+        assert session.get(Job, job_id).status == "succeeded"
+
+
+def test_late_scan_failure_marker_cannot_overwrite_cancellation_on_postgres(
+    engine, tmp_path, monkeypatch,
+):
+    """A failed attempt must not relabel a scan cancelled after its read."""
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event as ThreadEvent
+    from unittest.mock import patch
+
+    from fastapi.testclient import TestClient
+
+    from ironclad.api.app import create_app
+    from ironclad.platform import scanning
+    from ironclad.platform.models import Event, Job, Scan
+    from ironclad.platform.scanning import bootstrap_organization
+
+    target = tmp_path / "target"
+    target.mkdir()
+    monkeypatch.setenv("IRONCLAD_SCAN_ROOT", str(target))
+    monkeypatch.setenv("IRONCLAD_SIGNING_KEY", "test-signing-key-that-is-long-enough-32ch")
+    with session_scope(engine) as session:
+        org, _ = bootstrap_organization(session, name="Late Failure", slug="late-failure-pg",
+                                        admin_email="latefail@pg.example.com",
+                                        password="Str0ng!Passw0rd-99")
+        org_id = org.id
+
+    app = create_app(PG_URL, include_web=False)
+    paused, resume = ThreadEvent(), ThreadEvent()
+    original_now = scanning.utcnow
+
+    def before_failure_write():
+        paused.set()  # failure handler already read scan status, but has not flushed
+        if not resume.wait(timeout=15):
+            raise TimeoutError("cancel request did not release failure writer")
+        return original_now()
+
+    try:
+        with TestClient(app) as client:
+            login = client.post("/auth/login", json={
+                "email": "latefail@pg.example.com", "password": "Str0ng!Passw0rd-99",
+            })
+            assert login.status_code == 200, login.text
+            headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+            project = client.post("/projects", headers=headers, json={"name": "Late Failure"})
+            assert project.status_code == 201, project.text
+            queued = client.post("/scan", headers=headers, json={
+                "project_id": project.json()["id"], "target": ".", "wait": False,
+            })
+            assert queued.status_code == 202, queued.text
+            scan_id = queued.json()["id"]
+
+            def mark_failed():
+                with session_scope(engine) as session:
+                    scanning.record_scan_failure(session, org_id=org_id, scan_id=scan_id,
+                                                 error=RuntimeError("old worker failed"))
+
+            with patch("ironclad.platform.scanning.utcnow", side_effect=before_failure_write):
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    future = pool.submit(mark_failed)
+                    try:
+                        assert paused.wait(timeout=15), "failure handler did not read scan"
+                        cancelled = client.post(f"/scan/{scan_id}/cancel", headers=headers)
+                        assert cancelled.status_code == 200, cancelled.text
+                    finally:
+                        resume.set()
+                    future.result(timeout=30)
+
+        with session_scope(engine) as session:
+            scan = session.get(Scan, scan_id)
+            job = session.execute(select(Job).where(Job.org_id == org_id)).scalar_one()
+            events = session.execute(select(Event.event_type).where(
+                Event.org_id == org_id, Event.subject_id == str(scan_id))).scalars().all()
+            assert scan.status == "cancelled", "late failure must not resurrect a cancelled scan"
+            assert job.status == "cancelled"
+            assert "scan.cancelled" in events and "scan.failed" not in events
+    finally:
+        resume.set()
+        app.state.engine.dispose()
+
+
+def test_old_worker_rollback_cannot_finish_a_newer_claim_on_postgres(engine):
+    """An ORM rollback must not replace the old worker's claim token."""
+    from datetime import timedelta
+
+    from ironclad.platform.jobs import JobQueue, JobSpec
+    from ironclad.platform.models import Job, utcnow
+
+    queue = JobQueue(stale_after_seconds=0, retry_backoff=0)
+    queue.register("rollback-fence-pg", lambda session, payload: None)
+    with session_scope(engine) as session:
+        org = _org(session, "rollback-fence-pg")
+        job_id = queue.enqueue(session, JobSpec(kind="rollback-fence-pg", org_id=org.id,
+                                                 payload={})).id
+
+    with session_scope(engine) as old_worker:
+        old_claim = queue.claim(old_worker, kinds=["rollback-fence-pg"])
+        assert old_claim is not None and old_claim.attempts == 1
+        old_attempt = old_claim.attempts
+        with session_scope(engine) as session:
+            session.get(Job, job_id).started_at = utcnow() - timedelta(hours=1)
+        with session_scope(engine) as new_worker:
+            new_claim = queue.claim(new_worker, kinds=["rollback-fence-pg"])
+            assert new_claim is not None and new_claim.attempts == 2
+            new_attempt = new_claim.attempts
+            old_worker.rollback()  # handler exception expires the ORM job
+            assert queue.finish(old_worker, old_claim, claimed_attempt=old_attempt,
+                                error="first attempt failed") == "running"
+            with session_scope(engine) as observer:
+                state = observer.get(Job, job_id)
+                assert state.status == "running" and state.attempts == 2
+            assert queue.finish(new_worker, new_claim, claimed_attempt=new_attempt) == "succeeded"
+    with session_scope(engine) as session:
+        final = session.get(Job, job_id)
+        assert final.status == "succeeded" and final.attempts == 2
+
+
+def test_worker_error_after_reclaim_cannot_retry_new_attempt_on_postgres(engine):
+    """run_pending preserves its claim token through handler rollback."""
+    from concurrent.futures import ThreadPoolExecutor
+    from datetime import timedelta
+    from threading import Event as ThreadEvent
+
+    from ironclad.platform.jobs import JobQueue, JobSpec
+    from ironclad.platform.models import Job, utcnow
+
+    queue = JobQueue(stale_after_seconds=0, retry_backoff=3600)
+    paused, resume = ThreadEvent(), ThreadEvent()
+
+    def failing_handler(session, payload):
+        paused.set()
+        if not resume.wait(timeout=15):
+            raise TimeoutError("new worker did not release old worker")
+        raise RuntimeError("old worker failed after reclaim")
+
+    queue.register("worker-rollback-fence-pg", failing_handler)
+    with session_scope(engine) as session:
+        org = _org(session, "worker-rollback-fence-pg")
+        job_id = queue.enqueue(session, JobSpec(kind="worker-rollback-fence-pg", org_id=org.id,
+                                                 payload={}, scheduled_at=utcnow() - timedelta(days=1))).id
+
+    def run_old_worker():
+        with session_scope(engine) as session:
+            return queue.run_pending(session, limit=1)
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(run_old_worker)
+        try:
+            assert paused.wait(timeout=15), "old worker did not claim the job"
+            with session_scope(engine) as session:
+                session.get(Job, job_id).started_at = utcnow() - timedelta(hours=1)
+            with session_scope(engine) as new_worker:
+                newer = queue.claim(new_worker, kinds=["worker-rollback-fence-pg"])
+                assert newer is not None and newer.attempts == 2
+                new_attempt = newer.attempts
+                resume.set()
+                assert future.result(timeout=30) == 1
+                with session_scope(engine) as observer:
+                    state = observer.get(Job, job_id)
+                    assert state.status == "running" and state.attempts == 2
+                    assert state.error == "", "old worker error must not touch new claim"
+                assert queue.finish(new_worker, newer, claimed_attempt=new_attempt) == "succeeded"
+        finally:
+            resume.set()
+    with session_scope(engine) as session:
+        assert session.get(Job, job_id).status == "succeeded"
+
+
+def test_inline_failure_after_reclaim_does_not_retry_new_worker_on_postgres(
+    engine, tmp_path, monkeypatch,
+):
+    """The HTTP inline error path keeps its original job attempt after rollback."""
+    import json
+    from concurrent.futures import ThreadPoolExecutor
+    from datetime import timedelta
+    from threading import Event as ThreadEvent
+    from unittest.mock import patch
+
+    from fastapi.testclient import TestClient
+
+    from ironclad.api.app import create_app
+    from ironclad.platform import worker_jobs
+    from ironclad.platform.models import Job, Scan, utcnow
+    from ironclad.platform.scanning import bootstrap_organization
+
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / "app.py").write_text('api_token = "Zk9pQ2xR7vN4mT8sW1yB6dF3hJ0aL5e"\n', encoding="utf-8")
+    monkeypatch.setenv("IRONCLAD_SCAN_ROOT", str(target))
+    monkeypatch.setenv("IRONCLAD_SIGNING_KEY", "test-signing-key-that-is-long-enough-32ch")
+    with session_scope(engine) as session:
+        org, _ = bootstrap_organization(session, name="Inline Reclaim", slug="inline-reclaim-pg",
+                                        admin_email="inlinereclaim@pg.example.com",
+                                        password="Str0ng!Passw0rd-99")
+        org_id = org.id
+
+    app = create_app(PG_URL, include_web=False)
+    app.state.queue.stale_after_seconds = 0
+    paused, resume = ThreadEvent(), ThreadEvent()
+
+    def interrupted_policy(*args, **kwargs):
+        paused.set()
+        if not resume.wait(timeout=15):
+            raise TimeoutError("new worker did not release inline request")
+        raise RuntimeError("inline policy load failed")
+
+    try:
+        with TestClient(app) as client:
+            login = client.post("/auth/login", json={
+                "email": "inlinereclaim@pg.example.com", "password": "Str0ng!Passw0rd-99",
+            })
+            assert login.status_code == 200, login.text
+            headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+            project = client.post("/projects", headers=headers, json={"name": "Inline Reclaim"})
+            assert project.status_code == 201, project.text
+
+            with patch("ironclad.platform.scanning.resolve_policy", side_effect=interrupted_policy):
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    future = pool.submit(client.post, "/scan", headers=headers, json={
+                        "project_id": project.json()["id"], "target": ".", "wait": True,
+                    })
+                    try:
+                        assert paused.wait(timeout=15), "inline request did not claim its job"
+                        with session_scope(engine) as session:
+                            scan_id = session.execute(select(Scan.id).where(
+                                Scan.org_id == org_id)).scalar_one()
+                            job = session.execute(select(Job).where(Job.org_id == org_id)).scalar_one()
+                            job_id = job.id
+                            job.started_at = utcnow() - timedelta(hours=1)
+                        with session_scope(engine) as new_worker:
+                            newer = app.state.queue.claim(new_worker, kinds=["scan.run"])
+                            assert newer is not None and newer.id == job_id
+                            assert newer.attempts == 2
+                            new_attempt = newer.attempts
+                            payload = json.loads(newer.payload)
+                            resume.set()
+                            response = future.result(timeout=30)
+                            assert response.status_code == 500, response.text
+                            with session_scope(engine) as observer:
+                                state = observer.get(Job, job_id)
+                                assert state.status == "running" and state.attempts == 2
+                                assert state.error == ""
+                                assert observer.get(Scan, scan_id).status == "failed"
+                            # New worker still owns the job and can complete the retry.
+                            worker_jobs.handle_scan_run(engine, new_worker, payload)
+                            assert app.state.queue.finish(
+                                new_worker, newer, claimed_attempt=new_attempt) == "succeeded"
+                    finally:
+                        resume.set()
+        with session_scope(engine) as session:
+            assert session.get(Job, job_id).status == "succeeded"
+            assert session.get(Scan, scan_id).status == "succeeded"
+    finally:
+        resume.set()
+        app.state.engine.dispose()
+
+
+@pytest.mark.parametrize("finish_new_worker", [False, True])
+def test_inline_request_cannot_adopt_reclaimed_job_before_start_on_postgres(
+    engine, tmp_path, monkeypatch, finish_new_worker,
+):
+    """A delayed inline request must not take over a newer worker's claim."""
+    import json
+    from datetime import timedelta
+    from unittest.mock import patch
+
+    from fastapi.testclient import TestClient
+
+    from ironclad.api import routes
+    from ironclad.api.app import create_app
+    from ironclad.platform import worker_jobs
+    from ironclad.platform.models import Event, Finding, Job, Scan, utcnow
+    from ironclad.platform.scanning import bootstrap_organization
+
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / "app.py").write_text('api_token = "Zk9pQ2xR7vN4mT8sW1yB6dF3hJ0aL5e"\n', encoding="utf-8")
+    monkeypatch.setenv("IRONCLAD_SCAN_ROOT", str(target))
+    monkeypatch.setenv("IRONCLAD_SIGNING_KEY", "test-signing-key-that-is-long-enough-32ch")
+    suffix = "finished" if finish_new_worker else "pending"
+    email = f"inlineclaim-{suffix}@pg.example.com"
+    with session_scope(engine) as session:
+        org, _ = bootstrap_organization(session, name="Inline Claim",
+                                        slug=f"inline-claim-pg-{suffix}", admin_email=email,
+                                        password="Str0ng!Passw0rd-99")
+        org_id = org.id
+
+    app = create_app(PG_URL, include_web=False)
+    app.state.queue.stale_after_seconds = 0
+    original_inline = routes._run_scan_inline
+
+    def reclaim_before_inline(request, session, context, scan_id, job_id, payload, *args, **kwargs):
+        with session_scope(engine) as controller:
+            job = controller.get(Job, job_id)
+            assert job.status == "running" and job.attempts == 1
+            job.started_at = utcnow() - timedelta(hours=1)
+        with session_scope(engine) as new_worker:
+            claimed = request.app.state.queue.claim(new_worker, kinds=["scan.run"])
+            assert claimed is not None and claimed.id == job_id and claimed.attempts == 2
+            if finish_new_worker:
+                worker_jobs.handle_scan_run(engine, new_worker, payload)
+                assert request.app.state.queue.finish(
+                    new_worker, claimed, claimed_attempt=2) == "succeeded"
+        return original_inline(request, session, context, scan_id, job_id,
+                               payload, *args, **kwargs)
+
+    try:
+        with TestClient(app) as client:
+            login = client.post("/auth/login", json={
+                "email": email, "password": "Str0ng!Passw0rd-99",
+            })
+            assert login.status_code == 200, login.text
+            headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+            project = client.post("/projects", headers=headers, json={"name": "Inline Claim"})
+            assert project.status_code == 201, project.text
+
+            with patch("ironclad.api.routes._run_scan_inline", side_effect=reclaim_before_inline):
+                response = client.post("/scan", headers=headers, json={
+                    "project_id": project.json()["id"], "target": ".", "wait": True,
+                })
+            assert response.status_code == 202, response.text
+            scan_id = response.json()["id"]
+            assert response.json()["status"] == ("succeeded" if finish_new_worker else "queued")
+
+        with session_scope(engine) as session:
+            job = session.execute(select(Job).where(Job.org_id == org_id)).scalar_one()
+            job_id = job.id
+            assert job.status == ("succeeded" if finish_new_worker else "running")
+            assert job.attempts == 2
+            findings = session.execute(select(Finding).where(Finding.scan_id == scan_id)).scalars().all()
+            events = session.execute(select(Event.event_type).where(
+                Event.org_id == org_id, Event.subject_id == str(scan_id))).scalars().all()
+            assert bool(findings) == finish_new_worker
+            assert ("scan.started" in events) == finish_new_worker
+
+        if not finish_new_worker:
+            with session_scope(engine) as new_worker:
+                job = new_worker.get(Job, job_id)
+                payload = json.loads(job.payload)
+                worker_jobs.handle_scan_run(engine, new_worker, payload)
+                assert app.state.queue.finish(new_worker, job, claimed_attempt=2) == "succeeded"
+        with session_scope(engine) as session:
+            assert session.get(Scan, scan_id).status == "succeeded"
+            assert session.get(Job, job_id).status == "succeeded"
+            assert session.execute(select(Finding).where(Finding.scan_id == scan_id)).scalars().all()
+    finally:
+        app.state.engine.dispose()
+
+
+def test_inline_request_cancelled_before_helper_starts_returns_cancelled_on_postgres(
+    engine, tmp_path, monkeypatch,
+):
+    """The original request must observe a concurrent cancellation, not 500."""
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event as ThreadEvent
+    from unittest.mock import patch
+
+    from fastapi.testclient import TestClient
+
+    from ironclad.api import routes
+    from ironclad.api.app import create_app
+    from ironclad.platform.models import Event, Finding, Job, Scan
+    from ironclad.platform.scanning import bootstrap_organization
+
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / "app.py").write_text('api_token = "Zk9pQ2xR7vN4mT8sW1yB6dF3hJ0aL5e"\n', encoding="utf-8")
+    monkeypatch.setenv("IRONCLAD_SCAN_ROOT", str(target))
+    monkeypatch.setenv("IRONCLAD_SIGNING_KEY", "test-signing-key-that-is-long-enough-32ch")
+    with session_scope(engine) as session:
+        org, _ = bootstrap_organization(session, name="Early Cancel", slug="early-cancel-pg",
+                                        admin_email="earlycancel@pg.example.com",
+                                        password="Str0ng!Passw0rd-99")
+        org_id = org.id
+
+    app = create_app(PG_URL, include_web=False)
+    paused, resume = ThreadEvent(), ThreadEvent()
+    original_inline = routes._run_scan_inline
+
+    def before_inline(*args, **kwargs):
+        paused.set()  # request has committed its initial scan and inline job claim
+        if not resume.wait(timeout=15):
+            raise TimeoutError("cancel request did not release inline handler")
+        return original_inline(*args, **kwargs)
+
+    try:
+        with TestClient(app) as client:
+            login = client.post("/auth/login", json={
+                "email": "earlycancel@pg.example.com", "password": "Str0ng!Passw0rd-99",
+            })
+            assert login.status_code == 200, login.text
+            headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+            project = client.post("/projects", headers=headers, json={"name": "Early Cancel"})
+            assert project.status_code == 201, project.text
+
+            with patch("ironclad.api.routes._run_scan_inline", side_effect=before_inline):
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    future = pool.submit(client.post, "/scan", headers=headers, json={
+                        "project_id": project.json()["id"], "target": ".", "wait": True,
+                    })
+                    try:
+                        assert paused.wait(timeout=15), "inline request did not claim its job"
+                        with session_scope(engine) as session:
+                            scan_id = session.execute(select(Scan.id).where(
+                                Scan.org_id == org_id)).scalar_one()
+                        cancelled = client.post(f"/scan/{scan_id}/cancel", headers=headers)
+                        assert cancelled.status_code == 200, cancelled.text
+                    finally:
+                        resume.set()
+                    response = future.result(timeout=30)
+            assert response.status_code == 202, response.text
+            assert response.json()["status"] == "cancelled"
+
+        with session_scope(engine) as session:
+            job = session.execute(select(Job).where(Job.org_id == org_id)).scalar_one()
+            events = session.execute(select(Event.event_type).where(
+                Event.org_id == org_id, Event.subject_id == str(scan_id))).scalars().all()
+            assert job.status == "cancelled" and session.get(Scan, scan_id).status == "cancelled"
+            assert session.execute(select(Finding).where(Finding.scan_id == scan_id)).scalars().all() == []
+            assert "scan.completed" not in events
+    finally:
+        resume.set()
+        app.state.engine.dispose()
