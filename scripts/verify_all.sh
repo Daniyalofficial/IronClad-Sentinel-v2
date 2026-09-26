@@ -49,9 +49,16 @@ record() { # record <status> <name> [detail]
 # Run a command, recording the outcome. Usage: step <name> <cmd...>
 step() {
   local name="$1"; shift
-  local out
+  local out skip
   if out="$("$@" 2>&1)"; then
-    record PASS "$name"
+    # Network-backed benchmarks may self-skip with exit 0. Count their
+    # explicit SKIP line as unverified rather than a successful measurement.
+    skip="$(printf '%s\n' "$out" | grep -m1 '^SKIP:' || true)"
+    if [ -n "$skip" ]; then
+      record SKIP "$name" "${skip#SKIP: }"
+    else
+      record PASS "$name"
+    fi
   else
     record FAIL "$name" "$(echo "$out" | tail -5 | tr '\n' ' ')"
   fi
@@ -178,7 +185,7 @@ print(base.replace('/postgres?', '/ironclad_verify?')
       PG_URL="$PG_URI"
       echo "started PostgreSQL: ${PG_URI%%\?*}"
       export IRONCLAD_TEST_POSTGRES_URL="$PG_URL"
-      step "PostgreSQL migrations + 16 tests" python -m pytest tests/test_postgres.py -q
+      step "PostgreSQL migrations + regression tests" python -m pytest tests/test_postgres.py -q
       step "PostgreSQL schema is complete"   python -c "
 from sqlalchemy import text
 from ironclad.platform.database import build_engine, run_migrations, current_schema_version

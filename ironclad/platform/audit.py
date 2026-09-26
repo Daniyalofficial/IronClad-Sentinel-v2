@@ -1,9 +1,8 @@
 """Audit log.
 
-Append-only by construction: this module exposes ``record`` and ``list_for_org``
-and nothing else. There is no update or delete path, the API mounts the
-audit route read-only, and the migration creates no trigger or rule that
-would allow one.
+Audit records are written through ``record`` and are not editable. An
+admin-authorized, tenant-scoped retention purge can delete older records;
+the purge writes its own audit record and must never delete that record.
 
 What must be audited (and is, at the call sites):
 
@@ -38,6 +37,7 @@ from ironclad.platform.rbac import Principal
 
 SENSITIVE_KEY = re.compile(r"(?i)(password|passwd|secret|token|api[_-]?key|authorization|credential|private[_-]?key)")
 REDACTED = "[redacted]"
+PURGE_ACTION = "audit.purged"
 
 
 def redact_secrets(metadata: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -223,6 +223,7 @@ def retention_summary(session: Session, org_id: int, *, retention_days: int) -> 
 
     Previewing before purging is the point: deleting audit history is
     irreversible and an operator must be able to see the consequence first.
+    Previous purge records are always retained, even for a zero-day window.
     """
     from datetime import timedelta
 
@@ -232,7 +233,8 @@ def retention_summary(session: Session, org_id: int, *, retention_days: int) -> 
     total = count_for_org(session, org_id)
     expiring = int(session.execute(
         select(func.count(AuditEvent.id))
-        .where(AuditEvent.org_id == int(org_id), AuditEvent.created_at < cutoff)
+        .where(AuditEvent.org_id == int(org_id), AuditEvent.created_at < cutoff,
+               AuditEvent.action != PURGE_ACTION)
     ).scalar_one())
     return {
         "retention_days": retention_days,
@@ -247,25 +249,27 @@ def purge_expired(session: Session, org_id: int, *, retention_days: int,
                   actor: str = "system", request_id: str = "") -> Dict[str, Any]:
     """Delete audit records older than the retention window.
 
-    The purge is itself audited *before* the delete runs, so the fact that
-    audit history was removed is permanently recorded. Deleting the record of
-    a deletion would defeat the purpose of an audit log.
+    The purge is itself audited *before* the delete runs. Purge records are
+    excluded from deletion even by future purges, so an authorized retention
+    policy cannot erase its own history through the API.
     """
-    from datetime import timedelta
+    from datetime import datetime
 
     if retention_days < 0:
         raise ValueError("retention_days must be non-negative")
     summary = retention_summary(session, org_id, retention_days=retention_days)
+    # Reuse the preview's cutoff. Recomputing it after recording a purge
+    # would delete the purge's own evidence for a zero-day retention window.
+    cutoff = datetime.fromisoformat(summary["cutoff"])
 
-    record(session, org_id=org_id, action="audit.purged", actor=actor,
+    record(session, org_id=org_id, action=PURGE_ACTION, actor=actor,
            target_type="audit_events", target_id="", request_id=request_id,
            metadata={"retention_days": retention_days,
                      "cutoff": summary["cutoff"],
                      "records_removed": summary["expiring_records"]})
-
-    cutoff = utcnow() - timedelta(days=retention_days)
     session.execute(
         AuditEvent.__table__.delete()
-        .where(AuditEvent.org_id == int(org_id), AuditEvent.created_at < cutoff)
+        .where(AuditEvent.org_id == int(org_id), AuditEvent.created_at < cutoff,
+               AuditEvent.action != PURGE_ACTION)
     )
     return summary

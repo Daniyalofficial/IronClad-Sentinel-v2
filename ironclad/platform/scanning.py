@@ -58,8 +58,9 @@ from ironclad.scanners.sbom import build_sbom
 from ironclad.core.paths import SCAN_ROOT_ENV, TargetError, resolve_target, scan_root
 
 __all__ = ["SCAN_ROOT_ENV", "TargetError", "resolve_target", "scan_root",
-           "ScanOutcome", "bootstrap_organization", "perform_scan", "resolve_policy",
-           "latest_sbom", "license_summary", "finding_trend", "dashboard_summary"]
+           "ScanOutcome", "bootstrap_organization", "perform_scan", "record_scan_failure",
+           "resolve_policy", "latest_sbom", "license_summary", "finding_trend",
+           "dashboard_summary"]
 
 
 # --------------------------------------------------------------------------- #
@@ -94,6 +95,28 @@ class ScanOutcome:
     decision: Optional[PolicyDecision]
     new_findings: int
     resolved_findings: int
+
+
+def record_scan_failure(session: Session, *, org_id: int, scan_id: int,
+                        error: Exception, correlation_id: str = "") -> None:
+    """Persist a failed attempt in a fresh transaction after a scan rollback.
+
+    A scanner exception can happen after partial findings have been written.
+    Its caller must roll back those partial changes first, then use this
+    function and commit. Otherwise a failed worker job rolls back the failure
+    marker as well and the scan remains misleadingly queued forever.
+    """
+    row = session.execute(select(Scan).where(
+        Scan.id == scan_id, Scan.org_id == org_id)).scalar_one_or_none()
+    if row is None or row.status in ("succeeded", "cancelled"):
+        return
+    row.status = "failed"
+    row.finished_at = utcnow()
+    row.error = f"{type(error).__name__}: {error}"[:2000]
+    session.flush()
+    events.default_bus.publish(session, events.SCAN_FAILED, org_id,
+                               {"scan_id": row.id, "error": row.error},
+                               subject_id=str(row.id), correlation_id=correlation_id)
 
 
 def policy_from_document(document: Dict[str, Any]) -> Policy:
@@ -135,11 +158,11 @@ def perform_scan(
     correlation_id: str = "",
     store_sbom: bool = True,
 ) -> ScanOutcome:
-    """Run the engine against ``target`` and persist everything.
+    """Run the engine against ``target`` and persist its results.
 
-    Always leaves the scan row in a terminal state (``succeeded`` or
-    ``failed``) -- a crashed worker must not leave a scan looking queued
-    forever, and a scanner exception must not lose the scan record.
+    A missing target returns a failed outcome; on an engine exception the
+    caller rolls back partial results and persists the failure separately
+    with :func:`record_scan_failure` before retrying or returning an error.
     """
     scan_row.status = "running"
     scan_row.started_at = utcnow()
@@ -169,19 +192,14 @@ def perform_scan(
         return ScanOutcome(scan=scan_row, result=None, decision=None,
                            new_findings=0, resolved_findings=0)
 
-    config = IronCladConfig.load(target, {"report_formats": ["json"]})
     try:
+        config = IronCladConfig.load(target, {"report_formats": ["json"]},
+                                     include_project_config=False)
         with registry.timer(SCAN_DURATION, "End-to-end scan duration"):
             result = run_scan(config, policy=policy)
-    except Exception as exc:  # noqa: BLE001 - recorded on the scan row, never lost
-        scan_row.status = "failed"
-        scan_row.finished_at = utcnow()
-        scan_row.error = f"{type(exc).__name__}: {exc}"[:2000]
+    except Exception:  # noqa: BLE001 - caller rolls back and records the failure
         registry.inc(SCAN_FAILURES, 1, "Scans that failed")
         registry.inc(SCAN_TOTAL, 1, "Scans executed")
-        events.default_bus.publish(session, events.SCAN_FAILED, org_id,
-                                   {"scan_id": scan_row.id, "error": scan_row.error},
-                                   subject_id=str(scan_row.id), correlation_id=correlation_id)
         raise
 
     resolved = _resolve_previous_findings(session, org_id=org_id, project_id=project_id,

@@ -70,17 +70,25 @@ class IronCladConfig:
     advisory_endpoint: Optional[str] = None
 
     @classmethod
-    def load(cls, target: str, overrides: Optional[Dict[str, Any]] = None) -> "IronCladConfig":
-        """Load configuration using the documented precedence chain."""
+    def load(cls, target: str, overrides: Optional[Dict[str, Any]] = None, *,
+             include_project_config: bool = True) -> "IronCladConfig":
+        """Load configuration with optional isolation from untrusted repos.
+
+        Local CLI scans may trust their project's `.ironclad.yml` by default.
+        The API/worker must not: a repository contributor could otherwise
+        disable every engine or cause outbound advisory HTTP requests by
+        adding a YAML file to a scanned tree.
+        """
         cfg = cls(target=target)
 
         org_path = os.path.join(os.path.expanduser("~"), ".ironclad", "config.yml")
         if os.path.isfile(org_path):
             cfg._apply(_read_yaml(org_path))
 
-        project_path = os.path.join(target, CONFIG_FILENAME)
-        if os.path.isfile(project_path):
-            cfg._apply(_read_yaml(project_path))
+        if include_project_config:
+            project_path = os.path.join(target, CONFIG_FILENAME)
+            if os.path.isfile(project_path):
+                cfg._apply(_read_yaml(project_path))
 
         cfg._apply(cls._env_overrides())
 

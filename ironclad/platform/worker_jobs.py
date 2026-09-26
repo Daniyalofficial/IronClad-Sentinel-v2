@@ -16,7 +16,7 @@ from ironclad.platform.database import session_scope
 from ironclad.platform.jobs import JobQueue
 from ironclad.platform.models import Scan
 from ironclad.platform.observability import WORKER_DURATION, get_logger, registry, set_request_context
-from ironclad.platform.scanning import perform_scan, resolve_policy
+from ironclad.platform.scanning import perform_scan, record_scan_failure, resolve_policy
 
 logger = get_logger("worker")
 
@@ -50,13 +50,21 @@ def handle_scan_run(engine, session: Session, payload: dict) -> None:
                     extra={"fields": {"scan_id": scan_id, "status": scan.status}})
         return
 
-    policy = resolve_policy(session, org_id, payload.get("policy_id"), payload.get("policy_document"))
-    with registry.timer(WORKER_DURATION, "Worker job duration"):
-        perform_scan(session, org_id=org_id, project_id=scan.project_id, scan_row=scan,
-                     target=payload["target"], policy=policy,
-                     actor=payload.get("actor", "worker"),
-                     correlation_id=str(payload.get("correlation_id", "")))
-    session.commit()
+    try:
+        policy = resolve_policy(session, org_id, payload.get("policy_id"),
+                                payload.get("policy_document"))
+        with registry.timer(WORKER_DURATION, "Worker job duration"):
+            perform_scan(session, org_id=org_id, project_id=scan.project_id, scan_row=scan,
+                         target=payload["target"], policy=policy,
+                         actor=payload.get("actor", "worker"),
+                         correlation_id=str(payload.get("correlation_id", "")))
+        session.commit()
+    except Exception as exc:  # noqa: BLE001 - preserve the failure before the queue retries
+        session.rollback()  # discard any partial findings/events from this attempt
+        record_scan_failure(session, org_id=org_id, scan_id=scan_id, error=exc,
+                            correlation_id=str(payload.get("correlation_id", "")))
+        session.commit()
+        raise
     logger.info("scan job finished", extra={"fields": {"scan_id": scan_id,
                                                        "status": scan.status}})
 

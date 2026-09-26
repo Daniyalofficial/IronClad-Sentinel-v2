@@ -232,6 +232,39 @@ def test_purge_removes_only_expired_records(env):
                    for e in remaining)
 
 
+def test_zero_day_purge_keeps_its_own_audit_record(env):
+    """Even a zero-day retention window cannot erase the purge evidence."""
+    engine, org_id = env["engine"], env["org_id"]
+    _seed(engine, org_id, 2)
+    with session_scope(engine) as session:
+        before = audit.count_for_org(session, org_id)
+
+    response = env["client"].post("/audit/retention/purge", headers=env["owner"],
+                                  json={"retention_days": 0})
+    assert response.status_code == 200, response.text
+    assert response.json()["expiring_records"] == before
+    with session_scope(engine) as session:
+        remaining = session.query(AuditEvent).filter(AuditEvent.org_id == org_id).all()
+        assert [event.action for event in remaining] == ["audit.purged"]
+        assert json.loads(remaining[0].metadata_json)["records_removed"] == before
+
+
+def test_a_second_zero_day_purge_cannot_erase_the_first_purge(env):
+    engine, org_id = env["engine"], env["org_id"]
+    first = env["client"].post("/audit/retention/purge", headers=env["owner"],
+                               json={"retention_days": 0})
+    assert first.status_code == 200, first.text
+    _seed(engine, org_id, 1)
+
+    second = env["client"].post("/audit/retention/purge", headers=env["owner"],
+                                json={"retention_days": 0})
+    assert second.status_code == 200, second.text
+    assert second.json()["expiring_records"] == 1, "prior purges must be retained"
+    with session_scope(engine) as session:
+        remaining = session.query(AuditEvent).filter(AuditEvent.org_id == org_id).all()
+        assert [event.action for event in remaining] == ["audit.purged", "audit.purged"]
+
+
 def test_purge_is_itself_audited_before_deleting(env):
     """Deleting the record of a deletion would defeat the purpose of an audit
     log, so the purge record must survive the purge."""

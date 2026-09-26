@@ -43,8 +43,8 @@ it unset in production.
 
 | Method | Path | Auth | Notes |
 |---|---|---|---|
-| GET | `/health` | none | Liveness + dependency checks |
-| GET | `/ready` | none | Readiness; 503 when the database is unreachable |
+| GET | `/health` | none | Liveness (200); `status=degraded` if the database is unreachable or no organization has been initialized |
+| GET | `/ready` | none | Readiness; 503 until the database is reachable **and** `server init` has created an organization |
 | GET | `/version` | none | Product/version/python |
 | GET | `/metrics` | none | Prometheus text exposition |
 
@@ -143,7 +143,18 @@ Only an **owner** can grant `owner`. An admin cannot demote themselves below
 * `idempotency_key` replays: the same key returns the same scan and queues
   no new work.
 * `wait: true` runs the scan inline before responding — intended for small
-  repositories and CI, not for large trees.
+  repositories and CI, not for large trees. The API atomically claims the
+  job **before** the initial commit; workers cannot duplicate a live inline
+  scan. Successful inline scans complete the job. If the API dies mid-request,
+  a worker can reclaim the stale job after the configured timeout (15 minutes
+  by default). Scanner exceptions return 500 with a generic message and
+  persist a failed scan/event; the job retries with backoff up to its attempt
+  limit, so operators can correct transient failures without resubmitting.
+* Server scans do **not** load `.ironclad.yml` from the scanned repository.
+  A contributor who controls source files must not be able to disable
+  engines or request outbound advisory lookups. Set server scan options in
+  the operator environment/global config or an authorized API policy. Local
+  CLI scans still load project configuration by default.
 
 ## Findings
 
@@ -202,15 +213,14 @@ private/link-local address is rejected unless
 | GET | `/audit/retention` | `audit.read` — preview what a retention window would remove. Deletes nothing. |
 | POST | `/audit/retention/purge` | `audit.read` **+ admin role** — delete records older than `retention_days`. Irreversible; the purge is itself audited *before* the delete runs. |
 
-Records are append-only: no endpoint updates or deletes them, and
-credential-shaped metadata keys are redacted before they are stored.
-
-The one exception is `POST /audit/retention/purge`, which exists because
-compliance frameworks require a *defined* retention period. It requires the
-admin role, and it writes an `audit.purged` record **before** deleting, so
-the fact that audit history was removed — how much, and against what cutoff —
-is itself permanent. Deleting the record of a deletion would defeat the
-purpose of an audit log.
+Records are not editable, and credential-shaped metadata keys are redacted
+before they are stored. The only API deletion path is the admin-authorized
+`POST /audit/retention/purge`, for an explicit retention window. It writes
+an `audit.purged` record before deletion. The preview and purge **exclude
+all prior `audit.purged` records**, even for a zero-day window, so repeated
+purges cannot erase their own API-level history. A database administrator
+can still alter or remove records directly; use external immutable storage
+if that is in your threat model.
 
 The paged `GET /audit` caps at 200 records, which is not usable as compliance
 evidence; use `/audit/export` for that. CSV exports prefix values beginning

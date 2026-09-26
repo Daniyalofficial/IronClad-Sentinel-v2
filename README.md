@@ -11,8 +11,8 @@ zero phone-home, and the scanning path never executes the code it reads.
 
 Two ways to run it:
 
-* **CLI** — a single offline scanner for laptops, pre-commit hooks and CI.
-  No database, no network.
+* **CLI** — a single offline-by-default scanner for laptops, pre-commit
+  hooks and CI. No database; remote advisories require an explicit opt-in.
 * **Server** — API + dashboard + worker with organizations, users, roles,
   policies, baselines, audit and integrations, backed by SQLite or
   PostgreSQL.
@@ -30,6 +30,9 @@ ironclad scan . --policy policy.yaml   # scan and gate
 ironclad sbom . --out sbom.json        # CycloneDX 1.5
 ```
 
+For an absolute-path server setup, recovery steps and limitations, see
+[QUICKSTART.md](QUICKSTART.md).
+
 Run the whole product story end to end (generates a vulnerable repo, fails
 the gate, baselines the backlog, fixes the code, passes the gate):
 
@@ -46,6 +49,12 @@ ironclad server init --org-name "Acme Corp" --admin-email you@acme.com \
 ironclad serve                # API + dashboard on :8000
 ironclad server worker        # background scan worker (separate process)
 ```
+
+Export the **same** database URL and scan root in the API and worker shells;
+`/ready` returns 503 until `server init` has created an organization. For an
+owner locked out without SMTP, use `ironclad server unlock --org SLUG --email
+ADDRESS` or `ironclad server reset-password --org SLUG --email ADDRESS` on the
+host with database access (the new password is prompted).
 
 Dashboard at `/ui`. The interactive API docs at `/docs` (and `/openapi.json`)
 are **disabled by default**; opt in with `IRONCLAD_ENABLE_DOCS=1` while
@@ -100,7 +109,8 @@ baselined without a reason unless you pass `--force`.
 POST /scan ──► jobs table ──► worker ──► scanner ──► database ──► events / reports
 ```
 
-The API never blocks on a scan: `POST /scan` returns **202** immediately.
+By default `POST /scan` queues work and returns **202** immediately. Opting
+into `wait: true` runs a small scan inline without a duplicate worker job.
 
 | Capability | Detail |
 |---|---|
@@ -110,7 +120,7 @@ The API never blocks on a scan: `POST /scan` returns **202** immediately.
 | Multi-tenancy | Every tenant-owned row is `org_id`-scoped; a foreign row is a **404**, never a 403 |
 | Jobs | Durable queue, at-least-once, exponential-backoff retries, stale-claim recovery |
 | Events | 15 typed contracts, validated at publish time, persisted |
-| Audit | Append-only, credential-redacted, filterable |
+| Audit | Credential-redacted, exportable; admin retention purges preserve purge records |
 | Observability | JSON structured logs with request/correlation ids, Prometheus metrics at `/metrics` |
 | Integrations | Webhook (HMAC-signed), GitHub (SARIF upload), GitLab, Slack/Teams, Jira — real deliveries, bounded retries |
 
@@ -142,8 +152,11 @@ configuration reference, and backup/restore.
 
 ## Performance
 
-Measured on this repository's CI hardware
-(`python benchmarks/scale_benchmark.py`):
+**Historical benchmark, not a speed claim for this upgrade.** These figures
+were recorded on an earlier revision and different CI hardware. The upgraded
+10,000-file measurement and its limitations are in
+[`docs/UPGRADE_VALIDATION_2026-09-25.md`](docs/UPGRADE_VALIDATION_2026-09-25.md).
+The earlier run (`python benchmarks/scale_benchmark.py`) reported:
 
 | Files | Wall clock | Files/sec | Peak RSS |
 |---:|---:|---:|---:|
@@ -151,23 +164,24 @@ Measured on this repository's CI hardware
 | 10,000 | 4.67 s | 2,142 | 26 MB |
 | 100,000 | 47.1 s | 2,122 | 72 MB |
 
-Throughput is flat and memory grows slowly — there is no quadratic pass.
-Detection accuracy on the labelled corpus: precision **1.00**, recall
-**1.00** (`benchmarks/corpus_metrics.py`). Read that number with the caveat
-in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md): the corpus is small and
-synthetic.
+That historical sample had roughly flat throughput; it does not prove a
+performance improvement on this checkout. Detection accuracy on the small,
+hand-written labelled corpus was precision **1.00**, recall **1.00**;
+that is not a real-world false-negative rate. See
+[`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) for the scope and limits.
 
 ## Tests
 
 ```bash
-pytest -q                                     # 452 tests
-python benchmarks/corpus_metrics.py           # detection accuracy
-ironclad scan ironclad --fail-on high         # self-scan must stay clean
+pytest -q                                     # test count depends on installed extras
+python benchmarks/corpus_metrics.py           # labelled-corpus accuracy
+ironclad scan ironclad --fail-on high         # high-severity self-scan gate
 ```
 
-`ironclad scan ironclad` reports **0 findings, grade A+** across 81 files.
-Running it found two real precision bugs, both fixed and now covered by
-regression tests.
+The upgrade's PostgreSQL-backed test result and self-scan gate are recorded in
+[`docs/UPGRADE_VALIDATION_2026-09-25.md`](docs/UPGRADE_VALIDATION_2026-09-25.md).
+Older self-scan counts in the historical documentation are not current release
+measurements.
 
 ## Documentation
 

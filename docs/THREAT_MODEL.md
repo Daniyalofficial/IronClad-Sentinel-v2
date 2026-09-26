@@ -105,7 +105,7 @@ stall a scan. Mitigation: `--fail-on` runs are time-boxed in CI; the
 
 | Threat | Control |
 |---|---|
-| Silent egress of repository metadata | `remote` is opt-in; the default `bundled` source never opens a socket |
+| Silent egress of repository metadata | The API/worker ignore `.ironclad.yml` in scanned repositories; only trusted operator configuration or an explicit local CLI opt-in can select `remote`. The default `bundled` source never opens a socket |
 | Cleartext interception | https enforced; plain http rejected at construction |
 | Feed outage blocking CI | Failure degrades to the bundled database and records a warning |
 | Poisoned advisory | Records only affect severity/remediation text of a finding; they cannot execute anything |
@@ -124,9 +124,9 @@ stall a scan. Mitigation: `--fail-on` runs are time-boxed in CI; the
 
 | Threat | Control |
 |---|---|
-| Tampering | Append-only: no update or delete code path exists anywhere in the product |
+| Tampering | Records cannot be updated through the API; a database administrator can still change them directly |
 | Sensitive data at rest | Credential-shaped keys redacted recursively before insert |
-| Denial (deleting evidence) | No endpoint or CLI command deletes audit rows |
+| Deleting evidence | An admin can purge old audit rows by policy; the preview and deletion exclude all `audit.purged` entries, including on repeated zero-day purges (`tests/test_audit_export.py`) |
 
 ## Deployment hardening
 
@@ -143,12 +143,13 @@ stall a scan. Mitigation: `--fail-on` runs are time-boxed in CI; the
 1. **A compromised host or container runtime.** If the attacker has the
    process, they have the database credentials.
 2. **A malicious platform operator with database access.** They can read
-   findings. The audit log is append-only at the application layer, not at
-   the database layer; use database-level immutability (WORM storage,
-   logical replication to a separate account) if that is a requirement.
-3. **Availability attacks on the API itself.** Rate limiting belongs in
-   your ingress/WAF; the app implements login lockout but no general
-   rate limiting.
+   findings and change audit rows directly. The application only allows an
+   authorized retention purge, which preserves purge records; this is not
+   database-level immutability. Use WORM storage or replication to a
+   separate account if tamper-proof evidence is required.
+3. **Availability attacks on the API itself.** Login and reset endpoints
+   have application rate limits, but arbitrary scan volume needs controls
+   at the ingress/WAF as well as bounded worker capacity.
 4. **Client-side compromise.** A stolen session token is valid until
    expiry or revocation; there is no device binding.
 5. **Currency of the bundled advisory data.** It is a snapshot of

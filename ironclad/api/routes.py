@@ -642,7 +642,12 @@ def request_scan(body: schemas.ScanRequest, request: Request,
                "target": target, "policy_id": body.policy_id, "policy_document": policy_document,
                "actor": context.principal.email}
     queue: JobQueue = request.app.state.queue
-    queue.enqueue(session, JobSpec(kind="scan.run", org_id=context.org_id, payload=payload))
+    job = queue.enqueue(session, JobSpec(kind="scan.run", org_id=context.org_id, payload=payload))
+    if body.wait:
+        # Claim before the first commit so a worker cannot run the scan while
+        # this request is active. Keep the claim recoverable if the API dies.
+        if not queue.claim_if_queued(session, job.id, context.org_id):
+            raise RuntimeError("could not claim inline scan job")
     events.default_bus.publish(session, events.SCAN_CREATED, context.org_id,
                                {"scan_id": scan.id, "project_id": body.project_id},
                                subject_id=str(scan.id))
@@ -651,28 +656,44 @@ def request_scan(body: schemas.ScanRequest, request: Request,
     session.commit()
 
     if body.wait:
-        _run_scan_inline(request, session, context, scan.id, payload)
+        _run_scan_inline(request, session, context, scan.id, job.id, payload)
         session.refresh(scan)
     return _scan_out(session, scan)
 
 
 def _run_scan_inline(request: Request, session: DbSession, context: RequestContext,
-                     scan_id: int, payload: Dict[str, Any]) -> None:
-    """Execute a queued scan synchronously (small repos, CI, tests)."""
-    from ironclad.platform.scanning import resolve_policy
+                     scan_id: int, job_id: int, payload: Dict[str, Any]) -> None:
+    """Execute an inline scan under its reclaimable job claim."""
+    from ironclad.platform.scanning import record_scan_failure, resolve_policy
 
+    queue: JobQueue = request.app.state.queue
     scan = get_for_org(session, Scan, context.org_id, scan_id)
+    job = get_for_org(session, Job, context.org_id, job_id)
     if scan is None or scan.status not in ("queued", "running"):
+        if job is not None and job.status == "running":
+            queue.cancel(session, job)
+            session.commit()
         return
-    policy = resolve_policy(session, context.org_id, payload.get("policy_id"),
-                            payload.get("policy_document"))
+    if job is None or job.status != "running":
+        raise RuntimeError("inline scan job is not claimed")
     try:
+        policy = resolve_policy(session, context.org_id, payload.get("policy_id"),
+                                payload.get("policy_document"))
         perform_scan(session, org_id=context.org_id, project_id=scan.project_id, scan_row=scan,
                      target=payload["target"], policy=policy, actor=payload.get("actor", "api"),
                      correlation_id=context.request_id)
-    except Exception as exc:  # noqa: BLE001 - surfaced as a failed scan, not a 500
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"scan failed: {exc}") from exc
-    session.commit()
+        queue.finish(session, job)
+        session.commit()
+    except Exception as exc:  # noqa: BLE001 - persist the failed scan, not partial findings
+        session.rollback()
+        record_scan_failure(session, org_id=context.org_id, scan_id=scan_id, error=exc,
+                            correlation_id=context.request_id)
+        job = get_for_org(session, Job, context.org_id, job_id)
+        if job is not None:
+            queue.finish(session, job, error=f"{type(exc).__name__}: {exc}")
+        session.commit()
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR,
+                            f"scan {scan_id} failed; check its status for details") from exc
 
 
 @scan_router.get("/scan/{scan_id}", response_model=schemas.ScanOut)

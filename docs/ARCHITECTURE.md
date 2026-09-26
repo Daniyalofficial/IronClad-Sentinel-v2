@@ -7,7 +7,7 @@
                                   |
                                   v
                    ironclad.core.config.IronCladConfig
-                    (defaults <- .ironclad.yml <- CLI flags)
+               (defaults <- global <- project <- env/CLI flags)
                                   |
                                   v
                      ironclad.core.walker.discover()
@@ -57,10 +57,9 @@ the codebase:
   care which engine originally found something; it just needs a stable
   fingerprint, so adding a 7th engine later doesn't require touching
   the baseline logic at all.
-- **All 5 report formats are pure functions of `ScanResult`.** Adding a
-  6th format (e.g. a Jira-ticket-creation payload, or a CSV export for
-  spreadsheet-oriented auditors) is a self-contained new file in
-  `ironclad/reporting/` with zero changes anywhere else.
+- **Report formats share the same `ScanResult`.** Adding another format
+  (e.g. a CSV export for spreadsheet-oriented auditors) starts with a new
+  renderer in `ironclad/reporting/`, not a separate scan.
 
 ## Fingerprinting strategy (why not line-number based)
 
@@ -120,44 +119,42 @@ noisy line-based diffing in other tools.
 
 ## Platform layer (added in 1.1.0)
 
-The scanner above is unchanged. The platform wraps it without the scanner
-knowing: `ironclad.platform.scanning.perform_scan` is the *only* bridge, and
-it is what the CLI, the API and the worker all call.
+The local CLI calls `core.engine.run_scan` directly. Server requests and
+workers use `ironclad.platform.scanning.perform_scan` to call the core engine
+and persist scans, findings, SBOMs and events. Server scans omit repository
+`.ironclad.yml`; local CLI scans can load it by default.
 
 ```
-        CLI (ironclad scan)          POST /scan (API)
-                 \                        |
-                  \                       v
-                   \              jobs table (queued)
-                    \                     |
-                     \                    v
-                      \----->  worker claims the job
-                                    |
-                                    v
-                    core.engine.run_scan(config, policy)
-                                    |
-                                    v
-                        platform.scanning.perform_scan
-                        ├── persist Scan / Finding rows
-                        ├── resolve previous findings
-                        ├── build + persist SBOM/components
-                        ├── evaluate policy (deterministic)
-                        └── publish typed events
-                                    |
-                        ┌───────────┼────────────┐
-                        v           v            v
-                    database     events     integrations
+   CLI (ironclad scan)                     POST /scan (API)
+           |                                     |
+           v                                     v
+   core.engine.run_scan                 jobs table (queued/running)
+           |                              /             \
+        reports                    worker claim       inline API claim
+                                       \               /
+                                        v             v
+                                  platform.scanning.perform_scan
+                                   ├── calls core.engine.run_scan
+                                   ├── persists Scan / Finding rows
+                                   ├── resolves previous findings
+                                   ├── persists SBOM/components
+                                   ├── evaluates policy
+                                   └── publishes typed events
 ```
 
 ### Why the queue is a table and not a broker
 
 A durable queue in the database gives retries, crash recovery, backoff and
 "what is stuck?" visibility without requiring Redis in a single-node
-install. `JobQueue.claim()` uses a single `UPDATE … WHERE id = (SELECT …)`
-so two workers cannot claim the same row, and the claim is **committed
-before the handler runs** — otherwise a rollback on handler failure would
-un-claim the job and an always-failing job would retry forever. That is not
-hypothetical; it is a bug this design had and a test now prevents.
+install. `JobQueue.claim()` selects a candidate, then conditionally updates
+it **only if it is still queued or genuinely stale**. A losing worker retries
+the selection, so parallel workers cannot claim the same job or ignore a
+second runnable job. The claim is **committed before the handler runs** —
+otherwise a rollback on handler failure would un-claim the job and an
+always-failing job would retry forever. PostgreSQL concurrency tests force
+two workers to see the same first candidate before updating it. An inline
+`wait: true` request claims its own job before the initial commit, finishes
+it with the scan, and leaves it reclaimable by a worker if the API dies.
 
 The interface is deliberately narrow (`enqueue` / `claim` / `finish`), so a
 Redis/RQ or Celery backend can replace it without touching the API or the
@@ -202,7 +199,10 @@ SQLite.
 | Deterministic policy decisions | `tests/test_policy.py::test_evaluation_is_deterministic` |
 | Baseline gates only new findings | `tests/test_baseline_v2.py` |
 | Cross-tenant isolation | 6 tests in `tests/test_api.py` |
-| Scan-root confinement incl. symlink escape | `tests/test_security.py` |
+| Scan-root confinement + non-regular file rejection | `tests/test_self_scan.py`, `tests/test_file_safety.py` |
+| Atomic multi-worker claims (PostgreSQL) | `tests/test_postgres.py::test_simultaneous_workers_claim_each_job_only_once` |
+| Failed scans, inline claims and stale-worker recovery | `tests/test_scan_lifecycle.py`, `tests/test_postgres.py::test_inline_api_claim_recovers_after_crash_on_postgres` |
+| Audit purge history survives zero-day retention | `tests/test_audit_export.py`, `tests/test_postgres.py::test_zero_day_retention_preserves_purge_evidence_on_postgres` |
 | Secrets never emitted | `tests/test_secrets.py`, `tests/test_security.py` |
 | Migrations idempotent and tamper-evident | `tests/test_database.py` |
 | Self-scan stays clean | `tests/test_security.py::test_self_scan_is_clean` |

@@ -6,9 +6,11 @@ reasons IronClad Sentinel is fast on large monorepos.
 """
 from __future__ import annotations
 
+import errno
 import fnmatch
 import os
 import re
+import stat
 from dataclasses import dataclass, field
 from typing import Dict, List
 
@@ -167,10 +169,17 @@ def discover(config: IronCladConfig) -> FileSet:
                 continue
 
             try:
-                size_bytes = os.path.getsize(full_path)
+                # lstat does not follow symlinks. A repository must not make
+                # the scanner read files outside its root through a file link,
+                # or block a worker forever by putting a FIFO in the tree.
+                entry = os.lstat(full_path)
             except OSError:
                 fileset.skipped += 1
                 continue
+            if not stat.S_ISREG(entry.st_mode):
+                fileset.skipped += 1
+                continue
+            size_bytes = entry.st_size
 
             if size_bytes > config.max_file_size_kb * 1024:
                 fileset.skipped += 1
@@ -203,9 +212,36 @@ def discover(config: IronCladConfig) -> FileSet:
     return fileset
 
 
+def open_regular_file(path: str, mode: str = "r"):
+    """Open a scan file without following links or blocking on a FIFO.
+
+    Discovery is not a security boundary by itself: the repository can swap
+    a regular file for a symlink or named pipe between discovery and a scan
+    engine reading it. On POSIX, O_NOFOLLOW rejects a swapped symlink and
+    O_NONBLOCK makes a swapped FIFO safe to open; fstat then rejects every
+    non-regular descriptor before the caller can read it. On platforms without
+    O_NOFOLLOW, lstat still rejects links already present at open time.
+    """
+    if mode not in ("r", "rb"):
+        raise ValueError("scan files are read-only")
+    if not hasattr(os, "O_NOFOLLOW") and not stat.S_ISREG(os.lstat(path).st_mode):
+        raise OSError(errno.EINVAL, "not a regular scan file", path)
+    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError(errno.EINVAL, "not a regular scan file", path)
+        if mode == "rb":
+            return os.fdopen(fd, "rb")
+        return os.fdopen(fd, "r", encoding="utf-8", errors="ignore")
+    except BaseException:
+        os.close(fd)
+        raise
+
+
 def read_text_safely(path: str) -> str:
     try:
-        with open(path, "r", encoding="utf-8", errors="ignore") as fh:
+        with open_regular_file(path) as fh:
             return fh.read()
     except (OSError, UnicodeDecodeError):
         return ""

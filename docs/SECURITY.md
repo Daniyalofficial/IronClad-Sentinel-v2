@@ -29,12 +29,19 @@ through a scan.
 
 | Boundary | Attacker controls | Defence |
 |---|---|---|
-| Scanned repository | File contents, filenames, directory structure, manifest contents | Static parsing only; per-file size cap; parser exceptions contained to one file; binary extensions skipped |
-| `POST /scan` target path | A path string | Confined to `IRONCLAD_SCAN_ROOT` via `realpath`; traversal and symlink escape rejected (`400`); re-validated at execution time |
+| Scanned repository | File contents, filenames, directory structure, manifest contents | Static parsing only; per-file size cap; non-regular files and file symlinks skipped during discovery; non-blocking, no-follow file opens re-check the descriptor before reading (POSIX) |
+| `POST /scan` target path | A path string | Confined to `IRONCLAD_SCAN_ROOT` via `realpath`; traversal and target-directory symlink escape rejected (`400`); re-validated at execution time |
 | HTTP request body | JSON | Pydantic models with `extra="forbid"`, bounded lengths, constrained ints, enumerated choices |
 | Webhook URL | An administrator-supplied URL | https required; private/link-local hosts rejected unless explicitly allowed; bounded retries; hard timeout |
-| Advisory feed | Advisory records | `remote` is opt-in; https only; 10 s timeout; failure degrades to the bundled database with a recorded warning |
+| Advisory feed | Advisory records | `remote` is operator opt-in for server scans; repository `.ironclad.yml` is ignored by the API/worker; https only; 10 s timeout; failure degrades to the bundled database with a warning |
 | License file | A signed JSON document | Ed25519 signature verified against a bundled public key; expiry enforced locally |
+
+The file guards cover discovery and each file's final path component. They
+are **not** a substitute for mounting untrusted repositories read-only:
+a concurrently writable parent directory can still be swapped between
+filesystem operations. Server scans ignore project `.ironclad.yml` entirely
+so a repository cannot turn on remote advisory egress or suppress detection;
+local CLI scans may explicitly trust project configuration.
 
 ## Authentication and sessions
 
@@ -56,8 +63,11 @@ through a scan.
   at creation. Scopes are permissions and can only narrow the owner's
   grants.
 * **Lockout** — 5 consecutive failures locks an account for 15 minutes.
-  Time-based and self-clearing, so it cannot be weaponised to permanently
-  disable an account.
+  If SMTP is not configured, a local operator with database access can use
+  `ironclad server unlock --org SLUG --email ADDRESS` to clear only the
+  lockout, or `ironclad server reset-password --org SLUG --email ADDRESS`
+  to prompt for a new password, revoke sessions/API tokens/reset links and
+  audit the change. These are local commands, not unauthenticated API routes.
 * **Enumeration** — login returns an identical error whether the account
   exists or not (asserted in tests).
 * **Comparison** — every secret comparison uses `hmac.compare_digest`.
@@ -189,9 +199,10 @@ origin receives no CORS headers at all — the origin is never reflected.
 
 ## Self-scan
 
-`ironclad scan ironclad` is run in CI and currently reports **0 findings,
-grade A+** across 81 files / 14,619 lines. Two real precision bugs were
-found and fixed by doing this — see `CHANGELOG.md`.
+`ironclad scan ironclad --fail-on high` is a gate in the local verifier; it
+passed on the upgraded checkout. Earlier 81-file/14,619-line self-scan
+numbers are historical, not a current measurement. See
+[UPGRADE_VALIDATION_2026-09-25.md](UPGRADE_VALIDATION_2026-09-25.md).
 
 ## Audit export and retention
 
@@ -206,11 +217,13 @@ Compliance evidence requires the *full* trail, not a 200-record page:
 * `GET /audit/retention?retention_days=N` previews the consequence without
   deleting anything.
 * `POST /audit/retention/purge` requires the **admin** role and writes an
-  `audit.purged` record **before** the delete, so the removal is permanently
-  recorded.
+  `audit.purged` record **before** the delete. Its cutoff matches the preview,
+  and both the preview and deletion exclude all purge records, even on
+  repeated zero-day purges.
 
-Both are tenant-scoped: an export or purge can never reach another
-organization's records.
+These routes are tenant-scoped: an export or purge cannot reach another
+organization's records. This is API-level retention, not database-level
+immutability; protect the database and export evidence off-host when needed.
 
 ## Password reset
 

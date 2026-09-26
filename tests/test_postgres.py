@@ -471,3 +471,174 @@ def test_session_timezone_is_pinned_to_utc(engine):
     """
     with engine.connect() as connection:
         assert connection.execute(text("SHOW timezone")).scalar().upper() == "UTC"
+
+
+@pytest.mark.parametrize("job_count", [1, 2])
+def test_simultaneous_workers_claim_each_job_only_once(engine, job_count):
+    """Force both workers to see the same first candidate before claiming.
+
+    A SELECT followed by UPDATE WHERE status IN ('queued', 'running') lets
+    both workers update the same row. With a second job, the loser must also
+    retry rather than stopping while work is still available.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    from sqlalchemy.orm import Session
+    from sqlalchemy.sql import Select
+
+    from ironclad.platform.jobs import JobQueue, JobSpec
+    from ironclad.platform.models import Job
+
+    queue = JobQueue()
+    queue.register("race-test", lambda session, payload: None)
+    with session_scope(engine) as session:
+        org = _org(session, f"claim-race-{job_count}")
+        ids = [queue.enqueue(session, JobSpec(kind="race-test", org_id=org.id,
+                                               payload={"n": n})).id
+               for n in range(job_count)]
+
+    barrier = Barrier(2, timeout=8)
+
+    def attempt():
+        with Session(engine) as worker_session:
+            original_execute = worker_session.execute
+            waited = False
+
+            def synced_execute(statement, *args, **kwargs):
+                nonlocal waited
+                result = original_execute(statement, *args, **kwargs)
+                if (not waited and isinstance(statement, Select)
+                        and statement.column_descriptions[0]["name"] == "id"):
+                    waited = True
+                    barrier.wait()
+                return result
+
+            worker_session.execute = synced_execute
+            claimed = queue.claim(worker_session)
+            return claimed.id if claimed else None
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(attempt) for _ in range(2)]
+        claimed_ids = [future.result(timeout=15) for future in futures]
+
+    assert sorted(value for value in claimed_ids if value is not None) == ids, claimed_ids
+    with session_scope(engine) as session:
+        assert all(session.get(Job, job_id).attempts == 1 for job_id in ids)
+
+
+def test_operator_recovery_revokes_sessions_on_postgres(engine, session):
+    """Recovery must work on TIMESTAMPTZ-backed rows, not just SQLite."""
+    from datetime import datetime, timedelta, timezone
+
+    from ironclad.platform.models import ApiToken, Session as SessionRow, User
+    from ironclad.platform.ops import reset_password
+    from ironclad.platform.security import hash_password, verify_password
+
+    org = _org(session, "ops-pg")
+    user = User(org_id=org.id, email="operator@pg.example.com",
+                password_hash=hash_password("Old-Password-987!"), role="owner",
+                failed_logins=5, locked_until=datetime.now(timezone.utc) + timedelta(minutes=5))
+    session.add(user)
+    session.flush()
+    session.add(SessionRow(user_id=user.id, org_id=org.id, token_hash="pg-session-recovery",
+                           expires_at=datetime.now(timezone.utc) + timedelta(hours=2)))
+    session.add(ApiToken(org_id=org.id, user_id=user.id, name="old-api-token",
+                         token_hash="pg-api-recovery", token_prefix="ics_", scopes="scan.read"))
+    session.commit()
+
+    assert reset_password(database_url=PG_URL, org_slug="ops-pg",
+                          email="operator@pg.example.com",
+                          new_password="Fresh-Password-987!") == user.id
+    with session_scope(engine) as fresh:
+        account = fresh.get(User, user.id)
+        assert verify_password("Fresh-Password-987!", account.password_hash)
+        assert account.failed_logins == 0 and account.locked_until is None
+        assert fresh.execute(select(SessionRow).where(
+            SessionRow.user_id == user.id)).scalar_one().revoked_at is not None
+        assert fresh.execute(select(ApiToken).where(
+            ApiToken.user_id == user.id)).scalar_one().revoked_at is not None
+
+
+def test_inline_api_claim_recovers_after_crash_on_postgres(engine, tmp_path, monkeypatch):
+    """Real HTTP request + PostgreSQL job claim + stale worker recovery."""
+    from datetime import timedelta
+    from unittest.mock import patch
+
+    from fastapi.testclient import TestClient
+
+    from ironclad.api.app import create_app
+    from ironclad.platform.models import Job, Scan, utcnow
+    from ironclad.platform.scanning import bootstrap_organization
+
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / "app.py").write_text("value = 1\n", encoding="utf-8")
+    monkeypatch.setenv("IRONCLAD_SCAN_ROOT", str(target))
+    monkeypatch.setenv("IRONCLAD_SIGNING_KEY", "test-signing-key-that-is-long-enough-32ch")
+    with session_scope(engine) as session:
+        org, _ = bootstrap_organization(session, name="Inline PostgreSQL", slug="inline-pg",
+                                        admin_email="inline@pg.example.com",
+                                        password="Str0ng!Passw0rd-99")
+        org_id = org.id
+
+    app = create_app(PG_URL, include_web=False)
+    try:
+        with TestClient(app, raise_server_exceptions=False) as client:
+            login = client.post("/auth/login", json={
+                "email": "inline@pg.example.com", "password": "Str0ng!Passw0rd-99",
+            })
+            assert login.status_code == 200, login.text
+            headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+            project = client.post("/projects", headers=headers, json={"name": "Inline"})
+            assert project.status_code == 201, project.text
+            with patch("ironclad.api.routes._run_scan_inline", side_effect=RuntimeError("API died")):
+                response = client.post("/scan", headers=headers, json={
+                    "project_id": project.json()["id"], "target": ".", "wait": True,
+                })
+            assert response.status_code == 500, response.text
+
+        with session_scope(engine) as session:
+            scan = session.execute(select(Scan).where(Scan.org_id == org_id)).scalar_one()
+            scan_id = scan.id
+            job = session.execute(select(Job).where(Job.org_id == org_id)).scalar_one()
+            assert scan.status == "queued" and job.status == "running"
+            assert job.attempts == 1
+            assert app.state.queue.run_pending(session, limit=1) == 0
+            job.started_at = utcnow() - timedelta(hours=1)
+        with session_scope(engine) as session:
+            assert app.state.queue.run_pending(session, limit=1) == 1
+        with session_scope(engine) as session:
+            assert session.get(Scan, scan_id).status == "succeeded"
+            job = session.execute(select(Job).where(Job.org_id == org_id)).scalar_one()
+            assert job.status == "succeeded" and job.attempts == 2
+    finally:
+        app.state.engine.dispose()
+
+
+def test_zero_day_retention_preserves_purge_evidence_on_postgres(engine):
+    """PostgreSQL TIMESTAMPTZ must not delete a just-written purge record."""
+    from ironclad.platform import audit
+    from ironclad.platform.models import AuditEvent
+
+    with session_scope(engine) as session:
+        org = _org(session, "retention-pg")
+        org_id = org.id
+        for index in range(3):
+            audit.record(session, org_id=org_id, action="pg.test.action",
+                         actor="operator@pg.example.com", metadata={"index": index})
+    with session_scope(engine) as session:
+        summary = audit.purge_expired(session, org_id, retention_days=0,
+                                      actor="operator@pg.example.com")
+    assert summary["expiring_records"] == 3
+    with session_scope(engine) as session:
+        events = session.execute(select(AuditEvent).where(AuditEvent.org_id == org_id)).scalars().all()
+        assert [event.action for event in events] == ["audit.purged"]
+        assert json.loads(events[0].metadata_json)["records_removed"] == 3
+
+    with session_scope(engine) as session:
+        summary = audit.purge_expired(session, org_id, retention_days=0)
+    assert summary["expiring_records"] == 0, "older purge evidence must survive repeated purges"
+    with session_scope(engine) as session:
+        events = session.execute(select(AuditEvent).where(AuditEvent.org_id == org_id)).scalars().all()
+        assert [event.action for event in events] == ["audit.purged", "audit.purged"]

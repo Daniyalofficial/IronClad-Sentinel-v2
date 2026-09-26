@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Tuple
 
 from ironclad.core.models import CodeLocation, Engine, Finding, Severity
+from ironclad.core.walker import open_regular_file
 from ironclad.scanners.ast_python import _call_name, _dotted_name, _snippet
 
 # --------------------------------------------------------------------------- #
@@ -588,7 +589,7 @@ def scan_python_flows(path: str, rel_path: str) -> List[Finding]:
     """Run the flow + structural detectors over one Python file."""
     findings: List[Finding] = []
     try:
-        with open(path, "r", encoding="utf-8", errors="ignore") as fh:
+        with open_regular_file(path) as fh:
             source = fh.read()
     except OSError:
         return findings

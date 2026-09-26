@@ -105,7 +105,7 @@ ironclad/
     scanning.py          engine -> database bridge, scan-root confinement
     jobs.py, worker_jobs.py   durable queue + handlers
     events.py            typed event contracts
-    audit.py             append-only audit with redaction
+    audit.py             credential-redacted audit with admin retention purge
     observability.py     structured logs, request ids, Prometheus metrics
     integrations/        webhook, GitHub, GitLab, Slack/Teams, Jira
   api/                   FastAPI app, deps, routes, schemas

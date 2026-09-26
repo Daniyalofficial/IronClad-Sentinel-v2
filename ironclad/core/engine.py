@@ -9,7 +9,7 @@ from ironclad.core.baseline import Baseline, diff_baseline
 from ironclad.core.config import IronCladConfig
 from ironclad.core.models import Finding, ScanResult, ScanStats, Severity
 from ironclad.core.policy import Policy, filter_findings_for_policy
-from ironclad.core.walker import discover
+from ironclad.core.walker import discover, open_regular_file
 from ironclad.rules.schema import load_rule_packs
 from ironclad.scanners.advisories import AdvisorySourceError, build_source
 from ironclad.scanners.ast_python import scan_python_file
@@ -58,7 +58,7 @@ def run_scan(config: IronCladConfig, progress_callback=None, policy: Policy = No
     lines_scanned = 0
     for discovered in fileset.files:
         try:
-            with open(discovered.path, "r", encoding="utf-8", errors="ignore") as fh:
+            with open_regular_file(discovered.path) as fh:
                 lines_scanned += sum(1 for _ in fh)
         except OSError:
             pass

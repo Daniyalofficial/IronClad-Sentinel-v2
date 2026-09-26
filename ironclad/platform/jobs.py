@@ -88,38 +88,64 @@ class JobQueue:
         return job
 
     def claim(self, session: Session, kinds: Optional[List[str]] = None) -> Optional[Job]:
-        """Atomically claim the next runnable job.
+        """Atomically claim the next runnable job, even with other workers.
 
-        Uses a single ``UPDATE ... WHERE id = (SELECT ...)`` so two workers
-        cannot claim the same row. Jobs whose worker died while running are
-        reclaimable once they are older than ``stale_after_seconds``.
+        A candidate SELECT is only a hint. The UPDATE must check the same
+        queued/stale predicate *again*, after any competing UPDATE commits;
+        checking merely ``status IN ('queued', 'running')`` lets two workers
+        claim the same running row. Retry a lost race so another queued job
+        is not stranded behind the winner.
         """
-        now = utcnow()
-        statement = select(Job.id).where(
-            or_(
+        while True:
+            now = utcnow()
+            runnable = or_(
                 Job.status == QUEUED,
                 and_(Job.status == RUNNING,
                      Job.started_at.is_not(None),
                      Job.started_at < _seconds_ago(self.stale_after_seconds)),
             )
+            statement = select(Job.id).where(runnable, Job.scheduled_at <= now)
+            if kinds:
+                statement = statement.where(Job.kind.in_(kinds))
+            statement = statement.order_by(Job.scheduled_at, Job.id).limit(1)
+            row = session.execute(statement).first()
+            if row is None:
+                return None
+
+            update_statement = (
+                update(Job)
+                .where(Job.id == row[0], runnable, Job.scheduled_at <= now)
+                .values(status=RUNNING, attempts=Job.attempts + 1,
+                        started_at=now, error="")
+                .returning(Job.id)
+            )
+            if kinds:
+                update_statement = update_statement.where(Job.kind.in_(kinds))
+            claimed_id = session.execute(update_statement).scalar_one_or_none()
+            if claimed_id is None:
+                # A different worker won; reselect instead of returning idle
+                # while other jobs might still be eligible.
+                continue
+            # Commit the claim itself. A handler rollback must not undo the
+            # attempt counter or let an always-failing job retry forever.
+            session.commit()
+            return session.get(Job, claimed_id)
+
+    def claim_if_queued(self, session: Session, job_id: int, org_id: int) -> bool:
+        """Atomically reserve a new job for an inline request.
+
+        The caller commits the claim with the scan. Other workers cannot claim
+        it while the request runs, but can reclaim it after a stale timeout if
+        the API process dies before finishing the scan.
+        """
+        now = utcnow()
+        changed = session.execute(
+            update(Job).where(Job.id == int(job_id), Job.org_id == int(org_id),
+                              Job.status == QUEUED, Job.scheduled_at <= now)
+            .values(status=RUNNING, attempts=Job.attempts + 1,
+                    started_at=now, error="")
         )
-        if kinds:
-            statement = statement.where(Job.kind.in_(kinds))
-        statement = statement.where(Job.scheduled_at <= now).order_by(Job.scheduled_at, Job.id).limit(1)
-        row = session.execute(statement).first()
-        if row is None:
-            return None
-        session.execute(
-            update(Job)
-            .where(Job.id == row[0], Job.status.in_((QUEUED, RUNNING)))
-            .values(status=RUNNING, attempts=Job.attempts + 1, started_at=now, error="")
-        )
-        # Commit the claim itself. If the handler later raises and the caller
-        # rolls back, the attempt counter and the RUNNING marker must survive
-        # -- otherwise a job that always fails would retry forever because
-        # `attempts` kept being rolled back to 0.
-        session.commit()
-        return session.get(Job, row[0])
+        return changed.rowcount == 1
 
     def finish(self, session: Session, job: Job, *, error: str = "",
                retry_backoff: Optional[float] = None) -> str:

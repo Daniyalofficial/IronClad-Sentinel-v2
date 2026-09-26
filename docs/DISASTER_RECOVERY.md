@@ -51,6 +51,26 @@ The database URL and signing key live in your secret manager
 without `IRONCLAD_SIGNING_KEY`, previously issued stateless tokens stop
 validating.
 
+## Locked-out owner recovery
+
+Password reset links are delivered only when SMTP is configured. The default
+in-memory mail transport does not deliver to an operator's inbox. On a trusted
+host with access to the **existing** database, use the local recovery
+commands (they refuse a missing SQLite file):
+
+```bash
+IRONCLAD_DATABASE_URL='sqlite:////srv/ironclad/ironclad.db' \
+  ironclad server unlock --org acme --email owner@acme.com
+IRONCLAD_DATABASE_URL='sqlite:////srv/ironclad/ironclad.db' \
+  ironclad server reset-password --org acme --email owner@acme.com
+```
+
+`unlock` changes only the lockout fields. `reset-password` prompts for a new
+password and atomically clears lockout, revokes active sessions/API tokens
+and outstanding reset links, and writes an audit event. For PostgreSQL, use
+its normal `postgresql+psycopg2://...` URL. Give both the API and the worker
+the same database and scan-root settings after recovery.
+
 ## Restore
 
 ### Verify the backup first
@@ -92,6 +112,7 @@ fails rather than your restore failing at 3 a.m.
 |---|---|---|
 | Database unreachable | `/ready` returns 503; API requests fail; workers retry | Restore connectivity; queued jobs are still in the table |
 | Worker killed mid-scan | The job stays `running` past the stale timeout and is reclaimed by another worker | Automatic |
+| API killed during `wait: true` scan | The inline request's claimed job remains `running` and is reclaimable after the stale timeout (15 minutes by default) | Start/keep a worker; do not resubmit blindly |
 | Scanner exception | The scan row is set to `failed` with the error recorded; the job retries up to `max_attempts` then goes `failed` | Inspect `GET /scan/{id}` and the worker log |
 | Scan target deleted while queued | The scan fails with a `TargetError` rather than reporting "succeeded, 0 findings" | Re-queue after the target is back |
 | Integration endpoint down | Delivery retried ≤3 times, then `last_status=failed` with the reason recorded | `POST /integrations/{id}/test` |
@@ -101,7 +122,7 @@ fails rather than your restore failing at 3 a.m.
 
 ## Data retention
 
-Nothing is deleted automatically. Retention is your decision:
+There is no automatic retention scheduler. Configure retention explicitly:
 
 ```sql
 -- Example: prune findings from scans older than a year.
@@ -109,9 +130,12 @@ DELETE FROM findings
  WHERE scan_id IN (SELECT id FROM scans WHERE created_at < now() - interval '365 days');
 ```
 
-**Do not** apply a retention policy to `audit_events`. The audit log is the
-record of who accepted which risk; pruning it defeats the purpose. If
-regulation requires it, archive to immutable storage instead of deleting.
+Audit history can be purged by an authorized admin through
+`POST /audit/retention/purge` for compliance retention. Preview it with
+`GET /audit/retention?retention_days=N` and export to immutable storage
+before deleting evidence. Purges never delete their own `audit.purged`
+records through the API, including for `N=0`; a database administrator
+can still change rows directly.
 
 Archiving a project (`DELETE /projects/{id}`) sets `archived_at` and never
 deletes history, for the same reason.

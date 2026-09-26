@@ -1,5 +1,10 @@
 # Benchmarks
 
+> **Historical measurements:** The numbers below were recorded on an earlier
+> revision/hardware. See [UPGRADE_VALIDATION_2026-09-25.md](UPGRADE_VALIDATION_2026-09-25.md)
+> for a measured run on the current upgrade; do not compare different machines
+> as a release performance guarantee.
+
 All numbers below were measured by running the scripts in `benchmarks/`
 on this repository's own CI hardware, not estimated. Re-run them yourself:
 
@@ -78,10 +83,10 @@ inside an average.
 
 ## Server-side throughput
 
-The API never blocks on a scan: `POST /scan` inserts a row and returns
-`202`. The worker claims jobs from the same table, so scaling is a matter
-of adding workers (`deploy/k8s/50-hpa.yaml` scales the worker Deployment
-independently of the API).
+By default, `POST /scan` queues a job and returns `202` without waiting
+for scanning. `wait: true` opts into an inline scan for small trees and does
+block until that scan finishes. The worker claims jobs from the same table;
+`deploy/k8s/50-hpa.yaml` scales the worker Deployment independently of the API.
 
 Measured API overhead per request is dominated by the database round trip,
 not by scanning. `ironclad_api_request_duration_seconds` and

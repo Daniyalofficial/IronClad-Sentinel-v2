@@ -1,12 +1,19 @@
 # Progress
 
-Honest state of the project, with the evidence for each number. Nothing here
-is a target or an aspiration — every row points at something you can run.
+> **Historical snapshot:** The test totals, completion percentages and
+> benchmark numbers below were recorded during an earlier iteration and are
+> not current release certification. For measurements on the upgraded
+> checkout, see [UPGRADE_VALIDATION_2026-09-25.md](UPGRADE_VALIDATION_2026-09-25.md).
+> Neither this page nor a green test suite proves 100% completeness.
 
-**How to verify this page yourself**
+This is an earlier progress snapshot. Its percentages and test totals are
+not an estimate of current completion; use the linked upgrade report for
+reproducible current observations and outstanding gaps.
+
+**How to re-run the checks (expect different counts)**
 
 ```bash
-pytest -q                                              # 452 tests
+pytest -q                                              # count depends on extras
 python benchmarks/corpus_metrics.py                    # detection accuracy
 python benchmarks/scale_benchmark.py --tiers 1000,10000,100000
 ironclad scan ironclad --fail-on high                  # self-scan, must be clean
@@ -42,7 +49,7 @@ bash demo/run_demo.sh                                  # end-to-end story
 | 21. Event processing | 0 | **90** | 15 typed contracts, validated at publish, persisted |
 | 22. Job execution | 0 | **92** | Durable queue, retries, backoff, stale-claim recovery |
 | 23. Observability | 30 | **92** | Structured logs, request/correlation ids, Prometheus metrics |
-| 24. Audit | 0 | **94** | Append-only, redacted, filterable, permission-gated |
+| 24. Audit | 0 | **94** | Credential-redacted, filterable, permission-gated; admin retention-purge exception |
 | 25. Deployment | 50 | **93** | Dockerfile, compose, 9 k8s manifests, non-root, read-only rootfs |
 | 26. Scalability | 40 | **90** | Measured to 100k files; linear throughput, flat memory |
 | 27. Reliability | 40 | **91** | Failure paths tested: crash, retry, cancel, missing target, dead feed |
@@ -61,7 +68,7 @@ Not 98%. The gap is itemised below rather than rounded away.
 
 ---
 
-## What is verified right now
+## What was measured in the earlier snapshot
 
 | Claim | Command | Result |
 |---|---|---|

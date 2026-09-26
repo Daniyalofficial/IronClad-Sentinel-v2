@@ -32,7 +32,7 @@ export IRONCLAD_SIGNING_KEY="$(openssl rand -hex 32)"   # >= 32 characters
 export IRONCLAD_SCAN_HOST_DIR=/srv/repos                 # repositories to scan
 docker compose up -d --build
 docker compose run --rm api migrate
-curl -fsS http://localhost:8000/ready
+# /ready returns 503 until the first organization is created below.
 ```
 
 `docker-compose.yml` runs three services:
@@ -58,7 +58,9 @@ docker compose exec api ironclad server init \
 ```
 
 The password policy is enforced here too (≥12 characters, ≥3 character
-classes).
+classes). After setup, `curl -fsS http://localhost:8000/ready` returns
+`{"ready":true,...}`. If it stays at 503, check that init, API and worker
+all use the **same** `IRONCLAD_DATABASE_URL` and `IRONCLAD_SCAN_ROOT`.
 
 ---
 
@@ -145,9 +147,12 @@ while the worker writes.
 
 ## Configuration reference
 
-Precedence, highest first: **CLI flags → `IRONCLAD_*` environment
-variables → project `.ironclad.yml` → `~/.ironclad/config.yml` → built-in
-defaults**.
+For a **local CLI scan**, precedence is **CLI flags → `IRONCLAD_*`
+environment variables → project `.ironclad.yml` →
+`~/.ironclad/config.yml` → built-in defaults**. API and worker scans ignore
+the scanned repository's `.ironclad.yml`: it is attacker-controlled input,
+not permission to change server engines, ignores or egress. Use trusted
+operator environment/global configuration or an authorized API policy there.
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -202,8 +207,11 @@ Scanner variables: `IRONCLAD_MIN_SEVERITY`, `IRONCLAD_OUTPUT_DIR`,
 
 ### Health
 
-* `/health` — liveness plus a `SELECT 1` database probe
-* `/ready` — readiness; returns `503` when the database is unreachable
+* `/health` — liveness (200); reports `degraded` if the database cannot be
+  queried or no organization has been initialized
+* `/ready` — readiness; returns `503` until the database is reachable **and**
+  an organization exists. Startup logs the resolved database location if no
+  organization is found; this catches mismatched working directories early.
 
 ### Logs
 
@@ -219,6 +227,24 @@ log.
 
 `/metrics` in Prometheus text format. Scrape it directly; there is no
 background thread and no client library.
+
+### Local account recovery (without SMTP)
+
+Run on a trusted host/container with access to the **same database URL** as
+the API. These operations are audited and require database access, not an
+unauthenticated HTTP endpoint. Passwords are prompted, never required in
+command-line arguments:
+
+```bash
+ironclad server unlock --org acme --email secops@acme-corp.com
+ironclad server reset-password --org acme --email secops@acme-corp.com
+```
+
+`unlock` preserves the password and active sessions; `reset-password` sets a
+new password and revokes all active sessions, API tokens and unused reset
+links for that account. A missing SQLite file is refused, not silently
+created. In a multi-replica install, in-memory login rate limits may need to
+expire before the new login works even after clearing the database lockout.
 
 ### Backup and restore
 

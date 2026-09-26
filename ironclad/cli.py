@@ -793,6 +793,42 @@ def server_init(database_url, org_name, org_slug, admin_email, admin_password, a
     sys.exit(ec.SUCCESS)
 
 
+@server_group.command("reset-password")
+@click.option("--database-url", default=None, help="Existing server database URL")
+@click.option("--org", "org_slug", required=True, help="Organization slug")
+@click.option("--email", required=True, help="Account email within that organization")
+def server_reset_password(database_url, org_slug, email):
+    """Locally reset an account when email delivery is unavailable."""
+    from ironclad.platform.ops import OperationsError, reset_password
+
+    # Prompt rather than offering a password flag: argv is visible to other
+    # local processes, shell history and process monitors.
+    new_password = click.prompt("New password", hide_input=True, confirmation_prompt=True)
+    try:
+        reset_password(database_url=database_url, org_slug=org_slug,
+                       email=email, new_password=new_password)
+    except OperationsError as exc:
+        _die(str(exc), ec.CONFIG_ERROR)
+    console.print(f"[green]\u2713[/] Password reset for {email} in {org_slug}; "
+                  "existing sessions, API tokens and reset links revoked")
+
+
+@server_group.command("unlock")
+@click.option("--database-url", default=None, help="Existing server database URL")
+@click.option("--org", "org_slug", required=True, help="Organization slug")
+@click.option("--email", required=True, help="Account email within that organization")
+@click.confirmation_option(prompt="Unlock this account without changing its password?")
+def server_unlock(database_url, org_slug, email):
+    """Clear account lockout locally without changing credentials."""
+    from ironclad.platform.ops import OperationsError, unlock
+
+    try:
+        unlock(database_url=database_url, org_slug=org_slug, email=email)
+    except OperationsError as exc:
+        _die(str(exc), ec.CONFIG_ERROR)
+    console.print(f"[green]\u2713[/] Lockout cleared for {email} in {org_slug}")
+
+
 @server_group.command("worker")
 @click.option("--database-url", default=None)
 @click.option("--poll-interval", default=0.5, type=float)

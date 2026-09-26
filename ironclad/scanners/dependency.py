@@ -36,6 +36,7 @@ from ironclad.core.models import CodeLocation, Engine, Finding, Severity
 from ironclad.core.walker import (
     DiscoveredFile,
     in_requirements_directory,
+    open_regular_file,
     read_text_safely,
 )
 from ironclad.scanners.advisories import AdvisorySource, BundledAdvisorySource
@@ -329,7 +330,7 @@ def _parse_poetry_lock(discovered: DiscoveredFile) -> ParseOutcome:
                                "poetry.lock parsing requires Python 3.11+ (tomllib)"))
         return outcome
     try:
-        with open(discovered.path, "rb") as fh:
+        with open_regular_file(discovered.path, "rb") as fh:
             data = tomllib.load(fh)
     except (OSError, ValueError) as exc:
         outcome.errors.append(("MALFORMED", 1, f"poetry.lock is malformed: {exc}"))
@@ -349,7 +350,7 @@ def _parse_pyproject(discovered: DiscoveredFile) -> ParseOutcome:
     except ModuleNotFoundError:  # pragma: no cover - Python 3.9/3.10
         return outcome
     try:
-        with open(discovered.path, "rb") as fh:
+        with open_regular_file(discovered.path, "rb") as fh:
             data = tomllib.load(fh)
     except (OSError, ValueError) as exc:
         outcome.errors.append(("MALFORMED", 1, f"pyproject.toml is malformed: {exc}"))
@@ -391,7 +392,7 @@ def _parse_pipfile(discovered: DiscoveredFile) -> ParseOutcome:
                                "Pipfile needs tomllib (Python 3.11+) to be parsed"))
         return outcome
     try:
-        with open(discovered.path, "rb") as fh:
+        with open_regular_file(discovered.path, "rb") as fh:
             data = tomllib.load(fh)
     except (OSError, ValueError) as exc:
         outcome.errors.append(("MALFORMED", 1, f"Pipfile is malformed: {exc}"))
@@ -633,7 +634,7 @@ def _parse_cargo_toml(discovered: DiscoveredFile) -> ParseOutcome:
     except ModuleNotFoundError:  # pragma: no cover - Python 3.9/3.10
         return outcome
     try:
-        with open(discovered.path, "rb") as fh:
+        with open_regular_file(discovered.path, "rb") as fh:
             data = tomllib.load(fh)
     except (OSError, ValueError) as exc:
         outcome.errors.append(("MALFORMED", 1, f"Cargo.toml is malformed: {exc}"))
@@ -656,7 +657,7 @@ def _parse_cargo_lock(discovered: DiscoveredFile) -> ParseOutcome:
     except ModuleNotFoundError:  # pragma: no cover - Python 3.9/3.10
         return outcome
     try:
-        with open(discovered.path, "rb") as fh:
+        with open_regular_file(discovered.path, "rb") as fh:
             data = tomllib.load(fh)
     except (OSError, ValueError) as exc:
         outcome.errors.append(("MALFORMED", 1, f"Cargo.lock is malformed: {exc}"))

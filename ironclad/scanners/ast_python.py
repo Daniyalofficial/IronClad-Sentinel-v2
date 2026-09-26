@@ -33,6 +33,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Set
 
 from ironclad.core.models import CodeLocation, Engine, Finding, Severity
+from ironclad.core.walker import open_regular_file
 
 UNTRUSTED_SOURCES = {
     # stdlib / framework sources of attacker-controlled data
@@ -573,7 +574,7 @@ class StructuralVisitor(ast.NodeVisitor):
 def scan_python_file(path: str, rel_path: str) -> List[Finding]:
     findings: List[Finding] = []
     try:
-        with open(path, "r", encoding="utf-8", errors="ignore") as fh:
+        with open_regular_file(path) as fh:
             source = fh.read()
     except OSError:
         return findings

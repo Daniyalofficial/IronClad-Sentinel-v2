@@ -34,7 +34,7 @@ from sqlalchemy import text
 from ironclad import __version__
 from ironclad.api import routes, schemas
 from ironclad.api.deps import cors_allowed_origins
-from ironclad.platform.database import build_engine, run_migrations, session_scope, session_factory, session_scope
+from ironclad.platform.database import build_engine, run_migrations, session_factory, session_scope
 from ironclad.platform.events import default_bus
 from ironclad.platform.jobs import JobQueue
 from ironclad.platform.mail import build_transport_from_env
@@ -189,26 +189,41 @@ def create_app(database_url: Optional[str] = None, *, run_migrations_on_start: b
     # ---- health / version / metrics -------------------------------------
     @app.get("/health", response_model=schemas.HealthOut, tags=["health"])
     def health() -> schemas.HealthOut:
-        checks: Dict[str, str] = {}
+        checks: Dict[str, str] = {"migrations": "ok"}
         try:
             with app.state.engine.connect() as connection:
                 connection.execute(text("SELECT 1"))
-            checks["database"] = "ok"
+                checks["database"] = "ok"
+                try:
+                    initialized = connection.execute(
+                        text("SELECT 1 FROM organizations LIMIT 1")).first() is not None
+                    checks["bootstrap"] = "ok" if initialized else "uninitialized"
+                except Exception as exc:  # noqa: BLE001 - schema may be missing
+                    checks["bootstrap"] = f"schema error: {type(exc).__name__}"
+                    checks["migrations"] = "unknown"
         except Exception as exc:  # noqa: BLE001 - reported, not raised
             checks["database"] = f"error: {type(exc).__name__}"
-        checks["migrations"] = "ok"
+            checks["migrations"] = "unknown"
         healthy = all(value == "ok" for value in checks.values())
         return schemas.HealthOut(status="ok" if healthy else "degraded", version=__version__, checks=checks)
 
     @app.get("/ready", tags=["health"])
     def ready() -> JSONResponse:
-        """Readiness: can this replica serve traffic right now?"""
+        """Readiness requires a reachable, bootstrapped database."""
         try:
             with app.state.engine.connect() as connection:
                 connection.execute(text("SELECT 1"))
+                initialized = connection.execute(
+                    text("SELECT 1 FROM organizations LIMIT 1")).first() is not None
         except Exception as exc:  # noqa: BLE001
             return JSONResponse({"ready": False, "reason": f"database: {type(exc).__name__}"},
                                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
+        if not initialized:
+            return JSONResponse(
+                {"ready": False, "reason": "no organizations; run ironclad server init "
+                 "against the same IRONCLAD_DATABASE_URL"},
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         return JSONResponse({"ready": True, "version": __version__})
 
     @app.get("/version", tags=["health"])
@@ -243,7 +258,22 @@ def create_app(database_url: Optional[str] = None, *, run_migrations_on_start: b
         mount_dashboard(app)
 
     @app.on_event("startup")
-    async def _startup() -> None:  # pragma: no cover - trivial
+    async def _startup() -> None:
+        db_url = app.state.engine.url
+        location = (os.path.abspath(db_url.database)
+                    if db_url.get_backend_name() == "sqlite" and db_url.database
+                    else db_url.render_as_string(hide_password=True))
+        try:
+            with app.state.engine.connect() as connection:
+                initialized = connection.execute(
+                    text("SELECT 1 FROM organizations LIMIT 1")).first() is not None
+            if not initialized:
+                logger.warning("database has no organizations; run ironclad server init",
+                               extra={"fields": {"database": location}})
+        except Exception as exc:  # noqa: BLE001 - readiness reports the unavailable schema
+            logger.warning("database bootstrap check failed",
+                           extra={"fields": {"database": location,
+                                             "error": type(exc).__name__}})
         logger.info("api started", extra={"fields": {"version": __version__,
                                                      "cors_origins": origins}})
 
