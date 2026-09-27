@@ -195,7 +195,8 @@ measurements.
 | [DISASTER_RECOVERY.md](docs/DISASTER_RECOVERY.md) | Backup, restore, failure modes, RTO/RPO |
 | [BENCHMARKS.md](docs/BENCHMARKS.md) | Measured scale and accuracy numbers |
 | [CONTRIBUTING.md](docs/CONTRIBUTING.md) | The rules for changing this codebase |
-| [PROGRESS.md](docs/PROGRESS.md) | Honest completion matrix — including what is **not** finished |
+| [PROGRESS.md](docs/PROGRESS.md) | Historical completion estimates — not a current percentage |
+| [PROJECT_STATUS_REPORT_2026-09-27.md](docs/PROJECT_STATUS_REPORT_2026-09-27.md) | All 35 historical area ratings, current evidence and remaining work |
 | [CHANGELOG.md](docs/CHANGELOG.md) | What changed, and the 15 bugs found and fixed |
 | [PRICING_AND_GTM.md](docs/PRICING_AND_GTM.md) | Positioning, tiering, pilot guide |
 

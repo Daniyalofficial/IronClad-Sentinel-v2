@@ -2,8 +2,9 @@
 
 > **Historical snapshot:** The test totals, completion percentages and
 > benchmark numbers below were recorded during an earlier iteration and are
-> not current release certification. For measurements on the upgraded
-> checkout, see [UPGRADE_VALIDATION_2026-09-26.md](UPGRADE_VALIDATION_2026-09-26.md).
+> not current release certification. For the 35-area historical-vs-current
+> comparison, see [PROJECT_STATUS_REPORT_2026-09-27.md](PROJECT_STATUS_REPORT_2026-09-27.md);
+> for measured upgrade results, see [UPGRADE_VALIDATION_2026-09-26.md](UPGRADE_VALIDATION_2026-09-26.md).
 > Neither this page nor a green test suite proves 100% completeness.
 
 This is an earlier progress snapshot. Its percentages and test totals are
