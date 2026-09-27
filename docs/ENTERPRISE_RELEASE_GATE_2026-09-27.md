@@ -10,7 +10,7 @@ historical estimates, not an overriding accuracy measurement.
 |---|---|---|---|
 | Deployment | Docker Compose + PostgreSQL running together | PostgreSQL migrations, concurrent operations, and direct HTTP requests to a PostgreSQL-backed server were exercised locally. The Compose image could not be built or booted here: `docker`, `podman`, and `nerdctl` are unavailable. Static Compose tests do not substitute for a running container. | **Unverified** |
 | Enterprise sign-in | Generic OIDC, preprovisioned local users | Optional HTTPS authorization-code + PKCE flow; signed ID token, browser-bound single-use state, issuer/audience/nonce checks and local tenant/role binding exercised against a protocol mock and in a concurrent PostgreSQL replay test. SSO-only users can issue limited-scope, one-time-display dashboard tokens with CSRF checks. No authorized customer's live IdP was available. No IdP back-channel logout, SCIM or push deprovisioning: operators can now deactivate accounts and revoke their sessions/API tokens through the API. | **Implemented locally; live IdP integration unverified** |
-| Independently benchmarked currently shipped scanners | Precision ≥95% and recall ≥90% | Full **26/26** independently labelled RealVuln human-authored Python repositories for shipped `ast-python` + `rule-engine`: **42.56% precision**, **11.81% recall** (see below). Other shipped scanners have not been independently measured against suitable third-party ground truth. | **FAIL** |
+| Independently benchmarked currently shipped scanners | Precision ≥95% and recall ≥90% | Full **26/26** independently labelled RealVuln human-authored Python repositories for shipped `ast-python` + `rule-engine`: **44.83% precision**, **12.94% recall** (see below). Other shipped scanners have not been independently measured against suitable third-party ground truth. | **FAIL** |
 | Offline advisory database freshness | Snapshot age ≤24 h **and** still at both upstream Git heads when promoted | Generated 2026-09-27T07:31:27Z from GitHub Advisory Database `5bb08251eb9a` and PyPA Advisory Database `bf401288956a`: **13,523 packages / 46,634 advisories**. The online checker passed at measurement time; it must be rerun and, if necessary, rebuilt immediately before any future release. | **Time-dependent; last checked PASS** |
 | Complete product readiness | Only claim completion with objective evidence for all in-scope gates | Accuracy fails by a large margin and Compose/runtime certification and other independent benchmarks remain open. | **BLOCKED** |
 
@@ -29,11 +29,18 @@ The original scorer's file + acceptable CWE + ±10-line matching was used.
 
 | Scoring view | TP | FP | FN | TN | Precision | Recall |
 |---|---:|---:|---:|---:|---:|---:|
-| Full Python-human benchmark | 83 | 112 | 620 | 119 | **42.56%** | **11.81%** |
-| Generous *declared-CWE-only* sensitivity analysis | 83 | 112 | 332 | — | **42.56%** | **20.00%** |
+| Full Python-human benchmark | 91 | 112 | 612 | 119 | **44.83%** | **12.94%** |
+| Generous *declared-CWE-only* sensitivity analysis | 91 | 112 | 324 | — | **44.83%** | **21.93%** |
 
 The declared-CWE view is derived from scanner source independently of which
 benchmark cases passed; it **does not replace** the full-corpus score.
+Before the narrowly scoped Python SQL/data-source fixes, the same full
+benchmark produced 83 TP, 112 FP, 620 FN (42.56% precision, 11.81% recall).
+The new code matched eight more independently labelled cases, including an
+injection that had been silently deduplicated because two distinct queries
+shared identical `execute(query)` snippets at different lines. The unchanged
+FP count and remaining 612 FN still fail both release thresholds by a wide
+margin.
 Unmatched findings are false positives *under the benchmark's published
 protocol*, not evidence that a human would always reject them. Likewise, an
 internal 24-file synthetic regression corpus that reports 1.00/1.00 cannot
@@ -84,10 +91,18 @@ partly circular because the bundled snapshot incorporates PyPA, and it does
   hostile requests. Readiness, auth, tenant isolation, a scan, traversal and
   oversized IDs, idempotency, cross-session dashboard CSRF, narrow-token
   authorization, revocation, logout, and local user deactivation all behaved
-  as asserted. This is **not** a Compose or real-IdP result.
+  as asserted. The later SQL fix was also verified through a new real-HTTP
+  scan: PostgreSQL stored the finding at the interpolated query, a bound
+  parameter produced no SQL injection finding, and a foreign tenant and
+  anonymous client could not read the findings. This is **not** a Compose or
+  real-IdP result.
+- New scanner tests first reproduced missing Flask JSON and GraphQL SQL
+  injections, a false alarm on bound SQL values, a shadowed SQLAlchemy name,
+  and deduplication of distinct queries. Deliberately disabling each fix
+  caused its new test to fail; the original code was then restored.
 - Complete suite with `.venv/bin` on `PATH` and a disposable live PostgreSQL
-  server kept alive throughout pytest (after advisory conflict diagnostics):
-  **1,528 passed, 441 warnings, 0 skipped**. A passing test suite
+  server kept alive throughout pytest (after scanner changes):
+  **1,536 passed, 439 warnings, 0 skipped**. A passing test suite
   demonstrates only the behaviors it tests, not release completion.
   `.github/workflows/` was not modified; a fuller example is at
   `deploy/ci/verify.yml` and must be installed by an authorized maintainer
@@ -98,11 +113,11 @@ partly circular because the bundled snapshot incorporates PyPA, and it does
   script's own 0.95 threshold checks a *project-written* corpus, not the
   failing independent RealVuln accuracy gate. The skipped optional PyPA
   probe was subsequently run with the pinned feed; its **103/105 result
-  failed** and its two contradictory ranges are detailed above. The required
-  branch commit
-  `fed547a` also received **3/3 successful** GitHub Actions jobs
-  ([run](https://github.com/Daniyalofficial/IronClad-Sentinel-v2/actions/runs/36306630795));
-  those jobs do not certify running Compose or independent scanner accuracy.
+  failed** and its two contradictory ranges are detailed above. The prior
+  pushed branch commit `796736c` received **3/3 successful** GitHub Actions
+  jobs ([run](https://github.com/Daniyalofficial/IronClad-Sentinel-v2/actions/runs/36307499126));
+  that run predates the SQL fixes documented here. Neither local nor remote
+  tests certify running Compose or independent scanner accuracy.
 
 The online freshness check is `python scripts/check_advisory_freshness.py`
 (no `--offline`). Refresh with `bash scripts/build_advisory_db.sh` if the age

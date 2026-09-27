@@ -59,14 +59,20 @@ CI hardware teaches people to ignore it.
 
 The full **26/26** pinned, human-authored Python subset of the independent
 RealVuln Benchmark v3.1.0 was scored using its published file/CWE/±10-line
-matching. With the shipped `ast-python` and `rule-engine` engines: **83 TP,
-112 FP, 620 FN, 119 TN; 42.56% precision and 11.81% recall**, versus the
-agreed ≥95% precision and ≥90% recall enterprise gates. Even a deliberately
-generous declared-CWE sensitivity analysis (83 TP, 112 FP, 332 FN) reaches
-only 42.56% precision and 20.00% recall. These are benchmark labels and
-matcher results, not a human adjudication of every alert. Other shipped
-scanners have not yet been independently measured; the internal corpus below
-does **not** supersede the failing independent measurement.
+matching. With the shipped `ast-python` and `rule-engine` engines: **91 TP,
+112 FP, 612 FN, 119 TN; 44.83% precision and 12.94% recall**, versus the
+agreed ≥95% precision and ≥90% recall enterprise gates. An earlier revision
+had 83 TP, 112 FP and 620 FN. Modelling Flask JSON and GraphQL resolver
+inputs, distinguishing SQLAlchemy `text()` from unrelated calls, excluding
+bound SQL values, and locating built queries at their interpolation site
+matched eight additional third-party labels **without reducing the raw FP
+count**. This is a bounded improvement, not a passing result. Even a
+deliberately generous declared-CWE sensitivity analysis (91 TP, 112 FP,
+324 FN) reaches only 44.83% precision and 21.93% recall. These are
+benchmark labels and matcher results, not a human adjudication of every
+alert. Other shipped scanners have not yet been independently measured; the
+internal corpus below does **not** supersede the failing independent
+measurement.
 
 See the pinned manifest, target revisions, methodology, per-repository
 results and caveats in

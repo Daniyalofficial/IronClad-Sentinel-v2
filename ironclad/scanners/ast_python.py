@@ -1,5 +1,5 @@
 """
-Deep Python AST security analyzer.
+Python AST security analyzer with bounded intra-function checks.
 
 Unlike a pure regex/text scanner, this engine actually parses Python
 source into an Abstract Syntax Tree and performs:
@@ -30,7 +30,7 @@ import ast
 import os
 import re
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set
+from typing import Dict, Iterable, List, Optional, Set
 
 from ironclad.core.models import CodeLocation, Engine, Finding, Severity
 from ironclad.core.walker import open_regular_file
@@ -40,6 +40,7 @@ UNTRUSTED_SOURCES = {
     "input", "sys.argv", "os.environ", "os.getenv",
     "request.args", "request.form", "request.data", "request.json",
     "request.values", "request.cookies", "request.headers",
+    "request.get_json", "flask.request.get_json",
     "flask.request.args", "flask.request.form",
 }
 
@@ -128,6 +129,66 @@ def _snippet(source_lines: List[str], lineno: int, end_lineno: Optional[int] = N
     return "\n".join(source_lines[start_idx:end_idx]).strip()[:500]
 
 
+def _sqlalchemy_text_imports(statements: Iterable[ast.stmt]) -> Set[str]:
+    """SQL text aliases imported in this scope, not in an unrelated function."""
+    names: Set[str] = set()
+    for node in statements:
+        if isinstance(node, ast.ImportFrom) and node.module == "sqlalchemy":
+            names.update(alias.asname or alias.name for alias in node.names if alias.name == "text")
+        elif isinstance(node, ast.Import):
+            names.update(f"{alias.asname or 'sqlalchemy'}.text" for alias in node.names
+                         if alias.name == "sqlalchemy")
+    return names
+
+
+def _scope_bindings(scope: ast.AST, *, include_imports: bool) -> Set[str]:
+    """Names rebound in a module/function (never descend into nested scopes)."""
+    args = getattr(scope, "args", None)
+    bindings = ({arg.arg for arg in [*args.posonlyargs, *args.args, *args.kwonlyargs]}
+                if args is not None else set())
+    if args is not None:
+        bindings.update(arg.arg for arg in (args.vararg, args.kwarg) if arg is not None)
+
+    class Collect(ast.NodeVisitor):
+        def visit_Name(self, node: ast.Name):
+            if isinstance(node.ctx, ast.Store):
+                bindings.add(node.id)
+
+        def visit_Import(self, node: ast.Import):
+            if include_imports:
+                bindings.update(a.asname or a.name.split(".")[0] for a in node.names)
+
+        def visit_ImportFrom(self, node: ast.ImportFrom):
+            if include_imports:
+                bindings.update(a.asname or a.name for a in node.names)
+
+        def visit_FunctionDef(self, node: ast.FunctionDef):
+            bindings.add(node.name)
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+        visit_ClassDef = visit_FunctionDef
+
+        def visit_Lambda(self, node: ast.Lambda):
+            pass  # a lambda's parameters and body are another scope
+
+        def visit_ExceptHandler(self, node: ast.ExceptHandler):
+            if node.name:
+                bindings.add(node.name)
+            self.generic_visit(node)
+
+    visitor = Collect()
+    for stmt in getattr(scope, "body", []):
+        visitor.visit(stmt)
+    return bindings
+
+
+def _dynamically_built_string(node: ast.AST) -> bool:
+    return isinstance(node, (ast.JoinedStr, ast.BinOp)) or (
+        isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "format"
+    )
+
+
 @dataclass
 class TaintedVar:
     name: str
@@ -137,22 +198,32 @@ class TaintedVar:
 class FunctionTaintVisitor(ast.NodeVisitor):
     """
     Intra-procedural taint tracker scoped to a single function body.
-    Deliberately simple (no inter-procedural, no alias analysis beyond
-    direct assignment chains) -- this keeps false-positive rates low
-    while still catching the overwhelming majority of real-world
-    injection bugs, which are typically single-function patterns.
+    Deliberately bounded: no inter-procedural flow and only simple assignment
+    propagation. It handles the modelled source/sink patterns, but its
+    independent-corpus recall is low; see docs/INDEPENDENT_SAST_RESULTS_2026-09-27.json.
     """
 
-    def __init__(self, filename: str, source_lines: List[str], findings: List[Finding]):
+    def __init__(self, filename: str, source_lines: List[str], findings: List[Finding],
+                 sql_text_names: Optional[Set[str]] = None):
         self.filename = filename
         self.source_lines = source_lines
         self.findings = findings
         self.tainted: Dict[str, str] = {}  # var name -> originating source description
+        self.sql_expression_sites: Dict[str, ast.AST] = {}
+        self.sql_text_names = sql_text_names or set()
 
     def _mark_param_tainted(self, func: ast.FunctionDef):
-        for arg in func.args.args:
+        args = [*func.args.posonlyargs, *func.args.args, *func.args.kwonlyargs]
+        for arg in args:
             if arg.arg in TAINT_PARAM_HINT_NAMES or "req" in arg.arg.lower():
                 self.tainted[arg.arg] = f"function parameter `{arg.arg}`"
+        # GraphQL resolvers receive public query/mutation arguments after
+        # (parent, info). The rest are not arbitrary internal helper params.
+        if func.name.startswith("resolve_") and len(args) >= 2 and args[1].arg == "info":
+            for arg in args[2:]:
+                self.tainted[arg.arg] = f"GraphQL resolver argument `{arg.arg}`"
+            if func.args.kwarg:
+                self.tainted[func.args.kwarg.arg] = "GraphQL resolver keyword arguments"
 
     def _is_tainted_expr(self, node: ast.AST) -> Optional[str]:
         if isinstance(node, ast.Name) and node.id in self.tainted:
@@ -163,12 +234,22 @@ class FunctionTaintVisitor(ast.NodeVisitor):
                 return f"call to `{name}`"
             if name in SANITIZER_CALL_NAMES:
                 return None
+            if isinstance(node.func, ast.Attribute) and node.func.attr in {"get", "getlist", "getone"}:
+                # request.args.get('id') and payload.get('id') inherit the
+                # source of the input mapping; an unrelated dict does not.
+                return self._is_tainted_expr(node.func.value)
         if isinstance(node, ast.Attribute):
             dotted = _dotted_name(node)
             if dotted in UNTRUSTED_SOURCES:
                 return f"access of `{dotted}`"
         if isinstance(node, ast.Subscript):
             return self._is_tainted_expr(node.value)
+        if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+            return next((source for element in node.elts
+                         if (source := self._is_tainted_expr(element))), None)
+        if isinstance(node, ast.Dict):
+            return next((source for value in node.values
+                         if (source := self._is_tainted_expr(value))), None)
         if isinstance(node, ast.BinOp):
             left = self._is_tainted_expr(node.left)
             right = self._is_tainted_expr(node.right)
@@ -195,6 +276,14 @@ class FunctionTaintVisitor(ast.NodeVisitor):
             for target in node.targets:
                 if isinstance(target, ast.Name):
                     self.tainted[target.id] = source
+                    # When a query is constructed earlier than its `.execute`,
+                    # point to the distinct interpolation site. Otherwise
+                    # identical `execute(query)` lines in different functions
+                    # collide in the report and in the baseline fingerprint.
+                    if _dynamically_built_string(node.value):
+                        self.sql_expression_sites[target.id] = node
+                    elif isinstance(node.value, ast.Name) and node.value.id in self.sql_expression_sites:
+                        self.sql_expression_sites[target.id] = self.sql_expression_sites[node.value.id]
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call):
@@ -204,8 +293,10 @@ class FunctionTaintVisitor(ast.NodeVisitor):
             self._check_shell_injection(node, name)
         elif name in DANGEROUS_EVAL_FUNCS:
             self._check_eval_injection(node, name)
-        elif name and any(node.func.attr == m for m in SQL_EXEC_METHODS if isinstance(node.func, ast.Attribute)):
+        elif name and isinstance(node.func, ast.Attribute) and node.func.attr in SQL_EXEC_METHODS:
             self._check_sql_injection(node)
+        elif name in self.sql_text_names:
+            self._check_sql_injection(node, require_taint=True)
         elif name in INSECURE_DESERIALIZE_FUNCS:
             self._flag_deserialize(node, name)
 
@@ -313,14 +404,20 @@ class FunctionTaintVisitor(ast.NodeVisitor):
             ),
         ))
 
-    def _check_sql_injection(self, node: ast.Call):
-        tainted_source = self._first_tainted_arg(node)
-        # String-building patterns (f-string, %, .format, +) passed straight to .execute()
-        first_arg = node.args[0] if node.args else None
-        looks_dynamic = isinstance(first_arg, (ast.JoinedStr, ast.BinOp)) or (
-            isinstance(first_arg, ast.Call) and isinstance(first_arg.func, ast.Attribute) and first_arg.func.attr == "format"
-        )
-        if tainted_source or looks_dynamic:
+    def _check_sql_injection(self, node: ast.Call, *, require_taint: bool = False):
+        # Only the SQL statement is interpolated. Values passed in later args
+        # (or `params=`) are bound by the DB driver and cannot change SQL
+        # syntax. SQLAlchemy text() needs a modelled input, unlike the older
+        # generic `.execute()` structural heuristic.
+        statement = node.args[0] if node.args else next(
+            (kw.value for kw in node.keywords if kw.arg in {"sql", "statement", "query", "text"}), None)
+        if statement is None:
+            return
+        tainted_source = self._is_tainted_expr(statement)
+        looks_dynamic = _dynamically_built_string(statement)
+        if tainted_source or (looks_dynamic and not require_taint):
+            location_node = (self.sql_expression_sites.get(statement.id, node)
+                             if isinstance(statement, ast.Name) else node)
             self.findings.append(Finding(
                 rule_id="PY-AST-SQL-INJECTION",
                 title="SQL Injection via dynamically built query",
@@ -343,9 +440,10 @@ class FunctionTaintVisitor(ast.NodeVisitor):
                 references=["https://cwe.mitre.org/data/definitions/89.html"],
                 location=CodeLocation(
                     file_path=self.filename,
-                    start_line=node.lineno,
-                    end_line=getattr(node, "end_lineno", node.lineno),
-                    snippet=_snippet(self.source_lines, node.lineno, getattr(node, "end_lineno", node.lineno)),
+                    start_line=location_node.lineno,
+                    end_line=getattr(location_node, "end_lineno", location_node.lineno),
+                    snippet=_snippet(self.source_lines, location_node.lineno,
+                                     getattr(location_node, "end_lineno", location_node.lineno)),
                 ),
             ))
 
@@ -591,9 +689,21 @@ def scan_python_file(path: str, rel_path: str) -> List[Finding]:
 
     # Run taint analysis scoped per function so untrusted-source markings
     # from one function don't bleed into an unrelated one.
+    global_sql_text = _sqlalchemy_text_imports(tree.body)
+    global_rebindings = _scope_bindings(tree, include_imports=False)
+    global_sql_text = {name for name in global_sql_text
+                       if name.partition(".")[0] not in global_rebindings}
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            visitor = FunctionTaintVisitor(rel_path, source_lines, findings)
+            local_sql_text = _sqlalchemy_text_imports(node.body)
+            local_rebindings = _scope_bindings(node, include_imports=False)
+            local_bindings = _scope_bindings(node, include_imports=True)
+            visible_sql_text = {
+                name for name in global_sql_text if name.partition(".")[0] not in local_bindings
+            } | {
+                name for name in local_sql_text if name.partition(".")[0] not in local_rebindings
+            }
+            visitor = FunctionTaintVisitor(rel_path, source_lines, findings, visible_sql_text)
             visitor._mark_param_tainted(node)
             for stmt in node.body:
                 visitor.visit(stmt)
@@ -601,7 +711,7 @@ def scan_python_file(path: str, rel_path: str) -> List[Finding]:
     # Also run a module-level pass (top-level scripts, not inside any function)
     module_level_stmts = [n for n in tree.body if not isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))]
     if module_level_stmts:
-        visitor = FunctionTaintVisitor(rel_path, source_lines, findings)
+        visitor = FunctionTaintVisitor(rel_path, source_lines, findings, global_sql_text)
         for stmt in module_level_stmts:
             visitor.visit(stmt)
 

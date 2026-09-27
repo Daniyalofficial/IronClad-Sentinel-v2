@@ -9,10 +9,10 @@
   ],
   "corpus": "human-authored Python repositories (SAST only)",
   "counts": {
-    "fn": 620,
+    "fn": 612,
     "fp": 112,
     "tn": 119,
-    "tp": 83
+    "tp": 91
   },
   "engines": [
     "ast-python",
@@ -26,9 +26,9 @@
   },
   "generous_declared_cwe_scope": {
     "counts": {
-      "fn": 332,
+      "fn": 324,
       "fp": 112,
-      "tp": 83
+      "tp": 91
     },
     "declared_cwes_generously_extracted": [
       "CWE-1333",
@@ -65,11 +65,11 @@
       "CWE-95",
       "CWE-98"
     ],
-    "precision": 0.4256,
-    "recall": 0.2
+    "precision": 0.4483,
+    "recall": 0.2193
   },
-  "precision": 0.4256,
-  "recall": 0.1181,
+  "precision": 0.4483,
+  "recall": 0.1294,
   "repos": [
     {
       "files_scanned": 32,
@@ -103,11 +103,10 @@
     },
     {
       "files_scanned": 91,
-      "findings": 24,
-      "fn": 36,
+      "findings": 25,
+      "fn": 35,
       "fp": 24,
       "missed_ids": [
-        "dvga-001",
         "dvga-002",
         "dvga-003",
         "dvga-004",
@@ -144,12 +143,12 @@
         "dvga-035",
         "dvga-036"
       ],
-      "precision": 0.0,
-      "recall": 0.0,
+      "precision": 0.04,
+      "recall": 0.0278,
       "slug": "realvuln-damn-vulnerable-graphql-application",
       "target_sha": "a961308c02d1fb462b192681c336b0739e432da7",
       "tn": 4,
-      "tp": 0,
+      "tp": 1,
       "unmatched_rules": [
         "JS-INNERHTML-XSS",
         "PY-AST-MUTABLE-DEFAULT-ARG",
@@ -308,14 +307,10 @@
     },
     {
       "files_scanned": 39,
-      "findings": 4,
-      "fn": 19,
+      "findings": 8,
+      "fn": 15,
       "fp": 1,
       "missed_ids": [
-        "dvblab-001",
-        "dvblab-002",
-        "dvblab-003",
-        "dvblab-004",
         "dvblab-005",
         "dvblab-006",
         "dvblab-007",
@@ -332,12 +327,12 @@
         "dvblab-021",
         "dvblab-022"
       ],
-      "precision": 0.75,
-      "recall": 0.1364,
+      "precision": 0.875,
+      "recall": 0.3182,
       "slug": "realvuln-dvblab",
       "target_sha": "25bdef1e32055bfb6366856acc5db829e61e3647",
       "tn": 4,
-      "tp": 3,
+      "tp": 7,
       "unmatched_rules": [
         "PY-AST-WEAK-HASH"
       ]
@@ -383,12 +378,11 @@
     },
     {
       "files_scanned": 46,
-      "findings": 0,
-      "fn": 32,
+      "findings": 1,
+      "fn": 31,
       "fp": 0,
       "missed_ids": [
         "extremely-vulnerable-flask-app-001",
-        "extremely-vulnerable-flask-app-002",
         "extremely-vulnerable-flask-app-003",
         "extremely-vulnerable-flask-app-004",
         "extremely-vulnerable-flask-app-005",
@@ -420,12 +414,12 @@
         "extremely-vulnerable-flask-app-fp-013",
         "extremely-vulnerable-flask-app-fp-014"
       ],
-      "precision": 0.0,
-      "recall": 0.0,
+      "precision": 1.0,
+      "recall": 0.0312,
       "slug": "realvuln-extremely-vulnerable-flask-app",
       "target_sha": "d5d8875559e21222bbbaadb7b9f0af592c6eb7fa",
       "tn": 4,
-      "tp": 0,
+      "tp": 1,
       "unmatched_rules": []
     },
     {
@@ -474,11 +468,10 @@
     },
     {
       "files_scanned": 7,
-      "findings": 0,
-      "fn": 9,
+      "findings": 1,
+      "fn": 8,
       "fp": 0,
       "missed_ids": [
-        "insecure-web-001",
         "insecure-web-002",
         "insecure-web-003",
         "insecure-web-004",
@@ -488,12 +481,12 @@
         "insecure-web-008",
         "insecure-web-009"
       ],
-      "precision": 0.0,
-      "recall": 0.0,
+      "precision": 1.0,
+      "recall": 0.1111,
       "slug": "realvuln-insecure-web",
       "target_sha": "5d1b791bb6c2d1397843f29ee6a0d5c9386dd667",
       "tn": 2,
-      "tp": 0,
+      "tp": 1,
       "unmatched_rules": []
     },
     {
@@ -763,11 +756,10 @@
     },
     {
       "files_scanned": 25,
-      "findings": 6,
-      "fn": 23,
+      "findings": 7,
+      "fn": 22,
       "fp": 3,
       "missed_ids": [
-        "threatbyte-001",
         "threatbyte-002",
         "threatbyte-003",
         "threatbyte-004",
@@ -791,12 +783,12 @@
         "threatbyte-fp-008",
         "threatbyte-fp-009"
       ],
-      "precision": 0.5,
-      "recall": 0.1154,
+      "precision": 0.5714,
+      "recall": 0.1538,
       "slug": "realvuln-threatbyte",
       "target_sha": "c4db46f72586c4ecb65859051ea037018dbf0e5e",
       "tn": 5,
-      "tp": 3,
+      "tp": 4,
       "unmatched_rules": [
         "PY-AST-OPEN-REDIRECT",
         "PY-AST-WEAK-HASH",
