@@ -791,3 +791,20 @@ def test_bundled_database_contains_no_version_less_advisories():
                     offenders.append(f"{eco}/{package}: {advisory.get('id')}")
                 assert spec, f"{eco}/{package} has an empty affected range"
     assert not offenders
+
+
+def test_advisory_import_records_build_time_for_release_freshness_gate(tmp_path):
+    """A release cannot prove snapshot age without a timestamp in its metadata."""
+    from datetime import datetime, timezone
+    from click.testing import CliRunner
+    from ironclad.cli import main
+
+    output = tmp_path / "advisories.json"
+    result = CliRunner().invoke(main, ["advisories", "import-osv", "--source", FIXTURES,
+                                       "--source-label", "github/advisory-database@" + "a" * 40,
+                                       "--output", str(output)])
+    assert result.exit_code == 0, result.output
+    metadata = json.loads(output.read_text(encoding="utf-8"))["_meta"]
+    built = datetime.fromisoformat(metadata["generated_at"].replace("Z", "+00:00"))
+    assert built.tzinfo is not None
+    assert abs((datetime.now(timezone.utc) - built).total_seconds()) <= 30

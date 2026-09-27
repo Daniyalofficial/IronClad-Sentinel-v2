@@ -14,6 +14,8 @@ enforced in exactly one place.
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import os
 from typing import Any, Dict, List, Optional
@@ -28,10 +30,11 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session as DbSession
 
 from ironclad import __version__
-from ironclad.api.deps import _authenticate, get_db
+from ironclad.api.deps import EntityId, _authenticate, get_db
 from ironclad.platform import audit
 from ironclad.platform.tenancy import get_for_org
 from ironclad.platform.models import (
+    ApiToken,
     Component,
     Finding,
     Integration,
@@ -44,10 +47,12 @@ from ironclad.platform.models import (
     User,
     utcnow,
 )
-from ironclad.platform.rbac import describe_roles
+from ironclad.platform.ratelimit import client_ip
+from ironclad.platform.rbac import TOKEN_MANAGE, USER_READ, describe_roles
 from ironclad.platform.scanning import dashboard_summary, finding_trend, latest_sbom, license_summary
 from ironclad.platform.security import (
     SESSION_TTL_SECONDS,
+    generate_api_token,
     generate_session_token,
     hash_token,
     lockout_decision,
@@ -80,12 +85,28 @@ def _require_web(request: Request, session: DbSession):
     return principal
 
 
-def _nav(active: str, org: Optional[Organization], principal) -> Dict[str, Any]:
+def _form_csrf(request: Request) -> str:
+    """Bind mutating dashboard forms to this unguessable session.
+
+    The HttpOnly session token is the HMAC key; a cross-site page can submit
+    a POST but cannot read the same-origin form or derive its hidden token.
+    """
+    token = request.cookies.get(COOKIE_NAME, "")
+    return hmac.new(token.encode("utf-8"), b"dashboard-forms-v1", hashlib.sha256).hexdigest()
+
+
+def _require_form_csrf(request: Request, provided: Optional[str]) -> None:
+    if not provided or not hmac.compare_digest(provided, _form_csrf(request)):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "invalid form token")
+
+
+def _nav(request: Request, active: str, org: Optional[Organization], principal) -> Dict[str, Any]:
     return {
         "active": active,
         "org": org,
         "user": {"email": principal.email, "role": principal.role} if principal else None,
         "version": __version__,
+        "csrf_token": _form_csrf(request) if principal else "",
         # Named "links", not "items": Jinja resolves nav.items to dict.items().
         "links": [
             ("Overview", "/", "overview"),
@@ -119,12 +140,22 @@ def _build_router() -> APIRouter:
     def login_page(request: Request, error: str = "", session: DbSession = Depends(get_db)):
         return templates.TemplateResponse(request, "login.html", {
             "request": request, "error": error, "version": __version__,
+            "oidc_enabled": request.app.state.oidc is not None,
+            "password_login_enabled": request.app.state.password_login_enabled,
         })
 
     @router.post("/login")
     def login_submit(request: Request, email: str = Form(...), password: str = Form(...),
                      session: DbSession = Depends(get_db)):
-        user = session.execute(select(User).where(User.email == email.strip().lower())).scalars().first()
+        if not request.app.state.password_login_enabled:
+            return RedirectResponse("/ui/login?error=sso_required", status_code=status.HTTP_303_SEE_OTHER)
+        normalized_email = email.strip().lower()
+        limiter = request.app.state.limiter
+        if not limiter.check_login(client_ip(request)).allowed:
+            return RedirectResponse("/ui/login?error=locked", status_code=status.HTTP_303_SEE_OTHER)
+        if not limiter.check_login_account(normalized_email).allowed:
+            return RedirectResponse("/ui/login?error=locked", status_code=status.HTTP_303_SEE_OTHER)
+        user = session.execute(select(User).where(User.email == normalized_email)).scalars().first()
         if user is None:
             return RedirectResponse("/ui/login?error=invalid", status_code=status.HTTP_303_SEE_OTHER)
         decision = lockout_decision(user.failed_logins,
@@ -133,6 +164,8 @@ def _build_router() -> APIRouter:
             return RedirectResponse("/ui/login?error=locked", status_code=status.HTTP_303_SEE_OTHER)
         if not verify_password(password, user.password_hash):
             user.failed_logins += 1
+            if user.failed_logins >= 5:
+                user.locked_until = utcnow() + _delta(900)
             audit.record(session, org_id=user.org_id, action="auth.login_failed", actor=user.email,
                          actor_id=user.id, metadata={"failures": user.failed_logins})
             session.commit()
@@ -144,6 +177,8 @@ def _build_router() -> APIRouter:
                                expires_at=utcnow() + _delta(SESSION_TTL_SECONDS),
                                user_agent=(request.headers.get("user-agent") or "")[:200]))
         user.failed_logins = 0
+        user.locked_until = None
+        limiter.reset_login_account(normalized_email)
         user.last_login_at = utcnow()
         audit.record(session, org_id=user.org_id, action="auth.login", actor=user.email,
                      actor_id=user.id, metadata={"via": "dashboard"})
@@ -155,13 +190,15 @@ def _build_router() -> APIRouter:
         return response
 
     @router.post("/logout")
-    def logout(request: Request, session: DbSession = Depends(get_db)):
+    def logout(request: Request, csrf_token: Optional[str] = Form(None),
+               session: DbSession = Depends(get_db)):
         token = request.cookies.get(COOKIE_NAME)
         if token:
             row = session.execute(
                 select(SessionRow).where(SessionRow.token_hash == hash_token(token))
             ).scalar_one_or_none()
             if row is not None:
+                _require_form_csrf(request, csrf_token)
                 row.revoked_at = utcnow()
                 audit.record(session, org_id=row.org_id, action="auth.logout", actor="dashboard")
                 session.commit()
@@ -185,7 +222,7 @@ def _build_router() -> APIRouter:
         from ironclad.platform.observability import registry
 
         return templates.TemplateResponse(request, "overview.html", {
-            "request": request, "nav": _nav("overview", org, principal),
+            "request": request, "nav": _nav(request, "overview", org, principal),
             "summary": summary, "trend": trend,
             "recent_scans": [_scan_view(s, projects.get(s.project_id)) for s in recent],
             "metrics": registry.snapshot(),
@@ -217,7 +254,7 @@ def _build_router() -> APIRouter:
             views.append({"project": project, "latest": latest, "open_findings": open_count,
                           "licenses": license_summary(session, principal.org_id, project.id)})
         return templates.TemplateResponse(request, "projects.html", {
-            "request": request, "nav": _nav("projects", org, principal), "views": views})
+            "request": request, "nav": _nav(request, "projects", org, principal), "views": views})
 
     @router.get("/projects/{project_id}", response_class=HTMLResponse)
     def project_detail(project_id: int, request: Request, session: DbSession = Depends(get_db)):
@@ -247,7 +284,7 @@ def _build_router() -> APIRouter:
                 .order_by(Component.name)
             ).scalars().all())
         return templates.TemplateResponse(request, "project.html", {
-            "request": request, "nav": _nav("projects", org, principal), "project": project,
+            "request": request, "nav": _nav(request, "projects", org, principal), "project": project,
             "scans": [_scan_view(s, project) for s in scans], "latest": latest,
             "findings": findings, "sbom": sbom, "components": components,
             "licenses": license_summary(session, principal.org_id, project.id),
@@ -278,7 +315,7 @@ def _build_router() -> APIRouter:
         projects = {p.id: p.name for p in session.execute(
             select(Project).where(Project.org_id == principal.org_id)).scalars().all()}
         return templates.TemplateResponse(request, "findings.html", {
-            "request": request, "nav": _nav("findings", org, principal), "findings": rows,
+            "request": request, "nav": _nav(request, "findings", org, principal), "findings": rows,
             "projects": projects, "severity_order": SEVERITY_ORDER,
             "filters": {"severity": severity, "rule": rule, "status": finding_status,
                         "project_id": project_id},
@@ -305,17 +342,18 @@ def _build_router() -> APIRouter:
         project = session.get(Project, finding.project_id)
         scan = session.get(Scan, finding.scan_id)
         return templates.TemplateResponse(request, "finding.html", {
-            "request": request, "nav": _nav("findings", org, principal), "finding": finding,
+            "request": request, "nav": _nav(request, "findings", org, principal), "finding": finding,
             "history": history, "project": project, "scan": scan,
             "extra": _safe_json(finding.extra),
             "can_manage": principal.can("finding.manage"),
+            "csrf_token": _form_csrf(request),
         })
 
     # -------------------------------------------------------------- policies
     @router.post("/findings/{finding_id}/triage")
     def triage_finding(finding_id: int, request: Request,
                        status: str = Form(...), reason: str = Form(""),
-                       session: DbSession = Depends(get_db)):
+                       csrf_token: str = Form(""), session: DbSession = Depends(get_db)):
         """Suppress, resolve or reopen a finding from the dashboard.
 
         Uses the same shared triage service as the JSON API, so the two entry
@@ -337,6 +375,7 @@ def _build_router() -> APIRouter:
         finding = get_for_org(session, Finding, principal.org_id, finding_id)
         if finding is None:
             return RedirectResponse("/ui/findings", status_code=status_mod.HTTP_303_SEE_OTHER)
+        _require_form_csrf(request, csrf_token)
 
         def _audit(action, target_type="", target_id="", metadata=None, request_id=""):
             audit.record(session, org_id=principal.org_id, action=action,
@@ -364,7 +403,7 @@ def _build_router() -> APIRouter:
             select(PolicyRow).where(PolicyRow.org_id == principal.org_id).order_by(PolicyRow.name)
         ).scalars().all())
         return templates.TemplateResponse(request, "policies.html", {
-            "request": request, "nav": _nav("policies", org, principal), "policies": rows,
+            "request": request, "nav": _nav(request, "policies", org, principal), "policies": rows,
             "documents": {row.id: _safe_json(row.document) for row in rows},
             "can_manage": principal.can("policy.manage"),
         })
@@ -378,7 +417,7 @@ def _build_router() -> APIRouter:
             select(Integration).where(Integration.org_id == principal.org_id).order_by(Integration.name)
         ).scalars().all())
         return templates.TemplateResponse(request, "integrations.html", {
-            "request": request, "nav": _nav("integrations", org, principal),
+            "request": request, "nav": _nav(request, "integrations", org, principal),
             "integrations": [{"row": r, "config": _safe_json(r.config)} for r in rows],
             "can_manage": principal.can("integration.manage"),
         })
@@ -392,7 +431,7 @@ def _build_router() -> APIRouter:
             raise HTTPException(status.HTTP_403_FORBIDDEN, "audit log requires the audit.read permission")
         rows = audit.list_for_org(session, principal.org_id, action=action or None, limit=200)
         return templates.TemplateResponse(request, "audit.html", {
-            "request": request, "nav": _nav("audit", org, principal),
+            "request": request, "nav": _nav(request, "audit", org, principal),
             "entries": [audit.to_dict(row) for row in rows], "action_filter": action,
         })
 
@@ -401,17 +440,80 @@ def _build_router() -> APIRouter:
     def settings_page(request: Request, session: DbSession = Depends(get_db)):
         principal = _require_web(request, session)
         org = session.get(Organization, principal.org_id)
-        users = list(session.execute(
-            select(User).where(User.org_id == principal.org_id).order_by(User.email)
-        ).scalars().all())
-        return templates.TemplateResponse(request, "settings.html", {
-            "request": request, "nav": _nav("settings", org, principal), "users": users,
-            "roles": describe_roles(),
-            "can_manage_users": principal.can("user.manage"),
+        users = (list(session.execute(select(User).where(
+            User.org_id == principal.org_id).order_by(User.email)).scalars().all())
+                 if principal.can(USER_READ) else [])
+        tokens = (list(session.execute(select(ApiToken).where(
+            ApiToken.org_id == principal.org_id,
+            ApiToken.user_id == principal.user_id).order_by(desc(ApiToken.id))
+            .limit(100)).scalars().all()) if principal.can(TOKEN_MANAGE) else [])
+        response = templates.TemplateResponse(request, "settings.html", {
+            "request": request, "nav": _nav(request, "settings", org, principal), "users": users,
+            "roles": describe_roles(), "can_read_users": principal.can(USER_READ),
+            "can_manage_tokens": principal.can(TOKEN_MANAGE), "tokens": tokens,
+            "csrf_token": _form_csrf(request),
             "scan_root": os.environ.get("IRONCLAD_SCAN_ROOT") or os.getcwd(),
             "database": str(request.app.state.engine.url).split("://", 1)[0],
             "advisory_source": os.environ.get("IRONCLAD_ADVISORY_SOURCE", "bundled"),
         })
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @router.post("/settings/tokens", response_class=HTMLResponse)
+    def create_dashboard_token(request: Request, name: str = Form(..., min_length=1, max_length=120),
+                               csrf_token: str = Form(...), session: DbSession = Depends(get_db)):
+        principal = _require_web(request, session)
+        if not principal.can(TOKEN_MANAGE):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "token management not permitted")
+        _require_form_csrf(request, csrf_token)
+        name = name.strip()
+        if not name:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "token name required")
+        decision = request.app.state.limiter.check_token_create(principal.user_id)
+        if not decision.allowed:
+            raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "too many tokens created")
+        # The dashboard issues only the narrowly scoped automation token.
+        # All other scope combinations still require the authenticated API.
+        scopes = "finding.read,scan.create,scan.read"
+        token, digest, prefix = generate_api_token(name)
+        row = ApiToken(org_id=principal.org_id, user_id=principal.user_id, name=name,
+                       token_hash=digest, token_prefix=prefix, scopes=scopes)
+        session.add(row)
+        session.flush()
+        audit.record(session, org_id=principal.org_id, action="token.created",
+                     actor=principal.email, actor_id=principal.user_id,
+                     target_type="api_token", target_id=str(row.id),
+                     metadata={"name": name, "scopes": scopes})
+        session.commit()
+        response = templates.TemplateResponse(request, "token_created.html", {
+            "request": request, "nav": _nav(request, "settings", session.get(Organization, principal.org_id),
+                                             principal),
+            "token": token, "name": name,
+        })
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
+        return response
+
+    @router.post("/settings/tokens/{token_id}/revoke")
+    def revoke_dashboard_token(token_id: EntityId, request: Request,
+                               csrf_token: str = Form(...),
+                               session: DbSession = Depends(get_db)):
+        principal = _require_web(request, session)
+        if not principal.can(TOKEN_MANAGE):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "token management not permitted")
+        _require_form_csrf(request, csrf_token)
+        row = session.execute(select(ApiToken).where(
+            ApiToken.id == token_id, ApiToken.org_id == principal.org_id,
+            ApiToken.user_id == principal.user_id)).scalar_one_or_none()
+        if row is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "token not found")
+        if row.revoked_at is None:
+            row.revoked_at = utcnow()
+            audit.record(session, org_id=principal.org_id, action="token.revoked",
+                         actor=principal.email, actor_id=principal.user_id,
+                         target_type="api_token", target_id=str(row.id))
+            session.commit()
+        return RedirectResponse("/ui/settings", status_code=status.HTTP_303_SEE_OTHER)
 
     return router
 

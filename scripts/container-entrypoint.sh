@@ -30,7 +30,7 @@ PY
         --host "${IRONCLAD_BIND_HOST:-0.0.0.0}" \
         --port "${IRONCLAD_PORT:-8000}" \
         --proxy-headers \
-        --forwarded-allow-ips "${IRONCLAD_FORWARDED_ALLOW_IPS:-*}" \
+        --forwarded-allow-ips "${IRONCLAD_FORWARDED_ALLOW_IPS:-127.0.0.1}" \
         --workers "${IRONCLAD_API_WORKERS:-1}"
     ;;
   worker)

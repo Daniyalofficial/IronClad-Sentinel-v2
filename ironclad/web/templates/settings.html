@@ -12,6 +12,7 @@
 </tbody></table>
 <p class="muted">Scan targets are confined to the scan root; requests outside it are rejected.</p>
 
+{% if can_read_users %}
 <h2>Users</h2>
 <table class="grid"><thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Active</th>
   <th>Last login</th></tr></thead><tbody>
@@ -20,6 +21,26 @@
   <td>{{ 'yes' if user.is_active else 'no' }}</td><td>{{ user.last_login_at or '-' }}</td>
 </tr>{% endfor %}
 </tbody></table>
+{% endif %}
+
+{% if can_manage_tokens %}
+<h2>API tokens</h2>
+<p class="muted">Create a scoped token for CI scanning. The secret is displayed once; store it securely.</p>
+<form method="post" action="/ui/settings/tokens" class="filters">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <label>Token name <input type="text" name="name" maxlength="120" required></label>
+  <button class="primary" type="submit">Create scoped token</button>
+</form>
+<table class="grid"><thead><tr><th>Name</th><th>Prefix</th><th>Scopes</th><th>Status</th><th>Action</th></tr></thead><tbody>
+{% for token in tokens %}
+  <tr><td>{{ token.name }}</td><td><code>{{ token.token_prefix }}…</code></td>
+  <td>{{ token.scopes }}</td><td>{{ 'revoked' if token.revoked_at else 'active' }}</td>
+  <td>{% if not token.revoked_at %}<form method="post" action="/ui/settings/tokens/{{ token.id }}/revoke">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit">Revoke</button></form>{% endif %}</td></tr>
+{% endfor %}
+</tbody></table>
+{% endif %}
 
 <h2>Roles and permissions</h2>
 <table class="grid"><thead><tr><th>Role</th><th>Permissions</th></tr></thead><tbody>

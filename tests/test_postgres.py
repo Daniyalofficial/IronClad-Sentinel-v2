@@ -1384,3 +1384,352 @@ def test_inline_request_cancelled_before_helper_starts_returns_cancelled_on_post
     finally:
         resume.set()
         app.state.engine.dispose()
+
+
+def test_failed_scan_with_pending_retry_can_be_cancelled_on_postgres(engine, tmp_path, monkeypatch):
+    """The API must cancel a retryable failure on a real PostgreSQL stack."""
+    from datetime import timedelta
+
+    from fastapi.testclient import TestClient
+
+    from ironclad.api.app import create_app
+    from ironclad.platform.models import Event, Finding, Job, Scan, utcnow
+    from ironclad.platform.scanning import bootstrap_organization
+
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / "app.py").write_text("value = 1\n", encoding="utf-8")
+    monkeypatch.setenv("IRONCLAD_SCAN_ROOT", str(target))
+    monkeypatch.setenv("IRONCLAD_SIGNING_KEY", "test-signing-key-that-is-long-enough-32ch")
+    monkeypatch.setenv("IRONCLAD_ADVISORY_SOURCE", "no-such-source")
+    with session_scope(engine) as session:
+        org, _ = bootstrap_organization(session, name="Retry Cancel PG", slug="retry-cancel-pg",
+                                        admin_email="retrycancel@pg.example.com",
+                                        password="Str0ng!Passw0rd-99")
+        org_id = org.id
+
+    app = create_app(PG_URL, include_web=False)
+    try:
+        with TestClient(app) as client:
+            login = client.post("/auth/login", json={
+                "email": "retrycancel@pg.example.com", "password": "Str0ng!Passw0rd-99",
+            })
+            assert login.status_code == 200, login.text
+            headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+            project = client.post("/projects", headers=headers, json={"name": "Retry Cancel"})
+            assert project.status_code == 201, project.text
+            queued = client.post("/scan", headers=headers, json={
+                "project_id": project.json()["id"], "target": ".", "wait": False,
+            })
+            assert queued.status_code == 202, queued.text
+            scan_id = queued.json()["id"]
+            with session_scope(engine) as worker:
+                assert app.state.queue.run_pending(worker, limit=1) == 1
+            with session_scope(engine) as observer:
+                assert observer.get(Scan, scan_id).status == "failed"
+                job = observer.execute(select(Job).where(Job.org_id == org_id)).scalar_one()
+                assert job.status == "queued" and job.attempts == 1
+
+            cancelled = client.post(f"/scan/{scan_id}/cancel", headers=headers)
+            assert cancelled.status_code == 200, cancelled.text
+            assert cancelled.json()["status"] == "cancelled"
+            monkeypatch.delenv("IRONCLAD_ADVISORY_SOURCE")
+            with session_scope(engine) as worker:
+                job = worker.execute(select(Job).where(Job.org_id == org_id)).scalar_one()
+                assert job.status == "cancelled"
+                job.scheduled_at = utcnow() - timedelta(hours=1)
+                worker.flush()
+                assert app.state.queue.run_pending(worker, limit=1) == 0
+            with session_scope(engine) as observer:
+                scan = observer.get(Scan, scan_id)
+                assert scan.status == "cancelled" and scan.error
+                assert observer.execute(select(Finding).where(Finding.scan_id == scan_id)).scalars().all() == []
+                events = observer.execute(select(Event.event_type).where(
+                    Event.org_id == org_id, Event.subject_id == str(scan_id))).scalars().all()
+                assert events.count("scan.failed") == 1
+                assert events.count("scan.cancelled") == 1
+                assert "scan.completed" not in events
+    finally:
+        app.state.engine.dispose()
+
+
+@pytest.mark.parametrize("retry_succeeds", [False, True])
+def test_cancel_failed_retry_racing_terminal_job_returns_conflict_on_postgres(
+    engine, tmp_path, monkeypatch, retry_succeeds,
+):
+    """A retry can exhaust or finish between finding it and cancelling it."""
+    from concurrent.futures import ThreadPoolExecutor
+    from datetime import timedelta
+    from threading import Event as ThreadEvent
+    from unittest.mock import patch
+
+    from fastapi.testclient import TestClient
+
+    from ironclad.api import routes
+    from ironclad.api.app import create_app
+    from ironclad.platform.models import Event, Job, Scan, utcnow
+    from ironclad.platform.scanning import bootstrap_organization
+
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / "app.py").write_text("value = 1\n", encoding="utf-8")
+    monkeypatch.setenv("IRONCLAD_SCAN_ROOT", str(target))
+    monkeypatch.setenv("IRONCLAD_SIGNING_KEY", "test-signing-key-that-is-long-enough-32ch")
+    monkeypatch.setenv("IRONCLAD_ADVISORY_SOURCE", "no-such-source")
+    suffix = "recovered" if retry_succeeds else "exhausted"
+    email = f"cancel-{suffix}@pg.example.com"
+    with session_scope(engine) as session:
+        org, _ = bootstrap_organization(session, name="Retry Race",
+                                        slug=f"retry-race-pg-{suffix}",
+                                        admin_email=email, password="Str0ng!Passw0rd-99")
+        org_id = org.id
+
+    app = create_app(PG_URL, include_web=False)
+    ready, resume = ThreadEvent(), ThreadEvent()
+    original_update = routes.update
+
+    def pause_after_retry_lookup(model):
+        if model is Scan:
+            ready.set()  # cancellation already saw a failed scan and a queued retry
+            if not resume.wait(timeout=15):
+                raise TimeoutError("retry did not release the cancellation")
+        return original_update(model)
+
+    try:
+        with TestClient(app) as client:
+            login = client.post("/auth/login", json={
+                "email": email, "password": "Str0ng!Passw0rd-99",
+            })
+            assert login.status_code == 200, login.text
+            headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+            project = client.post("/projects", headers=headers, json={"name": "Retry Race"})
+            assert project.status_code == 201, project.text
+            created = client.post("/scan", headers=headers, json={
+                "project_id": project.json()["id"], "target": ".", "wait": False,
+            })
+            assert created.status_code == 202, created.text
+            scan_id = created.json()["id"]
+            with session_scope(engine) as session:
+                job = session.execute(select(Job).where(Job.org_id == org_id)).scalar_one()
+                job.max_attempts = 2
+            with session_scope(engine) as session:
+                assert app.state.queue.run_pending(session, limit=1) == 1
+            with session_scope(engine) as session:
+                assert session.get(Scan, scan_id).status == "failed"
+                job = session.execute(select(Job).where(Job.org_id == org_id)).scalar_one()
+                assert job.status == "queued"
+                job.scheduled_at = utcnow() - timedelta(hours=1)
+
+            with patch("ironclad.api.routes.update", side_effect=pause_after_retry_lookup):
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    future = pool.submit(client.post, f"/scan/{scan_id}/cancel", headers=headers)
+                    try:
+                        assert ready.wait(timeout=15), "cancel did not see the queued retry"
+                        if retry_succeeds:
+                            monkeypatch.delenv("IRONCLAD_ADVISORY_SOURCE")
+                        with session_scope(engine) as worker:
+                            assert app.state.queue.run_pending(worker, limit=1) == 1
+                    finally:
+                        resume.set()
+                    response = future.result(timeout=30)
+            assert response.status_code == 409, response.text
+
+        with session_scope(engine) as session:
+            final_status = "succeeded" if retry_succeeds else "failed"
+            assert session.get(Scan, scan_id).status == final_status
+            job = session.execute(select(Job).where(Job.org_id == org_id)).scalar_one()
+            assert job.status == final_status and job.attempts == 2
+            events = session.execute(select(Event.event_type).where(
+                Event.org_id == org_id, Event.subject_id == str(scan_id))).scalars().all()
+            assert "scan.cancelled" not in events
+    finally:
+        resume.set()
+        app.state.engine.dispose()
+
+
+def test_oidc_state_is_single_use_across_postgres_api_replicas(engine, monkeypatch):
+    """Only one of two concurrently redeeming API replicas can issue a session."""
+    import base64
+    import hashlib
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+    from urllib.parse import parse_qs, urlsplit
+
+    import httpx
+    import jwt
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from fastapi.testclient import TestClient
+
+    from ironclad.api.app import create_app
+    from ironclad.api.oidc import STATE_COOKIE
+    from ironclad.platform.models import OidcIdentity, OidcState, Session as SessionRow
+    from ironclad.platform.scanning import bootstrap_organization
+
+    issuer = "https://idp.example.com/acme"
+    callback = "https://app.example.com/auth/oidc/callback"
+    email = "owner@oidc-pg.example.com"
+    client_id = "ironclad-pg-test"
+    for key, value in {
+        "IRONCLAD_OIDC_ISSUER": issuer,
+        "IRONCLAD_OIDC_CLIENT_ID": client_id,
+        "IRONCLAD_OIDC_CLIENT_SECRET": "private-pg-secret",
+        "IRONCLAD_OIDC_REDIRECT_URI": callback,
+        "IRONCLAD_OIDC_ORG_SLUG": "oidc-pg-test",
+        "IRONCLAD_SIGNING_KEY": "test-signing-key-that-is-long-enough-32ch",
+    }.items():
+        monkeypatch.setenv(key, value)
+    with session_scope(engine) as session:
+        org, user = bootstrap_organization(session, name="OIDC PostgreSQL", slug="oidc-pg-test",
+                                           admin_email=email, password="Str0ng!Passw0rd-99")
+        org_id, user_id = org.id, user.id
+
+    def b64u(raw):
+        return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+    private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    numbers = private.public_key().public_numbers()
+    jwk = {"kty": "RSA", "kid": "pg-key", "alg": "RS256", "use": "sig",
+           "n": b64u(numbers.n.to_bytes((numbers.n.bit_length() + 7) // 8, "big")),
+           "e": b64u(numbers.e.to_bytes((numbers.e.bit_length() + 7) // 8, "big"))}
+    nonce_holder = {}
+
+    def idp(request):
+        if request.url.path.endswith("/.well-known/openid-configuration"):
+            return httpx.Response(200, json={
+                "issuer": issuer, "authorization_endpoint": issuer + "/authorize",
+                "token_endpoint": issuer + "/token", "jwks_uri": issuer + "/jwks",
+            })
+        if request.url.path.endswith("/jwks"):
+            return httpx.Response(200, json={"keys": [jwk]})
+        if request.url.path.endswith("/token"):
+            params = parse_qs(request.content.decode())
+            assert params["code_verifier"] == [nonce_holder["verifier"]]
+            claims = {"iss": issuer, "sub": "oidc-pg-subject", "aud": client_id,
+                      "iat": int(time.time()), "exp": int(time.time()) + 120,
+                      "nonce": nonce_holder["nonce"], "email": email,
+                      "email_verified": True}
+            return httpx.Response(200, json={
+                "id_token": jwt.encode(claims, private, algorithm="RS256", headers={"kid": "pg-key"}),
+            })
+        raise AssertionError(f"unexpected IdP request {request.url}")
+
+    apps = [create_app(PG_URL) for _ in range(3)]
+    for app in apps:
+        app.state.oidc.transport = httpx.MockTransport(idp)
+    try:
+        with TestClient(apps[0], base_url="https://app.example.com", follow_redirects=False) as starter:
+            start = starter.get("/auth/oidc/start")
+            assert start.status_code == 302, start.text
+            state = parse_qs(urlsplit(start.headers["location"]).query)["state"][0]
+        with session_scope(engine) as session:
+            flow = session.execute(select(OidcState).where(OidcState.org_id == org_id)).scalar_one()
+            assert flow.state_hash == hashlib.sha256(state.encode()).hexdigest()
+            nonce_holder.update(nonce=flow.nonce, verifier=flow.code_verifier)
+
+        def redeem(app):
+            with TestClient(app, base_url="https://app.example.com",
+                            follow_redirects=False) as browser:
+                browser.cookies.set(STATE_COOKIE, state, domain="app.example.com", path="/")
+                result = browser.get("/auth/oidc/callback", params={
+                    "state": state, "code": "valid-code",
+                })
+                return result.status_code, browser.get("/ui/").status_code
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            outcomes = list(pool.map(redeem, apps[1:]))
+        assert sorted(code for code, _ in outcomes) == [303, 400]
+        assert sorted(code for _, code in outcomes) == [200, 307]
+        with session_scope(engine) as session:
+            assert session.execute(select(OidcState)).scalars().all() == []
+            identities = session.execute(select(OidcIdentity).where(
+                OidcIdentity.org_id == org_id)).scalars().all()
+            assert len(identities) == 1 and identities[0].user_id == user_id
+            issued = session.execute(select(SessionRow).where(SessionRow.org_id == org_id)).scalars().all()
+            assert len(issued) == 1 and issued[0].user_id == user_id
+    finally:
+        for app in apps:
+            app.state.engine.dispose()
+
+
+def test_concurrent_owner_removal_and_user_revocation_on_postgres(engine, monkeypatch):
+    """Two owner removals on separate API requests leave exactly one owner."""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    from fastapi.testclient import TestClient
+
+    from ironclad.api.app import create_app
+    from ironclad.api import routes
+    from ironclad.platform.models import ApiToken, User
+    from ironclad.platform.scanning import bootstrap_organization
+    from ironclad.platform.security import hash_password
+
+    password = "Postgres-Owner-Race-Pass-99!"
+    with session_scope(engine) as session:
+        org, first = bootstrap_organization(
+            session, name="Race Owners", slug="owner-race-pg-test",
+            admin_email="first@owner-race.example.com", password=password)
+        second = User(org_id=org.id, email="second@owner-race.example.com",
+                      password_hash=hash_password(password), role="owner")
+        member = User(org_id=org.id, email="member@owner-race.example.com",
+                      password_hash=hash_password(password), role="developer")
+        session.add_all([second, member])
+        session.flush()
+        org_id, first_id, second_id, member_id = org.id, first.id, second.id, member.id
+
+    monkeypatch.delenv("IRONCLAD_DISABLE_PASSWORD_LOGIN", raising=False)
+    app = create_app(PG_URL)
+    try:
+        def login(email):
+            with TestClient(app) as client:
+                response = client.post("/auth/login", json={"email": email, "password": password})
+                assert response.status_code == 200, response.text
+                return {"Authorization": "Bearer " + response.json()["access_token"]}
+
+        first_header = login("first@owner-race.example.com")
+        second_header = login("second@owner-race.example.com")
+        member_header = login("member@owner-race.example.com")
+        with TestClient(app) as client:
+            key_response = client.post("/auth/tokens", headers=member_header, json={
+                "name": "member-ci", "scopes": ["scan.read"]})
+            assert key_response.status_code == 201, key_response.text
+            member_key = {"Authorization": "Bearer " + key_response.json()["token"]}
+
+        original_guard = routes._require_another_active_owner
+        reached_guard = threading.Barrier(2)
+
+        def both_read_before_lock(session, organization_id, user_id):
+            reached_guard.wait(timeout=20)
+            return original_guard(session, organization_id, user_id)
+
+        monkeypatch.setattr(routes, "_require_another_active_owner", both_read_before_lock)
+
+        def disable(headers, target):
+            with TestClient(app) as client:
+                return client.patch(f"/users/{target}/active", headers=headers,
+                                    json={"is_active": False}).status_code
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            a = pool.submit(disable, first_header, second_id)
+            b = pool.submit(disable, second_header, first_id)
+            results = sorted([a.result(timeout=30), b.result(timeout=30)])
+        assert results == [200, 409], results
+        monkeypatch.setattr(routes, "_require_another_active_owner", original_guard)
+
+        with session_scope(engine) as session:
+            remaining = session.execute(select(User).where(
+                User.org_id == org_id, User.role == "owner", User.is_active.is_(True)
+            )).scalars().all()
+            assert len(remaining) == 1
+            surviving_headers = first_header if remaining[0].id == first_id else second_header
+        with TestClient(app) as client:
+            disabled = client.patch(f"/users/{member_id}/active", headers=surviving_headers,
+                                    json={"is_active": False})
+            assert disabled.status_code == 200, disabled.text
+            assert client.get("/auth/me", headers=member_header).status_code == 401
+            assert client.get("/scans", headers=member_key).status_code == 401
+        with session_scope(engine) as session:
+            assert session.execute(select(ApiToken).where(
+                ApiToken.user_id == member_id)).scalar_one().revoked_at is not None
+    finally:
+        app.state.engine.dispose()

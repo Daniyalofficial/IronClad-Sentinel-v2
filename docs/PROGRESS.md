@@ -5,7 +5,10 @@
 > not current release certification. For the 35-area historical-vs-current
 > comparison, see [PROJECT_STATUS_REPORT_2026-09-27.md](PROJECT_STATUS_REPORT_2026-09-27.md);
 > for measured upgrade results, see [UPGRADE_VALIDATION_2026-09-26.md](UPGRADE_VALIDATION_2026-09-26.md).
-> Neither this page nor a green test suite proves 100% completeness.
+> Neither this page nor a green test suite proves 100% completeness. The
+> [current enterprise release gate](ENTERPRISE_RELEASE_GATE_2026-09-27.md)
+> explicitly **fails** the independently measured scanner precision/recall
+> requirements; historical OIDC limitations below describe the older build.
 
 This is an earlier progress snapshot. Its percentages and test totals are
 not an estimate of current completion; use the linked upgrade report for

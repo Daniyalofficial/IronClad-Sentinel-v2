@@ -117,8 +117,8 @@ stall a scan. Mitigation: `--fail-on` runs are time-boxed in CI; the
 | XSS | Server-side Jinja2 autoescaping; CSP with `script-src 'self'` |
 | Clickjacking | `X-Frame-Options: DENY` + `frame-ancestors 'none'` |
 | MIME sniffing | `X-Content-Type-Options: nosniff` |
-| CSRF | `SameSite=Lax` cookie; mutating actions require a bearer token against the JSON API |
-| Session theft via XSS | `HttpOnly` cookie; `Secure` available via `IRONCLAD_COOKIE_SECURE=1` |
+| CSRF | Every mutating dashboard form verifies a session-derived HMAC field; OIDC additionally validates browser-bound one-use state; `SameSite=Lax` is defense in depth |
+| Session theft via XSS | `HttpOnly` cookie; `Secure` required for local password sign-in behind TLS (`IRONCLAD_COOKIE_SECURE=1`), always set on OIDC cookies |
 
 ### E10. Audit log
 

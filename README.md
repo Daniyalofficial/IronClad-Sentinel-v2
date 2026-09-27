@@ -196,7 +196,8 @@ measurements.
 | [BENCHMARKS.md](docs/BENCHMARKS.md) | Measured scale and accuracy numbers |
 | [CONTRIBUTING.md](docs/CONTRIBUTING.md) | The rules for changing this codebase |
 | [PROGRESS.md](docs/PROGRESS.md) | Historical completion estimates — not a current percentage |
-| [PROJECT_STATUS_REPORT_2026-09-27.md](docs/PROJECT_STATUS_REPORT_2026-09-27.md) | All 35 historical area ratings, current evidence and remaining work |
+| [PROJECT_STATUS_REPORT_2026-09-27.md](docs/PROJECT_STATUS_REPORT_2026-09-27.md) | All 35 historical area ratings, earlier evidence and remaining work |
+| [ENTERPRISE_RELEASE_GATE_2026-09-27.md](docs/ENTERPRISE_RELEASE_GATE_2026-09-27.md) | Current enterprise acceptance gates, independently measured scanner accuracy and blockers |
 | [CHANGELOG.md](docs/CHANGELOG.md) | What changed, and the 15 bugs found and fixed |
 | [PRICING_AND_GTM.md](docs/PRICING_AND_GTM.md) | Positioning, tiering, pilot guide |
 
@@ -216,15 +217,21 @@ than one that under-delivers — the full list is in
 * Taint analysis is **intra-procedural**; flows crossing a function
   boundary are missed.
 * Deep analysis is **Python-only**. Other languages are regex rules.
-* The bundled advisory database is a **snapshot** of
-  `github/advisory-database` (13,095 packages / 44,499 advisories across 8
-  ecosystems), regenerated at release time by `scripts/build_advisory_db.sh`.
-  It is not a live feed — refresh it, or point `advisory_path` at your own
-  overlay.
-* **No OIDC/OAuth2.** Local auth and API tokens only.
-* PostgreSQL is supported and tested against a live server, but the default
-  suite proves **SQLite**.
-* The dashboard is read-only; triage happens through the API.
+* The bundled advisory database is a **snapshot** (13,523 packages / 46,634
+  advisories when generated on 2026-09-27), not a live feed. Refresh it from
+  both upstreams and run the online freshness checker **at release time**;
+  alternatively supply an advisory overlay.
+* Optional single-provider **OIDC login** is available for preprovisioned
+  users, including SSO-only users. It does **not** implement back-channel
+  logout or instantaneous IdP deprovisioning propagation. See the deployment
+  guide for TLS and allowed-provider configuration.
+* PostgreSQL is supported and exercised in optional live-server tests, but
+  requires a usable PostgreSQL server (and Docker Compose requires Docker).
+* The dashboard supports finding triage and scoped API-token management;
+  organization/project administration still primarily uses the JSON API.
+* The independently labelled RealVuln Python SAST measurement **does not**
+  meet the proposed enterprise precision/recall gates; see the release gate
+  report. Internal tests and feed-derived probes cannot override this.
 
 No telemetry, no analytics, no auto-update, no live feed at scan time. If a
 feature request would require any of those, it does not belong in this

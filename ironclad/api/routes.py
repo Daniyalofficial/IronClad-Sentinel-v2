@@ -49,6 +49,7 @@ from ironclad.platform.models import (
     Integration,
     Job,
     Organization,
+    PasswordResetToken,
     Policy as PolicyRow,
     Project,
     Scan,
@@ -178,6 +179,8 @@ def _require_project(session: DbSession, org_id: int, project_id: int) -> Projec
 # --------------------------------------------------------------------------- #
 @auth_router.post("/login", response_model=schemas.TokenResponse)
 def login(body: schemas.LoginRequest, request: Request, session: DbSession = Depends(get_db)):
+    if not request.app.state.password_login_enabled:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "password sign-in disabled; use OIDC")
     limiter = request.app.state.limiter
     ip_decision = limiter.check_login(client_ip(request))
     if not ip_decision.allowed:
@@ -325,6 +328,8 @@ def request_password_reset(body: schemas.PasswordResetRequestIn, request: Reques
     address exists, and the unknown-address path burns comparable time, so
     this endpoint cannot be used to enumerate accounts.
     """
+    if not request.app.state.password_login_enabled:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "password sign-in disabled; use OIDC")
     limiter = request.app.state.limiter
     ip = client_ip(request)
     decision = limiter.check_password_reset_request(ip)
@@ -347,6 +352,8 @@ def confirm_password_reset(body: schemas.PasswordResetConfirmIn, request: Reques
     Returning 200 with ok=false rather than a 4xx keeps every failure mode --
     unknown, expired, reused -- indistinguishable to a caller probing tokens.
     """
+    if not request.app.state.password_login_enabled:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "password sign-in disabled; use OIDC")
     limiter = request.app.state.limiter
     ip = client_ip(request)
     decision = limiter.check_password_reset_redeem(ip)
@@ -518,6 +525,17 @@ def create_user(body: schemas.UserCreate, context: RequestContext = Depends(admi
                            last_login_at=None)
 
 
+def _require_another_active_owner(session: DbSession, org_id: int, user_id: int) -> None:
+    """Serialize owner removal on PostgreSQL so two concurrent removals cannot pass."""
+    session.execute(select(Organization.id).where(
+        Organization.id == org_id).with_for_update()).one()
+    another = session.execute(select(User.id).where(
+        User.org_id == org_id, User.role == "owner", User.is_active.is_(True),
+        User.id != user_id).limit(1)).first()
+    if another is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "cannot remove the last active owner")
+
+
 @users_router.patch("/{user_id}/role", response_model=schemas.UserOut)
 def change_role(user_id: EntityId, body: schemas.RoleUpdate,
                 context: RequestContext = Depends(admin_required),
@@ -530,6 +548,11 @@ def change_role(user_id: EntityId, body: schemas.RoleUpdate,
         raise HTTPException(status.HTTP_403_FORBIDDEN, "only an owner can grant the owner role")
     if user.id == context.principal.user_id and not role_at_least(body.role, "admin"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "you cannot demote yourself below admin")
+    if user.role == "owner" and body.role != "owner":
+        if context.principal.role != "owner":
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "only an owner can change an owner account")
+        if user.is_active:
+            _require_another_active_owner(session, context.org_id, user.id)
     previous = user.role
     user.role = body.role
     context.audit("user.role_changed", target_type="user", target_id=str(user.id),
@@ -537,6 +560,49 @@ def change_role(user_id: EntityId, body: schemas.RoleUpdate,
     session.commit()
     return schemas.UserOut(id=user.id, email=user.email, full_name=user.full_name, role=user.role,
                            is_active=bool(user.is_active), org_id=user.org_id,
+                           created_at=_iso(user.created_at), last_login_at=_iso(user.last_login_at))
+
+
+@users_router.patch("/{user_id}/active", response_model=schemas.UserOut)
+def set_user_active(user_id: EntityId, body: schemas.UserStatusUpdate,
+                    context: RequestContext = Depends(admin_required),
+                    session: DbSession = Depends(get_db)):
+    """Deprovision locally: revoke sessions, API tokens and reset links at once.
+
+    An external IdP has no back-channel control over our local sessions.
+    This authenticated operator route closes that gap without permitting an
+    admin to disable the last owner or an actor to lock themselves out.
+    """
+    user = get_for_org(session, User, context.org_id, user_id)
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "user not found")
+    if user.role == "owner" and context.principal.role != "owner":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "only an owner can change an owner account")
+    if user.is_active == body.is_active:
+        return schemas.UserOut(id=user.id, email=user.email, full_name=user.full_name,
+                               role=user.role, is_active=bool(user.is_active), org_id=user.org_id,
+                               created_at=_iso(user.created_at), last_login_at=_iso(user.last_login_at))
+    if not body.is_active:
+        if user.id == context.principal.user_id:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "you cannot deactivate your own account")
+        if user.role == "owner":
+            _require_another_active_owner(session, context.org_id, user.id)
+        now = utcnow()
+        session.execute(update(SessionRow).where(
+            SessionRow.org_id == context.org_id, SessionRow.user_id == user.id,
+            SessionRow.revoked_at.is_(None)).values(revoked_at=now))
+        session.execute(update(ApiToken).where(
+            ApiToken.org_id == context.org_id, ApiToken.user_id == user.id,
+            ApiToken.revoked_at.is_(None)).values(revoked_at=now))
+        session.execute(update(PasswordResetToken).where(
+            PasswordResetToken.org_id == context.org_id, PasswordResetToken.user_id == user.id,
+            PasswordResetToken.used_at.is_(None)).values(used_at=now))
+    user.is_active = body.is_active
+    context.audit("user.reactivated" if body.is_active else "user.deactivated",
+                  target_type="user", target_id=str(user.id))
+    session.commit()
+    return schemas.UserOut(id=user.id, email=user.email, full_name=user.full_name,
+                           role=user.role, is_active=bool(user.is_active), org_id=user.org_id,
                            created_at=_iso(user.created_at), last_login_at=_iso(user.last_login_at))
 
 
@@ -740,30 +806,53 @@ def cancel_scan(scan_id: EntityId, request: Request, context: RequestContext = D
     scan = get_for_org(session, Scan, context.org_id, scan_id)
     if scan is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "scan not found")
-    if scan.status in ("succeeded", "failed", "cancelled"):
+    if scan.status in ("succeeded", "cancelled"):
         raise HTTPException(status.HTTP_409_CONFLICT, f"scan already {scan.status}")
+
+    def pending_scan_jobs() -> List[Job]:
+        """Find runnable retries without trusting malformed job payloads."""
+        rows = session.execute(select(Job).where(
+            Job.org_id == context.org_id, Job.status.in_(("queued", "running")),
+            Job.kind == "scan.run",
+        )).scalars().all()
+        matching = []
+        for row in rows:
+            try:
+                payload = json.loads(row.payload or "{}")
+            except (ValueError, TypeError):
+                continue
+            if isinstance(payload, dict) and payload.get("scan_id") == scan.id:
+                matching.append(row)
+        return matching
+
+    was_failed = scan.status == "failed"
+    # Failed is only terminal when no retry job remains. A failed *attempt*
+    # may be followed by an automatically queued retry that the owner must
+    # still be able to stop.
+    if was_failed and not pending_scan_jobs():
+        raise HTTPException(status.HTTP_409_CONFLICT, "scan already failed")
     # The initial SELECT is only a hint: a worker can complete the scan before
-    # this request writes. Check again in the UPDATE, after acquiring the row
+    # this request writes. Check again in the UPDATE after acquiring its row
     # lock, so we never relabel a completed scan as cancelled.
+    cancellable = ("failed",) if was_failed else ("queued", "running")
     changed = session.execute(
         update(Scan).where(Scan.id == scan_id, Scan.org_id == context.org_id,
-                           Scan.status.in_(("queued", "running")))
+                           Scan.status.in_(cancellable))
         .values(status="cancelled", finished_at=utcnow())
     )
     if changed.rowcount != 1:
         session.refresh(scan)
         raise HTTPException(status.HTTP_409_CONFLICT, f"scan already {scan.status}")
     session.refresh(scan)
-    job = session.execute(
-        select(Job).where(Job.org_id == context.org_id, Job.status.in_(("queued", "running")),
-                          Job.kind == "scan.run")
-    ).scalars().all()
-    for candidate in job:
-        try:
-            if json.loads(candidate.payload or "{}").get("scan_id") == scan.id:
-                request.app.state.queue.cancel(session, candidate)
-        except ValueError:
-            continue
+    cancelled_retry = False
+    for candidate in pending_scan_jobs():
+        request.app.state.queue.cancel(session, candidate)
+        cancelled_retry |= candidate.status == "cancelled"
+    if was_failed and not cancelled_retry:
+        # A retry could have exhausted its attempts between the two reads.
+        # Undo the scan transition instead of cancelling a terminal failure.
+        session.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, "scan already failed")
     events.default_bus.publish(session, events.SCAN_CANCELLED, context.org_id, {"scan_id": scan.id},
                                subject_id=str(scan.id))
     context.audit("scan.cancelled", target_type="scan", target_id=str(scan.id))

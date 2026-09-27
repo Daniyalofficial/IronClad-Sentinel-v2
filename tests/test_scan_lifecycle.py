@@ -223,3 +223,61 @@ def test_untrusted_repository_config_cannot_force_server_network_egress(stack):
         assert local.advisory_source == "remote"
         run_scan(local)
         assert outgoing.call_count >= 1
+
+
+def test_failed_scan_with_queued_retry_can_be_cancelled(stack, monkeypatch):
+    """A failed attempt is not terminal when its job is queued to retry."""
+    app, client, headers, project_id, _ = stack
+    monkeypatch.setenv("IRONCLAD_ADVISORY_SOURCE", "no-such-source")
+    created = _scan(client, headers, project_id, wait=False)
+    assert created.status_code == 202, created.text
+    scan_id = created.json()["id"]
+
+    with session_scope(app.state.engine) as session:
+        assert app.state.queue.run_pending(session, limit=1) == 1
+    with session_scope(app.state.engine) as session:
+        scan = session.get(Scan, scan_id)
+        job = _job_for_scan(session, scan_id)
+        assert scan.status == "failed" and job.status == QUEUED
+        assert job.attempts == 1
+
+    cancelled = client.post(f"/scan/{scan_id}/cancel", headers=headers)
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["status"] == "cancelled"
+    monkeypatch.delenv("IRONCLAD_ADVISORY_SOURCE")
+    with session_scope(app.state.engine) as session:
+        scan = session.get(Scan, scan_id)
+        job = _job_for_scan(session, scan_id)
+        assert scan.status == "cancelled" and job.status == "cancelled"
+        assert scan.error, "retain the reason for the failed attempt"
+        job.scheduled_at = utcnow() - timedelta(hours=1)
+        assert app.state.queue.run_pending(session, limit=1) == 0
+        event_types = session.execute(select(Event.event_type).where(
+            Event.subject_id == str(scan_id))).scalars().all()
+        assert event_types.count("scan.failed") == 1
+        assert event_types.count("scan.cancelled") == 1
+        assert "scan.completed" not in event_types
+        assert session.execute(select(Finding).where(Finding.scan_id == scan_id)).scalars().all() == []
+    again = client.post(f"/scan/{scan_id}/cancel", headers=headers)
+    assert again.status_code == 409
+
+
+def test_terminal_failed_scan_cannot_be_relabeled_cancelled(stack, monkeypatch):
+    """When retry attempts are exhausted, a failed scan really is final."""
+    app, client, headers, project_id, _ = stack
+    monkeypatch.setenv("IRONCLAD_ADVISORY_SOURCE", "no-such-source")
+    created = _scan(client, headers, project_id, wait=False)
+    assert created.status_code == 202, created.text
+    scan_id = created.json()["id"]
+    with session_scope(app.state.engine) as session:
+        _job_for_scan(session, scan_id).max_attempts = 1
+    with session_scope(app.state.engine) as session:
+        assert app.state.queue.run_pending(session, limit=1) == 1
+    cancelled = client.post(f"/scan/{scan_id}/cancel", headers=headers)
+    assert cancelled.status_code == 409, cancelled.text
+    with session_scope(app.state.engine) as session:
+        assert session.get(Scan, scan_id).status == "failed"
+        assert _job_for_scan(session, scan_id).status == FAILED
+        events = session.execute(select(Event.event_type).where(
+            Event.subject_id == str(scan_id))).scalars().all()
+        assert "scan.cancelled" not in events

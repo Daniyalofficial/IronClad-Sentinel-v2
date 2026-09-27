@@ -271,3 +271,33 @@ def test_compose_worker_has_resource_limits():
         compose = yaml.safe_load(fh)
     limits = compose["services"]["worker"]["deploy"]["resources"]["limits"]
     assert "cpus" in limits and "memory" in limits
+
+
+def test_compose_image_installs_postgres_driver():
+    """A server-only wheel has no psycopg2; both Compose roles require it."""
+    with open(DOCKERFILE, encoding="utf-8") as fh:
+        dockerfile = fh.read()
+    assert '".[server,postgres]"' in dockerfile, (
+        "the Compose image needs the PostgreSQL driver, not only the server extra")
+
+
+def test_compose_defaults_to_loopback_http_and_does_not_trust_all_proxy_ips():
+    """A default public HTTP port and wildcard Forwarded-IP trust invite spoofing."""
+    with open(COMPOSE, encoding="utf-8") as fh:
+        compose = yaml.safe_load(fh)
+    assert compose["services"]["api"]["ports"] == [
+        "${IRONCLAD_HOST_BIND:-127.0.0.1}:${IRONCLAD_PORT:-8000}:8000"
+    ], "the HTTP API must bind to loopback unless an operator opts in"
+    with open(ENTRYPOINT, encoding="utf-8") as fh:
+        entrypoint = fh.read()
+    assert '${IRONCLAD_FORWARDED_ALLOW_IPS:-127.0.0.1}' in entrypoint
+    assert '${IRONCLAD_FORWARDED_ALLOW_IPS:-*}' not in entrypoint
+
+
+def test_compose_shares_auth_rate_limits_across_api_processes():
+    """The in-memory limiter multiplies allowable guesses by API replicas."""
+    with open(COMPOSE, encoding="utf-8") as fh:
+        api_env = yaml.safe_load(fh)["services"]["api"]["environment"]
+    assert api_env["IRONCLAD_RATELIMIT_BACKEND"] == (
+        "${IRONCLAD_RATELIMIT_BACKEND:-database}"
+    )

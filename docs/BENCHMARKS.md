@@ -55,6 +55,27 @@ CI hardware teaches people to ignore it.
 
 ## Detection accuracy
 
+### Independently labelled Python SAST (current release gate: **FAILED**)
+
+The full **26/26** pinned, human-authored Python subset of the independent
+RealVuln Benchmark v3.1.0 was scored using its published file/CWE/±10-line
+matching. With the shipped `ast-python` and `rule-engine` engines: **83 TP,
+112 FP, 620 FN, 119 TN; 42.56% precision and 11.81% recall**, versus the
+agreed ≥95% precision and ≥90% recall enterprise gates. Even a deliberately
+generous declared-CWE sensitivity analysis (83 TP, 112 FP, 332 FN) reaches
+only 42.56% precision and 20.00% recall. These are benchmark labels and
+matcher results, not a human adjudication of every alert. Other shipped
+scanners have not yet been independently measured; the internal corpus below
+does **not** supersede the failing independent measurement.
+
+See the pinned manifest, target revisions, methodology, per-repository
+results and caveats in
+[INDEPENDENT_SAST_RESULTS_2026-09-27.json](INDEPENDENT_SAST_RESULTS_2026-09-27.json),
+reproduce with [realvuln_probe.py](../benchmarks/realvuln_probe.py), and
+read the [enterprise release gate](ENTERPRISE_RELEASE_GATE_2026-09-27.md).
+
+### Small internal fixtures (historical regression measure)
+
 `benchmarks/corpus_metrics.py` scores the labelled corpus
 (`tests/security_corpus`), where every fixture is labelled by filename
 (`vuln_*` must fire, `safe_*` must not):

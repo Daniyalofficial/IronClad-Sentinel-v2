@@ -39,6 +39,7 @@
   <p class="ok">Finding updated.</p>
 {% endif %}
 <form class="filters" method="post" action="/ui/findings/{{ finding.id }}/triage">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <label>Status
     <select name="status">
       <option value="open" {{ 'selected' if finding.status == 'open' else '' }}>open</option>

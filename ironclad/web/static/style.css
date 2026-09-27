@@ -71,5 +71,8 @@ button.primary { background: var(--accent); color: #08101f; border: 0; border-ra
 body.centered { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
 .login { width: 360px; display: flex; flex-direction: column; gap: 14px; }
 .login h1 { margin: 0; }
+.sso-link { display: block; background: var(--accent); color: #08101f; border-radius: 6px;
+            padding: 9px 16px; font-size: 14px; font-weight: 600; text-align: center;
+            text-decoration: none; }
 .alert { background: rgba(255, 93, 93, .12); border: 1px solid var(--critical);
          color: #ffd7d7; border-radius: 8px; padding: 10px; font-size: 13px; }

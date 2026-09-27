@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}API token created &middot; IronClad Sentinel{% endblock %}
+{% block content %}
+<h1>API token created</h1>
+<p><strong>{{ name }}</strong> can read scans and findings and request scans.
+The secret is shown <strong>only on this page</strong>; copy it to your CI secret store now.
+It cannot be recovered. Revoke it in Settings when no longer needed.</p>
+<pre class="code">{{ token }}</pre>
+<p><a href="/ui/settings">Return to settings</a></p>
+{% endblock %}

@@ -33,3 +33,27 @@ def test_migrated_but_uninitialized_database_is_not_ready(tmp_path):
     assert client.get("/health").json()["status"] == "ok"
     assert client.get("/ready").json()["ready"] is True
     app.state.engine.dispose()
+
+
+def test_server_init_can_prompt_for_secret_instead_of_exposing_it_in_argv(tmp_path):
+    from click.testing import CliRunner
+    from sqlalchemy import select
+
+    from ironclad.cli import main
+    from ironclad.platform.database import build_engine
+    from ironclad.platform.models import User
+    from ironclad.platform.security import verify_password
+
+    secret = "Bootstrap-Str0ng-Password-99!"
+    url = f"sqlite:///{tmp_path / 'prompted.db'}"
+    result = CliRunner().invoke(main, ["server", "init", "--database-url", url,
+                                       "--org-name", "Prompted", "--org-slug", "prompted",
+                                       "--admin-email", "owner@prompted.example.com"],
+                                input=secret + "\n" + secret + "\n")
+    assert result.exit_code == 0, result.output
+    assert secret not in result.output
+    engine = build_engine(url)
+    with session_scope(engine) as session:
+        user = session.execute(select(User).where(User.email == "owner@prompted.example.com")).scalar_one()
+        assert verify_password(secret, user.password_hash)
+    engine.dispose()

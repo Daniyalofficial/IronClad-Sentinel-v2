@@ -1,5 +1,12 @@
 # IronClad Sentinel — Full Project Report
 
+> **Archived historical report (2026-08-31).** Branch/CI status, percentage
+> estimates and statements about OIDC below describe that older checkout;
+> they are **not** current release evidence. See the
+> [2026-09-27 enterprise release gate](ENTERPRISE_RELEASE_GATE_2026-09-27.md):
+> independent scanner accuracy fails the agreed thresholds, and no final
+> enterprise release is certified.
+
 **Report date:** 2026-08-31
 **Branch:** `arena/01a03853-ironclad-sentinel-v2`
 **HEAD (local and remote):** `db5220d`

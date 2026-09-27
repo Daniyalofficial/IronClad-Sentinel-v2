@@ -56,12 +56,16 @@ local CLI scans may explicitly trust project configuration.
   on user creation and password change.
 * **Raw passwords are never stored, logged or returned.** Credential-shaped
   keys are redacted from logs and from audit metadata recursively.
-* **Sessions** — 12-hour bearer tokens stored as SHA-256 digests. A
-  database leak does not yield usable credentials. Logout revokes
-  immediately; changing a password revokes every other session.
+* **Sessions** — local password sign-in issues 12-hour bearer tokens;
+  optional OIDC issues 1-hour tokens by default (operator-configurable up to
+  12 hours). Only SHA-256 digests are stored. Logout and local operator
+  deactivation revoke sessions immediately; changing a password revokes
+  every other session. The IdP does **not** push back-channel logout.
 * **API tokens** — `ics_…`, stored as digests, plaintext shown exactly once
   at creation. Scopes are permissions and can only narrow the owner's
-  grants.
+  grants, including on administrator-only user-management routes.
+  Deactivation revokes all the affected user's API tokens and unused reset
+  links in the same database transaction.
 * **Lockout** — 5 consecutive failures locks an account for 15 minutes.
   If SMTP is not configured, a local operator with database access can use
   `ironclad server unlock --org SLUG --email ADDRESS` to clear only the
@@ -166,7 +170,11 @@ Permissions-Policy: geolocation=(), microphone=(), camera=()
 The dashboard is server-rendered Jinja2 with autoescaping, so there is no
 client-side state and no `dangerouslySetInnerHTML`-class sink. The session
 cookie is `HttpOnly` and `SameSite=Lax`; set `IRONCLAD_COOKIE_SECURE=1`
-behind TLS.
+behind TLS for local password sign-in (OIDC session/state cookies are always
+Secure). Mutating dashboard forms (finding triage, API-token creation and
+revocation, logout) verify an HMAC field derived from the HttpOnly session
+cookie before changing state. OIDC additionally binds a single-use browser
+state cookie to its authorization-code transaction.
 
 CORS uses an explicit allowlist from `IRONCLAD_CORS_ORIGINS`. An unlisted
 origin receives no CORS headers at all — the origin is never reflected.
@@ -275,8 +283,8 @@ Three layers now apply:
 
 | Layer | Default | Scope |
 |---|---|---|
-| Rate limit | 10 requests / 60s | per client IP, `/auth/login` |
-| Volume limit | 5 requests / 300s | per account, `/auth/login` |
+| Rate limit | 10 requests / 60s | per client IP, API **and** dashboard password login |
+| Volume limit | 5 requests / 300s | per account, API **and** dashboard password login |
 | Account lockout | 5 failures → 15 min | per account, self-clearing |
 
 Plus 10 / 300s on API-token creation and 5 / 300s on password change.
@@ -289,11 +297,12 @@ Every limit is operator-tunable (`IRONCLAD_RATELIMIT_*`, `LIMIT:WINDOW_SECONDS`,
 `0` disables that check), because the right value depends on how many humans
 and CI runners sit behind one IP.
 
-**Multi-process caveat, stated plainly:** the default in-memory store is
-per process, so with N uvicorn workers or N replicas the effective limit is
-`limit × N`. Set `IRONCLAD_RATELIMIT_BACKEND=database` to share counters
-across processes (costs a write per checked request), or terminate rate
-limiting at your ingress/WAF.
+**Multi-process caveat, stated plainly:** outside Compose the default
+in-memory store is per process, so with N uvicorn workers or N replicas the
+effective limit is `limit × N`. Compose now defaults to the shared database
+backend. Set `IRONCLAD_RATELIMIT_BACKEND=database` in other multi-replica
+installs (costs a write per checked request), and protect the ingress/WAF.
+The dashboard returns a 303 to a lockout error page instead of JSON 429.
 
 `X-Forwarded-For` is trusted **only** when `IRONCLAD_TRUST_PROXY=1`; otherwise
 an attacker could set the header and get a fresh budget per request.
@@ -480,7 +489,7 @@ Covered by tests, not by intention:
 * [x] No path traversal — scan root confinement, asserted for `..` and absolute paths
 * [x] No SQL injection — SQLAlchemy bound parameters throughout; no string-built SQL
 * [x] No XSS — server-side autoescaping plus CSP
-* [x] CSRF — `SameSite=Lax` cookie; mutating dashboard actions post to the JSON API, which requires a bearer token
+* [x] CSRF — session-bound HMAC form field for mutating dashboard actions; OIDC callback also requires browser-bound, single-use state; `SameSite=Lax` is defense in depth
 * [x] Authentication bypass — invalid/expired/revoked tokens rejected (tested)
 * [x] Authorization bypass — per-route permissions, RBAC tested per role
 * [x] IDOR / cross-tenant access — 404s tested for six resource types

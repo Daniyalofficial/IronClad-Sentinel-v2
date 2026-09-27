@@ -38,8 +38,25 @@ services:
       IRONCLAD_LOG_LEVEL: ${IRONCLAD_LOG_LEVEL:-INFO}
       IRONCLAD_CORS_ORIGINS: ${IRONCLAD_CORS_ORIGINS:-}
       IRONCLAD_ENABLE_DOCS: ${IRONCLAD_ENABLE_DOCS:-0}
+      IRONCLAD_COOKIE_SECURE: ${IRONCLAD_COOKIE_SECURE:-0}
+      # Database counters work across API replicas; in-memory defaults would
+      # multiply the login guess budget by the number of processes.
+      IRONCLAD_RATELIMIT_BACKEND: ${IRONCLAD_RATELIMIT_BACKEND:-database}
+      IRONCLAD_TRUST_PROXY: ${IRONCLAD_TRUST_PROXY:-0}
+      IRONCLAD_FORWARDED_ALLOW_IPS: ${IRONCLAD_FORWARDED_ALLOW_IPS:-127.0.0.1}
+      IRONCLAD_DISABLE_PASSWORD_LOGIN: ${IRONCLAD_DISABLE_PASSWORD_LOGIN:-0}
+      IRONCLAD_OIDC_ISSUER: ${IRONCLAD_OIDC_ISSUER:-}
+      IRONCLAD_OIDC_CLIENT_ID: ${IRONCLAD_OIDC_CLIENT_ID:-}
+      IRONCLAD_OIDC_CLIENT_SECRET: ${IRONCLAD_OIDC_CLIENT_SECRET:-}
+      IRONCLAD_OIDC_REDIRECT_URI: ${IRONCLAD_OIDC_REDIRECT_URI:-}
+      IRONCLAD_OIDC_ORG_SLUG: ${IRONCLAD_OIDC_ORG_SLUG:-}
+      IRONCLAD_OIDC_TOKEN_AUTH_METHOD: ${IRONCLAD_OIDC_TOKEN_AUTH_METHOD:-client_secret_basic}
+      IRONCLAD_OIDC_SESSION_TTL_SECONDS: ${IRONCLAD_OIDC_SESSION_TTL_SECONDS:-3600}
+      IRONCLAD_OIDC_CA_BUNDLE: ${IRONCLAD_OIDC_CA_BUNDLE:-}
     ports:
-      - "${IRONCLAD_PORT:-8000}:8000"
+      # Serve plaintext HTTP only on loopback by default; terminate TLS in a
+      # trusted reverse proxy. Explicitly set IRONCLAD_HOST_BIND to override.
+      - "${IRONCLAD_HOST_BIND:-127.0.0.1}:${IRONCLAD_PORT:-8000}:8000"
     volumes:
       # Read-only mount of the repositories to scan. Read-only is the point:
       # the scanner has no reason to write to a target tree.

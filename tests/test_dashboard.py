@@ -141,6 +141,18 @@ def test_cross_tenant_pages_are_not_reachable(env):
 # --------------------------------------------------------------------------- #
 # Triage form (the previously broken feature)
 # --------------------------------------------------------------------------- #
+def _submit_triage(client, finding_id: int, data: dict):
+    """Follow the rendered HTML form, including its session-bound CSRF field."""
+    import re
+
+    page = client.get(f"/ui/findings/{finding_id}")
+    assert page.status_code == 200
+    match = re.search(r'name="csrf_token" value="([a-f0-9]{64})"', page.text)
+    assert match, "the form must display its anti-CSRF token"
+    return client.post(f"/ui/findings/{finding_id}/triage",
+                       data={**data, "csrf_token": match.group(1)})
+
+
 def test_triage_form_is_rendered_with_the_correct_action(env):
     response = env["owner"].get("/ui/findings/1")
     assert 'action="/ui/findings/1/triage"' in response.text
@@ -148,7 +160,7 @@ def test_triage_form_is_rendered_with_the_correct_action(env):
 
 
 def test_triage_resolves_a_finding(env):
-    response = env["owner"].post("/ui/findings/1/triage",
+    response = _submit_triage(env["owner"], 1,
                                  data={"status": "resolved", "reason": "fixed in abc123"})
     assert response.status_code == 303
     assert "updated=1" in response.headers["location"]
@@ -163,7 +175,7 @@ def test_triage_resolves_a_finding(env):
 
 
 def test_triage_suppress_requires_a_reason(env):
-    response = env["owner"].post("/ui/findings/1/triage",
+    response = _submit_triage(env["owner"], 1,
                                  data={"status": "suppressed", "reason": ""})
     assert response.status_code == 303
     location = unquote(response.headers["location"])
@@ -177,7 +189,7 @@ def test_triage_suppress_requires_a_reason(env):
 
 
 def test_triage_suppress_with_a_reason_succeeds(env):
-    response = env["owner"].post("/ui/findings/1/triage",
+    response = _submit_triage(env["owner"], 1,
                                  data={"status": "suppressed", "reason": "TICKET-42 accepted risk"})
     assert response.status_code == 303
     with session_scope(env["engine"]) as s:
@@ -188,8 +200,8 @@ def test_triage_suppress_with_a_reason_succeeds(env):
 
 
 def test_triage_can_reopen(env):
-    env["owner"].post("/ui/findings/1/triage", data={"status": "resolved", "reason": "x"})
-    response = env["owner"].post("/ui/findings/1/triage", data={"status": "open", "reason": ""})
+    _submit_triage(env["owner"], 1, data={"status": "resolved", "reason": "x"})
+    response = _submit_triage(env["owner"], 1, data={"status": "open", "reason": ""})
     assert response.status_code == 303
     with session_scope(env["engine"]) as s:
         finding = s.get(Finding, 1)
@@ -198,7 +210,7 @@ def test_triage_can_reopen(env):
 
 
 def test_triage_rejects_an_invalid_status(env):
-    response = env["owner"].post("/ui/findings/1/triage",
+    response = _submit_triage(env["owner"], 1,
                                  data={"status": "wontfix", "reason": "x"})
     assert response.status_code == 303
     assert "status must be one of" in unquote(response.headers["location"])
@@ -219,7 +231,7 @@ def test_viewer_cannot_triage(env):
 
 
 def test_security_role_can_triage(env):
-    response = env["security"].post("/ui/findings/1/triage",
+    response = _submit_triage(env["security"], 1,
                                     data={"status": "resolved", "reason": "verified fixed"})
     assert response.status_code == 303
     assert "updated=1" in response.headers["location"]
@@ -256,7 +268,7 @@ def test_triage_on_a_missing_finding_redirects_safely(env):
 # Shared logic and audit
 # --------------------------------------------------------------------------- #
 def test_triage_is_audited(env):
-    env["owner"].post("/ui/findings/1/triage", data={"status": "suppressed", "reason": "TICKET-1"})
+    _submit_triage(env["owner"], 1, data={"status": "suppressed", "reason": "TICKET-1"})
     with session_scope(env["engine"]) as s:
         events = [e for e in s.execute(select(AuditEvent)).scalars().all()
                   if e.action == "finding.suppressed"]
@@ -266,14 +278,14 @@ def test_triage_is_audited(env):
 
 
 def test_triage_writes_a_finding_event(env):
-    env["owner"].post("/ui/findings/1/triage", data={"status": "resolved", "reason": "done"})
+    _submit_triage(env["owner"], 1, data={"status": "resolved", "reason": "done"})
     with session_scope(env["engine"]) as s:
         events = s.execute(select(FindingEvent)).scalars().all()
     assert [e.event_type for e in events] == ["finding.resolved"]
 
 
 def test_rejected_triage_is_not_audited(env):
-    env["owner"].post("/ui/findings/1/triage", data={"status": "suppressed", "reason": ""})
+    _submit_triage(env["owner"], 1, data={"status": "suppressed", "reason": ""})
     with session_scope(env["engine"]) as s:
         events = [e for e in s.execute(select(AuditEvent)).scalars().all()
                   if e.action.startswith("finding.")]
@@ -377,3 +389,46 @@ def test_login_form_rejects_bad_credentials(env):
                                                  "password": "wrong-password"})
     assert response.status_code == 303
     assert "error" in response.headers["location"]
+
+
+def test_triage_form_rejects_cross_site_post_without_session_csrf_token(env):
+    client = env["owner"]
+    forged = client.post("/ui/findings/1/triage",
+                         data={"status": "resolved", "reason": "forged"})
+    assert forged.status_code == 403, forged.text
+    with session_scope(env["engine"]) as session:
+        assert session.get(Finding, 1).status == "open"
+
+
+def test_dashboard_password_sign_in_honors_account_lockout_and_shared_rate_limiter(env):
+    from ironclad.platform.models import utcnow
+
+    c = TestClient(env["app"], follow_redirects=False)
+    email = "viewer@dash-corp.com"
+    for _ in range(5):
+        wrong = c.post("/ui/login", data={"email": email, "password": "wrong-password"})
+        assert wrong.status_code == 303
+    with session_scope(env["engine"]) as session:
+        user = session.execute(select(User).where(User.email == email)).scalar_one()
+        assert user.locked_until is not None and user.locked_until > utcnow()
+    blocked = c.post("/ui/login", data={"email": email, "password": PASSWORD})
+    assert blocked.status_code == 303
+    assert "locked" in blocked.headers["location"]
+    assert c.get("/ui/").status_code == 307
+
+
+def test_logout_requires_a_session_bound_csrf_form_field(env):
+    client = env["owner"]
+    # Cross-site log-out is a session mutation too. Missing or fabricated form
+    # tokens must not revoke the currently authenticated browser session.
+    assert client.post("/ui/logout").status_code == 403
+    assert client.get("/ui/").status_code == 200
+    assert client.post("/ui/logout", data={"csrf_token": "0" * 64}).status_code == 403
+    assert client.get("/ui/").status_code == 200
+    import re
+
+    html = client.get("/ui/").text
+    form = re.search(r'action="/ui/logout"[^>]*>\s*<input type="hidden" name="csrf_token" value="([a-f0-9]{64})"', html)
+    assert form, "logout must be a protected rendered form"
+    assert client.post("/ui/logout", data={"csrf_token": form.group(1)}).status_code == 303
+    assert client.get("/ui/").status_code == 307

@@ -116,6 +116,38 @@ class Session(Base):
     user_agent: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
 
+class OidcState(Base):
+    """Browser-bound, single-use authorization code + PKCE transaction."""
+
+    __tablename__ = "oidc_states"
+    __table_args__ = (Index("idx_oidc_states_expiry", "expires_at"),)
+
+    state_hash: Mapped[str] = mapped_column(Text, primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    nonce: Mapped[str] = mapped_column(Text, nullable=False)
+    code_verifier: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(Timestamp, nullable=False, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(Timestamp, nullable=False)
+
+
+class OidcIdentity(Base):
+    """An IdP subject is bound to one provisioned tenant/user, never a role claim."""
+
+    __tablename__ = "oidc_identities"
+    __table_args__ = (
+        UniqueConstraint("issuer", "subject", name="uq_oidc_issuer_subject"),
+        UniqueConstraint("user_id", "issuer", name="uq_oidc_user_issuer"),
+        Index("idx_oidc_identities_org", "org_id", "user_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    issuer: Mapped[str] = mapped_column(Text, nullable=False)
+    subject: Mapped[str] = mapped_column(Text, nullable=False)
+    bound_at: Mapped[datetime] = mapped_column(Timestamp, nullable=False, default=utcnow)
+
+
 class PasswordResetToken(Base):
     """A single-use password reset token.
 

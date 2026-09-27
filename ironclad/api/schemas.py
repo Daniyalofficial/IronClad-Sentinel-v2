@@ -110,6 +110,10 @@ class RoleUpdate(StrictModel):
         return value
 
 
+class UserStatusUpdate(StrictModel):
+    is_active: bool = Field(strict=True)
+
+
 class OrganizationOut(StrictModel):
     id: int
     name: str

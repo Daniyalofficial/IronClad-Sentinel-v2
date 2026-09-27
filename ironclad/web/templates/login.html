@@ -15,12 +15,18 @@
       {% if error == 'invalid' %}Invalid email or password.
       {% elif error == 'locked' %}Too many failed attempts. Try again in a few minutes.
       {% elif error == 'inactive' %}This account has been deactivated.
+      {% elif error == 'sso_required' %}Use your organization's single sign-on.
       {% else %}Sign-in failed.{% endif %}
     </p>
   {% endif %}
-  <label>Email <input type="email" name="email" autocomplete="username" required autofocus></label>
-  <label>Password <input type="password" name="password" autocomplete="current-password" required></label>
-  <button type="submit" class="primary">Sign in</button>
+  {% if oidc_enabled %}
+    <a class="sso-link" href="/auth/oidc/start">Sign in with single sign-on</a>
+  {% endif %}
+  {% if password_login_enabled %}
+    <label>Email <input type="email" name="email" autocomplete="username" required autofocus></label>
+    <label>Password <input type="password" name="password" autocomplete="current-password" required></label>
+    <button type="submit" class="primary">Sign in</button>
+  {% endif %}
 </form>
 </body>
 </html>

@@ -58,7 +58,9 @@ it unset in production.
 
 | Method | Path | Notes |
 |---|---|---|
-| POST | `/auth/login` | `{email, password}` → `{access_token, expires_in, user}` |
+| POST | `/auth/login` | `{email, password}` → `{access_token, expires_in, user}`; disabled when SSO-only mode is enabled |
+| GET | `/auth/oidc/start` | Browser redirect to the configured HTTPS IdP (optional) |
+| GET | `/auth/oidc/callback` | Browser code+state callback; sets an HttpOnly, Secure dashboard session cookie |
 | POST | `/auth/logout` | Revokes the presented session (204) |
 | GET | `/auth/me` | Current user |
 | GET | `/auth/permissions` | Role → permission matrix |
@@ -78,6 +80,20 @@ Token scopes **are** permissions. `scan:read` and `scan.read` are both
 accepted and normalised; an unknown scope is a `422`. A token can narrow its
 owner's permissions but never widen them.
 
+For optional OIDC browser sign-in, `GET /auth/oidc/start` begins the
+single-use code + PKCE flow. The callback validates the signed ID token and
+creates a local session for a **preprovisioned active user** in the configured
+organization; IdP roles and organization claims do not grant access. Register
+a TLS-only callback URL exactly matching the configured value. An SSO-only
+user can create/revoke a fixed limited-permission API token from
+`/ui/settings` without supplying a local password. The dashboard form's
+permissions are `scan.read`, `scan.create`, `finding.read`; the authenticated
+`/auth/tokens` API allows other scopes if the user's role already grants them.
+All mutating dashboard forms require a session-bound hidden CSRF token. There
+is no IdP back-channel logout or immediate IdP deprovisioning propagation:
+operators must deactivate users and revoke local sessions/tokens as needed.
+See [DEPLOYMENT.md](DEPLOYMENT.md) for the required environment variables.
+
 ```bash
 TOKEN=$(curl -s -X POST localhost:8000/auth/login \
   -H 'content-type: application/json' \
@@ -95,9 +111,12 @@ curl -s localhost:8000/projects -H "authorization: Bearer $TOKEN"
 | GET | `/users` | `user.read` |
 | POST | `/users` | `user.manage` |
 | PATCH | `/users/{id}/role` | `user.manage` |
+| PATCH | `/users/{id}/active` | `user.manage` — `{is_active: false}` immediately revokes sessions, API tokens and unused reset links; reactivation does not restore them |
 
-Only an **owner** can grant `owner`. An admin cannot demote themselves below
-`admin` (that would lock the organization out of administration).
+Only an **owner** can grant or demote `owner`. Neither deactivation nor role
+changes can remove the last active owner; an operator cannot deactivate
+itself. An admin cannot demote themselves below `admin`. A narrow bearer API
+token cannot bypass `user.manage` by carrying an admin/owner role.
 
 ## Projects
 

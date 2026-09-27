@@ -162,10 +162,13 @@ def require_principal(context: RequestContext = Depends(get_context)) -> Request
 
 
 def admin_required(context: RequestContext = Depends(require_principal)) -> RequestContext:
-    from ironclad.platform.rbac import role_at_least
+    from ironclad.platform.rbac import USER_MANAGE, role_at_least
 
     if not role_at_least(context.principal.role, "admin"):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "administrator role required")
+    # A narrowed API token retains the owner's role for display, but may not
+    # inherit user-management privileges outside its explicit token scopes.
+    context.require(USER_MANAGE)
     return context
 
 

@@ -32,7 +32,7 @@ from sqlalchemy import exc as sqlalchemy_exc
 from sqlalchemy import text
 
 from ironclad import __version__
-from ironclad.api import routes, schemas
+from ironclad.api import oidc, routes, schemas
 from ironclad.api.deps import cors_allowed_origins
 from ironclad.platform.database import build_engine, run_migrations, session_factory, session_scope
 from ironclad.platform.events import default_bus
@@ -87,6 +87,14 @@ def create_app(database_url: Optional[str] = None, *, run_migrations_on_start: b
         run_migrations(engine)
     app.state.engine = engine
     app.state.session_factory = session_factory(engine)
+    config = oidc.OidcConfig.from_environment()
+    app.state.oidc = oidc.OidcProvider(config) if config else None
+    disabled = os.environ.get("IRONCLAD_DISABLE_PASSWORD_LOGIN", "0").strip()
+    if disabled not in ("0", "1"):
+        raise ValueError("IRONCLAD_DISABLE_PASSWORD_LOGIN must be 0 or 1")
+    if disabled == "1" and config is None:
+        raise ValueError("cannot disable password login without configured OIDC")
+    app.state.password_login_enabled = disabled != "1"
 
     queue = JobQueue()
     register_job_handlers(queue, engine)
@@ -247,6 +255,7 @@ def create_app(database_url: Optional[str] = None, *, run_migrations_on_start: b
 
     for router in routes.ALL_ROUTERS:
         app.include_router(router)
+    app.include_router(oidc.router)
 
     @app.get("/", include_in_schema=False)
     def root() -> RedirectResponse:

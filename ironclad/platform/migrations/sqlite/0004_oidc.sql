@@ -1,0 +1,23 @@
+-- OIDC browser flows are single-use and shared across API replicas.
+-- State is stored as a digest; subjects are bound to already-provisioned users.
+CREATE TABLE oidc_states (
+    state_hash    TEXT PRIMARY KEY,
+    org_id        INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    nonce         TEXT NOT NULL,
+    code_verifier TEXT NOT NULL,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    expires_at    TEXT NOT NULL
+);
+CREATE INDEX idx_oidc_states_expiry ON oidc_states (expires_at);
+
+CREATE TABLE oidc_identities (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    org_id     INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    issuer     TEXT NOT NULL,
+    subject    TEXT NOT NULL,
+    bound_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (issuer, subject),
+    UNIQUE (user_id, issuer)
+);
+CREATE INDEX idx_oidc_identities_org ON oidc_identities (org_id, user_id);

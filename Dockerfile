@@ -15,7 +15,8 @@ RUN apt-get update \
 
 COPY pyproject.toml README.md ./
 COPY ironclad ./ironclad
-RUN python -m pip wheel --wheel-dir /wheels ".[server]"
+# Compose and Kubernetes use PostgreSQL, so include the driver in the image.
+RUN python -m pip wheel --wheel-dir /wheels ".[server,postgres]"
 
 FROM python:3.11-slim AS runtime
 

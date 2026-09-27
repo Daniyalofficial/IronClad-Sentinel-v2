@@ -38,8 +38,18 @@ docker compose run --rm api migrate
 `docker-compose.yml` runs three services:
 
 * `db` — PostgreSQL 16, **not** published to the host
-* `api` — API + dashboard on port 8000
+* `api` — API + dashboard on **127.0.0.1:8000 by default** (plaintext HTTP;
+  terminate TLS in your reverse proxy before making it externally available)
 * `worker` — scan worker (separate so a CPU-bound scan cannot starve the API)
+
+Override `IRONCLAD_HOST_BIND` only when you intend to publish the HTTP port;
+never expose plaintext login or OIDC callback traffic to the internet.
+Forwarded headers are trusted only from loopback by default. If your TLS
+proxy connects from a different IP, explicitly set `IRONCLAD_FORWARDED_ALLOW_IPS`
+to *that proxy's* IP and prevent direct untrusted access to the API. Set
+`IRONCLAD_COOKIE_SECURE=1` behind HTTPS and, only when the proxy is trusted,
+`IRONCLAD_TRUST_PROXY=1` for client IP-based rate limits. Compose uses database
+rate-limit counters so multiple API processes do not each get a fresh budget.
 
 Repositories are mounted at `/work` **read-only**. The scanner only parses
 files; it has no reason to write to a target tree, and read-only is what
@@ -51,16 +61,62 @@ Required variables fail fast rather than defaulting to something insecure:
 ### First-time setup
 
 ```bash
-docker compose exec api ironclad server init \
+docker compose exec -it api ironclad server init \
   --org-name "Acme Corp" --org-slug acme \
-  --admin-email secops@acme-corp.com \
-  --admin-password "$ADMIN_PASSWORD"
+  --admin-email secops@acme-corp.com
+# Enter and confirm the owner password at the hidden prompt; do not put it
+# in the process command line or your shell history.
 ```
 
 The password policy is enforced here too (≥12 characters, ≥3 character
 classes). After setup, `curl -fsS http://localhost:8000/ready` returns
 `{"ready":true,...}`. If it stays at 503, check that init, API and worker
 all use the **same** `IRONCLAD_DATABASE_URL` and `IRONCLAD_SCAN_ROOT`.
+
+### Optional enterprise OIDC / SSO
+
+Configure **one trusted HTTPS OpenID Connect provider for one existing
+organization**. Register `https://sentinel.example.com/auth/oidc/callback`
+as an exact redirect URI with that provider, then provide these values as
+out-of-band secrets/environment (never commit a populated `.env` file):
+
+```bash
+export IRONCLAD_OIDC_ISSUER='https://idp.example.com/tenant'
+export IRONCLAD_OIDC_CLIENT_ID='your-registered-client-id'
+export IRONCLAD_OIDC_CLIENT_SECRET='your-secret-from-the-idp'
+export IRONCLAD_OIDC_REDIRECT_URI='https://sentinel.example.com/auth/oidc/callback'
+export IRONCLAD_OIDC_ORG_SLUG='acme'
+export IRONCLAD_COOKIE_SECURE=1
+# After the owner/org and SSO users are provisioned and a real IdP login works:
+export IRONCLAD_DISABLE_PASSWORD_LOGIN=1
+# docker compose up -d --build
+```
+
+The redirect URI **must** be HTTPS and end exactly in `/auth/oidc/callback`.
+The browser-state cookie is always `Secure`; test with a real TLS URL, not
+plain `http://localhost`. Provision users in the configured organization
+first (the `/users` API); only a verified IdP email matching an active local
+account can bind to a stable issuer/subject. IdP claims cannot choose a role
+or tenant. OIDC uses authorization code + PKCE, browser-bound single-use
+state, signed ID tokens, issuer/audience/nonce checks and TLS verification.
+The provider must support either `client_secret_basic` (default) or
+`client_secret_post` (`IRONCLAD_OIDC_TOKEN_AUTH_METHOD`). The default OIDC
+session TTL is one hour (`IRONCLAD_OIDC_SESSION_TTL_SECONDS`, 60–43,200).
+For a private CA, mount the certificate in the API container and set
+`IRONCLAD_OIDC_CA_BUNDLE` to its absolute path; never disable TLS checking.
+The authentication service requires access to the configured IdP; scanners
+do not make OIDC requests.
+
+SSO-only users can create/revoke a one-time-display, limited-permission
+API token at `/ui/settings` without a local password. The form currently
+issues `finding.read`, `scan.create` and `scan.read`; use the authenticated
+API when you need a different permitted scope set. API-token revocation is
+immediate. **IdP logout and external deprovisioning are not pushed to
+IronClad**: locally revoke sessions/tokens and deactivate a user when needed;
+existing OIDC sessions otherwise expire at their local TTL. There is no JIT
+provisioning, multi-provider org routing, SCIM or enterprise IdP live-tenant
+certification here. See [enterprise release gate](ENTERPRISE_RELEASE_GATE_2026-09-27.md)
+for what was actually verified.
 
 ---
 
@@ -162,19 +218,26 @@ operator environment/global configuration or an authorized API policy there.
 | `IRONCLAD_LOG_LEVEL` | `INFO` | Structured log level |
 | `IRONCLAD_CORS_ORIGINS` | empty | Comma-separated allowlist; unlisted origins get no CORS headers |
 | `IRONCLAD_ENABLE_DOCS` | `0` | Set to `1` to enable `/docs` + `/openapi.json` (development only) |
-| `IRONCLAD_COOKIE_SECURE` | `0` | Set to `1` behind TLS to mark the dashboard cookie `Secure` |
+| `IRONCLAD_COOKIE_SECURE` | `0` | Set to `1` behind TLS to mark local dashboard login cookies `Secure` (OIDC cookies are always secure) |
+| `IRONCLAD_DISABLE_PASSWORD_LOGIN` | `0` | Set to `1` **only after** verified OIDC and first-owner bootstrap; disables local API/dashboard sign-in and reset |
+| `IRONCLAD_OIDC_ISSUER` / `_CLIENT_ID` / `_CLIENT_SECRET` / `_REDIRECT_URI` / `_ORG_SLUG` | unset | All five required to enable one OIDC provider, client and local organization |
+| `IRONCLAD_OIDC_TOKEN_AUTH_METHOD` | `client_secret_basic` | Or `client_secret_post` if the provider requires it |
+| `IRONCLAD_OIDC_SESSION_TTL_SECONDS` | `3600` | Local OIDC session lifetime (60–43,200 seconds) |
+| `IRONCLAD_OIDC_CA_BUNDLE` | unset | Absolute path in the API container to a trusted custom CA certificate |
 | `IRONCLAD_ADVISORY_SOURCE` | `bundled` | `bundled` \| `directory` \| `remote` |
 | `IRONCLAD_ADVISORY_PATH` | — | Overlay directory for `directory` |
 | `IRONCLAD_ADVISORY_ENDPOINT` | — | OSV-compatible HTTPS endpoint for `remote` |
 | `IRONCLAD_ALLOW_PRIVATE_WEBHOOKS` | `0` | Allow webhook URLs pointing at private/link-local hosts |
 | `IRONCLAD_RATELIMIT_ENABLED` | `1` | Set to `0` to disable rate limiting entirely |
-| `IRONCLAD_RATELIMIT_BACKEND` | `memory` | `database` shares counters across processes |
+| `IRONCLAD_RATELIMIT_BACKEND` | `memory` outside Compose; `database` in Compose | `database` shares counters across processes |
 | `IRONCLAD_RATELIMIT_LOGIN` | `10:60` | Per-IP login limit, `LIMIT:WINDOW_SECONDS` (`0` disables) |
 | `IRONCLAD_RATELIMIT_LOGIN_ACCOUNT` | `5:300` | Per-account login volume limit |
 | `IRONCLAD_RATELIMIT_TOKEN_CREATE` | `10:300` | Per-user API-token creation limit |
 | `IRONCLAD_RATELIMIT_PASSWORD_CHANGE` | `5:300` | Per-user password-change limit |
 | `IRONCLAD_RATELIMIT_GENERAL` | `600:60` | Per-IP limit for other API traffic |
-| `IRONCLAD_TRUST_PROXY` | unset | Trust `X-Forwarded-For` (only behind a proxy you control) |
+| `IRONCLAD_TRUST_PROXY` | `0` in Compose | Trust `X-Forwarded-For` **only** when the API cannot be accessed except through your reverse proxy |
+| `IRONCLAD_FORWARDED_ALLOW_IPS` | `127.0.0.1` | Uvicorn-trusted proxy IPs; do not set to wildcard on a public listener |
+| `IRONCLAD_HOST_BIND` | `127.0.0.1` in Compose | Bind the host-side plaintext HTTP port (different from the container's `IRONCLAD_BIND_HOST`) |
 | `IRONCLAD_MAIL_TRANSPORT` | `memory` | `memory` \| `smtp` \| `null` |
 | `IRONCLAD_MAIL_FROM` | `IronClad Sentinel <no-reply@ironclad.local>` | From address for transactional mail |
 | `IRONCLAD_SMTP_HOST` | unset | SMTP host (required for `smtp`) |
@@ -246,12 +309,28 @@ links for that account. A missing SQLite file is refused, not silently
 created. In a multi-replica install, in-memory login rate limits may need to
 expire before the new login works even after clearing the database lockout.
 
+### Release-time advisory freshness
+
+The shipped database is an **offline snapshot**, not an auto-updating feed.
+Before promoting a build, while online and with `.venv/bin` on `PATH`, run:
+
+```bash
+bash scripts/build_advisory_db.sh
+python scripts/check_advisory_freshness.py  # <=24h and both current upstream heads
+```
+
+A snapshot can become stale again whenever either source advances. The
+checker fails closed on an unverified Git head; `--offline` checks only age
+and **does not qualify** a release. See the dated enterprise release-gate
+report for the last measurement. This is a build/release operation, not a
+product network call on every scan.
+
 ### Backup and restore
 
-See [DISASTER_RECOVERY.md](DISASTER_RECOVERY.md). Short version: the
-database is the only state that matters. Everything else — reports, SBOMs,
-baselines — is either derived from it or committed to the scanned
-repository.
+See [DISASTER_RECOVERY.md](DISASTER_RECOVERY.md). Back up **both** the
+PostgreSQL database and the signing key, integration/IdP secrets, scanned
+repository contents and necessary configuration. A source ZIP cannot restore
+those operational assets; reports and SBOMs are normally derived data.
 
 ```bash
 pg_dump -Fc ironclad > ironclad-$(date +%F).dump     # backup

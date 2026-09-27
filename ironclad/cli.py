@@ -760,7 +760,9 @@ def server_group():
 @click.option("--org-name", default="My Organization")
 @click.option("--org-slug", default=None)
 @click.option("--admin-email", required=True)
-@click.option("--admin-password", required=True, help="Must satisfy the password policy")
+@click.option("--admin-password", prompt="Admin password", hide_input=True,
+              confirmation_prompt=True,
+              help="Must satisfy the password policy; omit this option to prompt securely")
 @click.option("--json", "as_json", is_flag=True)
 def server_init(database_url, org_name, org_slug, admin_email, admin_password, as_json):
     """Create the database schema and the first organization + owner."""
@@ -975,10 +977,13 @@ def advisories_import_osv(sources, output, ecosystems, limit, source_label, as_j
             for name, entries in packages.items():
                 packages[name] = entries[:limit]
 
+    from datetime import datetime, timezone
+
     packages = sum(len(v) for v in database.values())
     advisories = sum(len(a) for v in database.values() for a in v.values())
     payload_out = {
         "_meta": {
+            "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
             "description": "IronClad Sentinel offline advisory database, generated "
                            "from OSV records by `ironclad advisories import-osv`.",
             "schema_version": 1,

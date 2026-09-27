@@ -1,5 +1,10 @@
 # IronClad Sentinel v2 — full-project progress report
 
+> **Snapshot at `dd22777`, before the later OIDC/accuracy work.** For the
+> agreed enterprise gates and the independent scanner failure measured later
+> on 2026-09-27, see
+> [ENTERPRISE_RELEASE_GATE_2026-09-27.md](ENTERPRISE_RELEASE_GATE_2026-09-27.md).
+
 - **As of:** 2026-09-27 (Asia/Karachi)
 - **Source branch:** `arena/01a0d7c0-ironclad-sentinel-v2`
 - **Implementation snapshot reviewed:** `dd2277777d01a3a3b046824bab5f2f5203157b06`
