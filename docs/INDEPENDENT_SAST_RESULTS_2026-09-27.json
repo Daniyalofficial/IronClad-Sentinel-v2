@@ -9,10 +9,10 @@
   ],
   "corpus": "human-authored Python repositories (SAST only)",
   "counts": {
-    "fn": 612,
-    "fp": 112,
+    "fn": 586,
+    "fp": 118,
     "tn": 119,
-    "tp": 91
+    "tp": 117
   },
   "engines": [
     "ast-python",
@@ -26,9 +26,9 @@
   },
   "generous_declared_cwe_scope": {
     "counts": {
-      "fn": 324,
-      "fp": 112,
-      "tp": 91
+      "fn": 298,
+      "fp": 118,
+      "tp": 117
     },
     "declared_cwes_generously_extracted": [
       "CWE-1333",
@@ -65,11 +65,11 @@
       "CWE-95",
       "CWE-98"
     ],
-    "precision": 0.4483,
-    "recall": 0.2193
+    "precision": 0.4979,
+    "recall": 0.2819
   },
-  "precision": 0.4483,
-  "recall": 0.1294,
+  "precision": 0.4979,
+  "recall": 0.1664,
   "repos": [
     {
       "files_scanned": 32,
@@ -158,8 +158,8 @@
     },
     {
       "files_scanned": 216,
-      "findings": 28,
-      "fn": 45,
+      "findings": 30,
+      "fn": 43,
       "fp": 21,
       "missed_ids": [
         "djangoat-002",
@@ -203,17 +203,15 @@
         "djangoat-046",
         "djangoat-047",
         "djangoat-048",
-        "djangoat-049",
-        "djangoat-050",
         "djangoat-051",
         "djangoat-052"
       ],
-      "precision": 0.25,
-      "recall": 0.1346,
+      "precision": 0.3,
+      "recall": 0.1731,
       "slug": "realvuln-djangoat",
       "target_sha": "082c88bfefced508ae083b92b459c808f95e905e",
       "tn": 6,
-      "tp": 7,
+      "tp": 9,
       "unmatched_rules": [
         "JS-DOCUMENT-WRITE",
         "JS-EVAL-USE",
@@ -378,15 +376,13 @@
     },
     {
       "files_scanned": 46,
-      "findings": 1,
-      "fn": 31,
+      "findings": 3,
+      "fn": 29,
       "fp": 0,
       "missed_ids": [
         "extremely-vulnerable-flask-app-001",
-        "extremely-vulnerable-flask-app-003",
         "extremely-vulnerable-flask-app-004",
         "extremely-vulnerable-flask-app-005",
-        "extremely-vulnerable-flask-app-006",
         "extremely-vulnerable-flask-app-007",
         "extremely-vulnerable-flask-app-008",
         "extremely-vulnerable-flask-app-009",
@@ -415,28 +411,23 @@
         "extremely-vulnerable-flask-app-fp-014"
       ],
       "precision": 1.0,
-      "recall": 0.0312,
+      "recall": 0.0938,
       "slug": "realvuln-extremely-vulnerable-flask-app",
       "target_sha": "d5d8875559e21222bbbaadb7b9f0af592c6eb7fa",
       "tn": 4,
-      "tp": 1,
+      "tp": 3,
       "unmatched_rules": []
     },
     {
       "files_scanned": 45,
-      "findings": 1,
-      "fn": 29,
-      "fp": 0,
+      "findings": 7,
+      "fn": 24,
+      "fp": 1,
       "missed_ids": [
-        "flask-xss-001",
         "flask-xss-002",
-        "flask-xss-003",
         "flask-xss-004",
-        "flask-xss-005",
-        "flask-xss-006",
         "flask-xss-007",
         "flask-xss-008",
-        "flask-xss-009",
         "flask-xss-010",
         "flask-xss-011",
         "flask-xss-012",
@@ -458,22 +449,22 @@
         "flask_xss-fp-007",
         "flask_xss-fp-008"
       ],
-      "precision": 1.0,
-      "recall": 0.0333,
+      "precision": 0.8571,
+      "recall": 0.2,
       "slug": "realvuln-flask-xss",
       "target_sha": "4d6f500246696d9078e141d7eabcc34087c54faa",
       "tn": 5,
-      "tp": 1,
-      "unmatched_rules": []
+      "tp": 6,
+      "unmatched_rules": [
+        "JINJA-UNESCAPED-SAFE-FILTER"
+      ]
     },
     {
       "files_scanned": 7,
-      "findings": 1,
-      "fn": 8,
+      "findings": 3,
+      "fn": 6,
       "fp": 0,
       "missed_ids": [
-        "insecure-web-002",
-        "insecure-web-003",
         "insecure-web-004",
         "insecure-web-005",
         "insecure-web-006",
@@ -482,11 +473,11 @@
         "insecure-web-009"
       ],
       "precision": 1.0,
-      "recall": 0.1111,
+      "recall": 0.3333,
       "slug": "realvuln-insecure-web",
       "target_sha": "5d1b791bb6c2d1397843f29ee6a0d5c9386dd667",
       "tn": 2,
-      "tp": 1,
+      "tp": 3,
       "unmatched_rules": []
     },
     {
@@ -512,14 +503,10 @@
     },
     {
       "files_scanned": 72,
-      "findings": 10,
-      "fn": 19,
+      "findings": 14,
+      "fn": 15,
       "fp": 5,
       "missed_ids": [
-        "lets-be-bad-guys-004",
-        "lets-be-bad-guys-005",
-        "lets-be-bad-guys-006",
-        "lets-be-bad-guys-007",
         "lets-be-bad-guys-009",
         "lets-be-bad-guys-010",
         "lets-be-bad-guys-011",
@@ -536,12 +523,12 @@
         "lets-be-bad-guys-023",
         "lets-be-bad-guys-024"
       ],
-      "precision": 0.5,
-      "recall": 0.2083,
+      "precision": 0.6429,
+      "recall": 0.375,
       "slug": "realvuln-lets-be-bad-guys",
       "target_sha": "7cbf11014bfc6dc9e199dc0b8a64e4597bc2338f",
       "tn": 4,
-      "tp": 5,
+      "tp": 9,
       "unmatched_rules": [
         "JS-INNERHTML-XSS",
         "PY-AST-DEBUG-ENABLED",
@@ -551,9 +538,9 @@
     },
     {
       "files_scanned": 40,
-      "findings": 2,
+      "findings": 3,
       "fn": 27,
-      "fp": 1,
+      "fp": 2,
       "missed_ids": [
         "owasp-web-playground-001",
         "owasp-web-playground-002",
@@ -583,26 +570,25 @@
         "owasp-web-playground-028",
         "owasp-web-playground-029"
       ],
-      "precision": 0.5,
+      "precision": 0.3333,
       "recall": 0.0357,
       "slug": "realvuln-owasp-web-playground",
       "target_sha": "5e682aca1b58e03362a5fbd9fc88c37626e429ce",
       "tn": 5,
       "tp": 1,
       "unmatched_rules": [
+        "JINJA-UNESCAPED-SAFE-FILTER",
         "PY-AST-UNSAFE-XML-PARSER"
       ]
     },
     {
       "files_scanned": 261,
-      "findings": 29,
-      "fn": 62,
-      "fp": 13,
+      "findings": 36,
+      "fn": 58,
+      "fp": 16,
       "missed_ids": [
         "pygoat-001",
         "pygoat-002",
-        "pygoat-003",
-        "pygoat-004",
         "pygoat-005",
         "pygoat-007",
         "pygoat-010",
@@ -638,13 +624,11 @@
         "pygoat-052",
         "pygoat-053",
         "pygoat-054",
-        "pygoat-055",
         "pygoat-056",
         "pygoat-057",
         "pygoat-058",
         "pygoat-059",
         "pygoat-060",
-        "pygoat-062",
         "pygoat-063",
         "pygoat-064",
         "pygoat-065",
@@ -662,13 +646,14 @@
         "pygoat-fp-025",
         "pygoat-071"
       ],
-      "precision": 0.5517,
-      "recall": 0.2051,
+      "precision": 0.5556,
+      "recall": 0.2564,
       "slug": "realvuln-pygoat",
       "target_sha": "2fb0c600245f50670e8b9233c784afe61e8b340b",
       "tn": 10,
-      "tp": 16,
+      "tp": 20,
       "unmatched_rules": [
+        "JINJA-UNESCAPED-SAFE-FILTER",
         "PY-ALLOWED-HOSTS-WILDCARD",
         "PY-AST-INSECURE-DESERIALIZATION",
         "PY-AST-INSECURE-RANDOM",
@@ -756,12 +741,10 @@
     },
     {
       "files_scanned": 25,
-      "findings": 7,
-      "fn": 22,
+      "findings": 9,
+      "fn": 20,
       "fp": 3,
       "missed_ids": [
-        "threatbyte-002",
-        "threatbyte-003",
         "threatbyte-004",
         "threatbyte-008",
         "threatbyte-009",
@@ -783,12 +766,12 @@
         "threatbyte-fp-008",
         "threatbyte-fp-009"
       ],
-      "precision": 0.5714,
-      "recall": 0.1538,
+      "precision": 0.6667,
+      "recall": 0.2308,
       "slug": "realvuln-threatbyte",
       "target_sha": "c4db46f72586c4ecb65859051ea037018dbf0e5e",
       "tn": 5,
-      "tp": 4,
+      "tp": 6,
       "unmatched_rules": [
         "PY-AST-OPEN-REDIRECT",
         "PY-AST-WEAK-HASH",
@@ -885,11 +868,10 @@
     },
     {
       "files_scanned": 17,
-      "findings": 17,
-      "fn": 18,
+      "findings": 18,
+      "fn": 17,
       "fp": 14,
       "missed_ids": [
-        "vulnerable-flask-app-001",
         "vulnerable-flask-app-003",
         "vulnerable-flask-app-005",
         "vulnerable-flask-app-006",
@@ -908,12 +890,12 @@
         "vulnerable-flask-app-020",
         "vulnerable-flask-app-021"
       ],
-      "precision": 0.1765,
-      "recall": 0.1429,
+      "precision": 0.2222,
+      "recall": 0.1905,
       "slug": "realvuln-vulnerable-flask-app",
       "target_sha": "b6a4f97afd466e83e1f60781494252dec1c37039",
       "tn": 4,
-      "tp": 3,
+      "tp": 4,
       "unmatched_rules": [
         "JS-DOCUMENT-WRITE",
         "JS-EVAL-USE",
@@ -992,9 +974,9 @@
     },
     {
       "files_scanned": 139,
-      "findings": 24,
+      "findings": 25,
       "fn": 62,
-      "fp": 6,
+      "fp": 7,
       "missed_ids": [
         "vulnpy-006",
         "vulnpy-010",
@@ -1059,13 +1041,14 @@
         "vulnpy-078",
         "vulnpy-079"
       ],
-      "precision": 0.75,
+      "precision": 0.72,
       "recall": 0.225,
       "slug": "realvuln-vulnpy",
       "target_sha": "d1d0f64c06f038fe59a049e0e6001bfaf9839697",
       "tn": 15,
       "tp": 18,
       "unmatched_rules": [
+        "JINJA-UNESCAPED-SAFE-FILTER",
         "PY-AST-EXEC-USE",
         "PY-AST-SILENT-EXCEPTION-SWALLOW",
         "PY-AST-UNSAFE-XML-PARSER",
@@ -1074,12 +1057,10 @@
     },
     {
       "files_scanned": 108,
-      "findings": 8,
-      "fn": 51,
+      "findings": 12,
+      "fn": 47,
       "fp": 2,
       "missed_ids": [
-        "vulpy-004",
-        "vulpy-005",
         "vulpy-006",
         "vulpy-007",
         "vulpy-008",
@@ -1096,8 +1077,6 @@
         "vulpy-021",
         "vulpy-022",
         "vulpy-023",
-        "vulpy-024",
-        "vulpy-025",
         "vulpy-027",
         "vulpy-028",
         "vulpy-029",
@@ -1130,12 +1109,12 @@
         "vulpy-fp-014",
         "vulpy-052"
       ],
-      "precision": 0.75,
-      "recall": 0.1053,
+      "precision": 0.8333,
+      "recall": 0.1754,
       "slug": "realvuln-vulpy",
       "target_sha": "5249cc8b05a1c37f6b2f757b1cf16a509c327122",
       "tn": 6,
-      "tp": 6,
+      "tp": 10,
       "unmatched_rules": [
         "PY-AST-SILENT-EXCEPTION-SWALLOW"
       ]

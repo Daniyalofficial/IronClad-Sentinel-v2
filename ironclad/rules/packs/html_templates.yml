@@ -1,0 +1,22 @@
+# Django/Jinja template expressions: explicit removal of HTML autoescaping.
+rules:
+  - id: JINJA-UNESCAPED-SAFE-FILTER
+    title: Template expression bypasses HTML autoescaping
+    languages: [html]
+    severity: high
+    category: xss
+    cwe: CWE-79
+    owasp: "A03:2021-Injection"
+    pattern: '\{\{(?!\s*["\x27\d])\s*[^{}]*\|\s*safe\s*(?:\(\s*\))?\s*\}\}'
+    message: >
+      The safe filter renders this value without HTML escaping. If it contains
+      request data or user-controlled stored content, script or HTML injection
+      executes in the reader's browser. Independently validate any upstream
+      sanitizer; a variable name alone does not establish safety.
+    remediation: >
+      Remove the safe filter and let Django/Jinja escape the value in context.
+      For intentional rich HTML, sanitize it with a trusted HTML sanitizer
+      before explicitly marking only the sanitized result safe.
+    confidence: medium
+    references:
+      - https://cwe.mitre.org/data/definitions/79.html

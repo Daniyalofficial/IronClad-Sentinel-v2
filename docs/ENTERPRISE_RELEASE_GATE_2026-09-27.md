@@ -8,10 +8,10 @@ historical estimates, not an overriding accuracy measurement.
 
 | Acceptance item | Requirement | Evidence as of this review | Gate |
 |---|---|---|---|
-| Deployment | Docker Compose + PostgreSQL running together | PostgreSQL migrations, concurrent operations, and direct HTTP requests to a PostgreSQL-backed server were exercised locally. The Compose image could not be built or booted here: `docker`, `podman`, and `nerdctl` are unavailable. Static Compose tests do not substitute for a running container. | **Unverified** |
+| Deployment | Docker Compose + PostgreSQL running together | PostgreSQL migrations, concurrent operations, and direct HTTP requests to a PostgreSQL-backed server were exercised locally. The Compose image could not be built or booted here: `docker`, `podman`, and `nerdctl` are unavailable; package-mirror, release-asset, and registry connections also failed. Static Compose tests and direct HTTP/PostgreSQL tests do not substitute for a running container. | **Unverified** |
 | Enterprise sign-in | Generic OIDC, preprovisioned local users | Optional HTTPS authorization-code + PKCE flow; signed ID token, browser-bound single-use state, issuer/audience/nonce checks and local tenant/role binding exercised against a protocol mock and in a concurrent PostgreSQL replay test. SSO-only users can issue limited-scope, one-time-display dashboard tokens with CSRF checks. No authorized customer's live IdP was available. No IdP back-channel logout, SCIM or push deprovisioning: operators can now deactivate accounts and revoke their sessions/API tokens through the API. | **Implemented locally; live IdP integration unverified** |
-| Independently benchmarked currently shipped scanners | Precision ≥95% and recall ≥90% | Full **26/26** independently labelled RealVuln human-authored Python repositories for shipped `ast-python` + `rule-engine`: **44.83% precision**, **12.94% recall** (see below). Other shipped scanners have not been independently measured against suitable third-party ground truth. | **FAIL** |
-| Offline advisory database freshness | Snapshot age ≤24 h **and** still at both upstream Git heads when promoted | Generated 2026-09-27T07:31:27Z from GitHub Advisory Database `5bb08251eb9a` and PyPA Advisory Database `bf401288956a`: **13,523 packages / 46,634 advisories**. The online checker passed at measurement time; it must be rerun and, if necessary, rebuilt immediately before any future release. | **Time-dependent; last checked PASS** |
+| Independently benchmarked currently shipped scanners | Precision ≥95% and recall ≥90% | Full **26/26** independently labelled RealVuln human-authored Python repositories for shipped `ast-python` + `rule-engine`: **49.79% precision**, **16.64% recall** (see below). Other shipped scanners have not been independently measured against suitable third-party ground truth. | **FAIL** |
+| Offline advisory database freshness | Snapshot age ≤24 h **and** still at both upstream Git heads when promoted | Generated 2026-09-27T09:46:47Z from GitHub Advisory Database `47313c6163ca` and PyPA Advisory Database `bf401288956a`: **13,523 packages / 46,634 advisories**. The online checker passed at measurement time; it must be rerun and, if necessary, rebuilt immediately before any future release. | **Time-dependent; last checked PASS** |
 | Complete product readiness | Only claim completion with objective evidence for all in-scope gates | Accuracy fails by a large margin and Compose/runtime certification and other independent benchmarks remain open. | **BLOCKED** |
 
 The agreed release deliberately defers **deep multi-language data flow and
@@ -29,21 +29,23 @@ The original scorer's file + acceptable CWE + ±10-line matching was used.
 
 | Scoring view | TP | FP | FN | TN | Precision | Recall |
 |---|---:|---:|---:|---:|---:|---:|
-| Full Python-human benchmark | 91 | 112 | 612 | 119 | **44.83%** | **12.94%** |
-| Generous *declared-CWE-only* sensitivity analysis | 91 | 112 | 324 | — | **44.83%** | **21.93%** |
+| Full Python-human benchmark | 117 | 118 | 586 | 119 | **49.79%** | **16.64%** |
+| Generous *declared-CWE-only* sensitivity analysis | 117 | 118 | 298 | — | **49.79%** | **28.19%** |
 
 The declared-CWE view is derived from scanner source independently of which
 benchmark cases passed; it **does not replace** the full-corpus score.
 Before the narrowly scoped Python SQL/data-source fixes, the same full
 benchmark produced 83 TP, 112 FP, 620 FN (42.56% precision, 11.81% recall).
-The new code matched eight more independently labelled cases, including an
-injection that had been silently deduplicated because two distinct queries
-shared identical `execute(query)` snippets at different lines. The unchanged
-FP count and remaining 612 FN still fail both release thresholds by a wide
-margin.
+The previously pushed SQL/data-source fixes matched eight more labels
+(91 TP / 112 FP / 612 FN). The latest independently scored HTML-response and
+template changes raised the count to **117 TP / 118 FP / 586 FN**, while the
+full 26-repository gate still fails both thresholds by a wide margin. The
+benchmark counts unmatched findings as FPs by its published protocol; some
+`|safe` expressions are genuinely exploitable even inside HTML comments.
+No label or matcher was changed to fit the score.
 Unmatched findings are false positives *under the benchmark's published
 protocol*, not evidence that a human would always reject them. Likewise, an
-internal 24-file synthetic regression corpus that reports 1.00/1.00 cannot
+internal 26-file synthetic regression corpus that reports 1.00/1.00 cannot
 establish third-party scanner accuracy. The independent Python result remains
 well below both user-selected thresholds in either view. Reproduce with
 [`benchmarks/realvuln_probe.py`](../benchmarks/realvuln_probe.py) against the
@@ -91,18 +93,28 @@ partly circular because the bundled snapshot incorporates PyPA, and it does
   hostile requests. Readiness, auth, tenant isolation, a scan, traversal and
   oversized IDs, idempotency, cross-session dashboard CSRF, narrow-token
   authorization, revocation, logout, and local user deactivation all behaved
-  as asserted. The later SQL fix was also verified through a new real-HTTP
-  scan: PostgreSQL stored the finding at the interpolated query, a bound
+  as asserted. The previously pushed SQL fix was also verified through a
+  real-HTTP scan: PostgreSQL stored the finding at the interpolated query, a bound
   parameter produced no SQL injection finding, and a foreign tenant and
-  anonymous client could not read the findings. This is **not** a Compose or
-  real-IdP result.
+  anonymous client could not read the findings. A new live PostgreSQL/HTTP
+  scan of hostile Flask and Jinja sources returned **five exact expected
+  findings** (including two HTML-comment breakout expressions), with no
+  Jinja-comment or properly escaped HTML alerts. The live request probe passed
+  **38/38** checks, including traversal and idempotency; a separate worker
+  completed the queued scan and PostgreSQL persisted its findings. This is
+  **not** a Compose or real-IdP result.
 - New scanner tests first reproduced missing Flask JSON and GraphQL SQL
   injections, a false alarm on bound SQL values, a shadowed SQLAlchemy name,
-  and deduplication of distinct queries. Deliberately disabling each fix
-  caused its new test to fail; the original code was then restored.
+  and deduplication of distinct queries. The current upgrade additionally
+  reproduced unsafe Flask route/JSON-to-HTML and `|safe` template flows,
+  verified that Jinja (not browser HTML) comment semantics govern whether
+  expressions are rendered, and mutation-verified the new rule and source
+  handling. Deliberately disabling the fixes caused their tests to fail; the
+  source was restored afterward. Real Jinja rendering demonstrated a `|safe`
+  payload that escaped an HTML comment into a `<script>` element.
 - Complete suite with `.venv/bin` on `PATH` and a disposable live PostgreSQL
   server kept alive throughout pytest (after scanner changes):
-  **1,536 passed, 439 warnings, 0 skipped**. A passing test suite
+  **1,551 passed, 440 warnings, 0 skipped**. A passing test suite
   demonstrates only the behaviors it tests, not release completion.
   `.github/workflows/` was not modified; a fuller example is at
   `deploy/ci/verify.yml` and must be installed by an authorized maintainer
@@ -114,10 +126,10 @@ partly circular because the bundled snapshot incorporates PyPA, and it does
   failing independent RealVuln accuracy gate. The skipped optional PyPA
   probe was subsequently run with the pinned feed; its **103/105 result
   failed** and its two contradictory ranges are detailed above. The prior
-  pushed branch commit `796736c` received **3/3 successful** GitHub Actions
-  jobs ([run](https://github.com/Daniyalofficial/IronClad-Sentinel-v2/actions/runs/36307499126));
-  that run predates the SQL fixes documented here. Neither local nor remote
-  tests certify running Compose or independent scanner accuracy.
+  pushed branch commit `114e8fd` received **3/3 successful** GitHub Actions
+  jobs ([run](https://github.com/Daniyalofficial/IronClad-Sentinel-v2/actions/runs/36308545737));
+  that run predates the HTML/template changes documented here. Neither local
+  nor remote tests certify running Compose or independent scanner accuracy.
 
 The online freshness check is `python scripts/check_advisory_freshness.py`
 (no `--offline`). Refresh with `bash scripts/build_advisory_db.sh` if the age

@@ -13,14 +13,14 @@
    "ruby",
    "rust"
   ],
-  "generated_at": "2026-09-27T07:31:27Z",
+  "generated_at": "2026-09-27T09:46:47Z",
   "generator_version": "1.1.0",
   "osv_records_read": 43506,
   "package_count": 13523,
   "per_package_limit": null,
   "schema_version": 1,
   "sources": [
-   "github/advisory-database@5bb08251eb9a + pypa/advisory-database@bf401288956a"
+   "github/advisory-database@47313c6163ca + pypa/advisory-database@bf401288956a"
   ],
   "unreadable_files": 0
  },

@@ -17,6 +17,7 @@ boundary, and it will not invent findings to inflate a rule count.
 from __future__ import annotations
 
 import ast
+import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -72,6 +73,7 @@ UNTRUSTED_SOURCES: Set[str] = {
     "request.args", "request.form", "request.values", "request.data",
     "request.json", "request.cookies", "request.headers", "request.files",
     "request.GET", "request.POST", "request.META", "request.body",
+    "request.get_json", "flask.request.get_json",
     "flask.request.args", "flask.request.form",
     # network reads
     "socket.recv", "sys.stdin.read", "sys.stdin.readline",
@@ -173,9 +175,14 @@ SINK_SPECS: Tuple[SinkSpec, ...] = (
             "strings, or escape explicitly with markupsafe.escape()/html.escape(). Never mark "
             "user input as safe."
         ),
-        calls=("render_template_string", "Markup", "markupsafe.Markup", "mark_safe",
+        # User-controlled template *syntax* is reported as critical SSTI by
+        # the template rule below; a second XSS alert at the same call would
+        # be a duplicate classification, not another independent finding.
+        calls=("Markup", "markupsafe.Markup", "mark_safe",
                "django.utils.safestring.mark_safe", "response.write", "self.write",
-               "writer.write"),
+               "writer.write", "django.http.HttpResponse", "django.http.response.HttpResponse",
+               "starlette.responses.HTMLResponse", "fastapi.responses.HTMLResponse",
+               "flask.make_response"),
         sanitizers=("html.escape", "escape", "markupsafe.escape", "bleach.clean", "quote"),
         references=("https://cwe.mitre.org/data/definitions/79.html",),
     ),
@@ -215,7 +222,8 @@ SINK_SPECS: Tuple[SinkSpec, ...] = (
             "Never construct a template from user input. Use a fixed template file and pass "
             "user data in as context values."
         ),
-        calls=("Template", "jinja2.Template", "render_template_string", "from_string",
+        calls=("Template", "jinja2.Template", "render_template_string",
+               "flask.render_template_string", "from_string",
                "django.template.Template"),
         references=("https://cwe.mitre.org/data/definitions/1336.html",),
     ),
@@ -322,6 +330,27 @@ SECRET_NAME_HINTS = ("token", "secret", "password", "passwd", "session", "nonce"
 # --------------------------------------------------------------------------- #
 # Taint tracking
 # --------------------------------------------------------------------------- #
+_HTML_TAG = re.compile(r"<\s*/?\s*[a-z][a-z0-9]*(?=[\s/>])", re.IGNORECASE)
+
+
+def _contains_html_markup(node: ast.AST) -> bool:
+    """Limit implicit route responses to constructed HTML, not JSON/text."""
+    return any(isinstance(child, ast.Constant) and isinstance(child.value, str)
+               and _HTML_TAG.search(child.value) for child in ast.walk(node))
+
+
+def _is_html_route(scope: ast.AST) -> bool:
+    """A Flask/Bottle-style route returns strings as text/html by default."""
+    for decorator in getattr(scope, "decorator_list", []):
+        if (isinstance(decorator, ast.Call) and isinstance(decorator.func, ast.Attribute)
+                and decorator.func.attr == "route" and decorator.args
+                and isinstance(decorator.args[0], ast.Constant)
+                and isinstance(decorator.args[0].value, str)
+                and decorator.args[0].value.startswith("/")):
+            return True
+    return False
+
+
 class FlowTracker:
     """Intra-procedural source -> sink tracker shared by every flow rule."""
 
@@ -458,9 +487,25 @@ class FlowTracker:
                 if keyword.arg in {"url", "uri", "href", "location"}:
                     return [keyword.value]
             return []
+        if spec.rule_id in {"PY-AST-XSS", "PY-AST-TEMPLATE-INJECTION"}:
+            # render_template_string(source, name=user_input) is safe when
+            # the template is fixed and the context variable is autoescaped.
+            # Only the template/content argument controls HTML or syntax.
+            if node.args:
+                return [node.args[0]]
+            return [kw.value for kw in node.keywords
+                    if kw.arg in {"source", "template", "content", "html", "value"}]
         return list(node.args) + [keyword.value for keyword in node.keywords if keyword.arg]
 
-    def _emit_flow(self, spec: SinkSpec, node: ast.Call, source: str) -> None:
+    def check_html_return(self, node: ast.Return) -> None:
+        if node.value is None or not _contains_html_markup(node.value):
+            return
+        source = self.source_of(node.value)
+        if source:
+            xss = next(spec for spec in SINK_SPECS if spec.rule_id == "PY-AST-XSS")
+            self._emit_flow(xss, node, source)
+
+    def _emit_flow(self, spec: SinkSpec, node: ast.AST, source: str) -> None:
         end = getattr(node, "end_lineno", node.lineno)
         self.findings.append(Finding(
             rule_id=spec.rule_id,
@@ -607,11 +652,14 @@ def scan_python_flows(path: str, rel_path: str) -> List[Finding]:
         tracker = FlowTracker(rel_path, source_lines, findings, aliases)
         if mark_params:
             tracker.mark_tainted_params(scope)
+        html_route = mark_params and _is_html_route(scope)
         for statement in ast.walk(scope):
             if isinstance(statement, ast.Assign):
                 tracker.visit_assign(statement)
             elif isinstance(statement, ast.Call):
                 tracker.check_call(statement)
+            elif html_route and isinstance(statement, ast.Return):
+                tracker.check_html_return(statement)
 
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):

@@ -138,6 +138,27 @@ def _is_comment_line(line: str, language: str) -> bool:
     return line.lstrip().startswith(marker)
 
 
+def _mask_template_comments(content: str) -> str:
+    """Hide Jinja/Django `{# #}` comments without changing line positions.
+
+    Unlike `{# #}`, HTML `<!-- -->` comments do *not* prevent Jinja from
+    evaluating an expression. A `|safe` payload can close the HTML comment
+    with `-->` and inject active markup, so it must remain searchable.
+    """
+    if "{#" not in content:
+        return content
+    chars = list(content)
+    position = 0
+    while (start := content.find("{#", position)) != -1:
+        end = content.find("#}", start + 2)
+        end = len(content) if end < 0 else end + 2
+        for i in range(start, end):
+            if not chars[i].isspace():
+                chars[i] = " "
+        position = end
+    return "".join(chars)
+
+
 SEVERITY_MAP = {
     "critical": Severity.CRITICAL,
     "high": Severity.HIGH,
@@ -162,20 +183,22 @@ def scan_file_with_rules(discovered: DiscoveredFile, rules: List[Rule]) -> List[
 
     findings: List[Finding] = []
     lines = content.splitlines()
+    searchable = _mask_template_comments(content) if discovered.language == "html" else content
+    search_lines = searchable.splitlines()
     definition_lines = _rule_pack_definition_lines(content)
     docstring_lines = _docstring_lines(lines) if discovered.language in _CODE_LANGUAGES else set()
 
     for rule in applicable:
         if rule.multiline:
-            for match in rule.compiled_pattern.finditer(content):
-                start_line = content.count("\n", 0, match.start()) + 1
-                end_line = content.count("\n", 0, match.end()) + 1
+            for match in rule.compiled_pattern.finditer(searchable):
+                start_line = searchable.count("\n", 0, match.start()) + 1
+                end_line = searchable.count("\n", 0, match.end()) + 1
                 if start_line in definition_lines:
                     continue
                 snippet = "\n".join(lines[max(0, start_line - 1):end_line])[:500]
                 findings.append(_build_finding(rule, discovered.rel_path, start_line, end_line, snippet))
         else:
-            for idx, line in enumerate(lines, start=1):
+            for idx, line in enumerate(search_lines, start=1):
                 if idx in definition_lines or idx in docstring_lines:
                     continue
                 if _is_comment_line(line, discovered.language):
@@ -185,7 +208,7 @@ def scan_file_with_rules(discovered: DiscoveredFile, rules: List[Rule]) -> List[
                     continue
                 if rule.compiled_exclude and rule.compiled_exclude.search(line):
                     continue
-                findings.append(_build_finding(rule, discovered.rel_path, idx, idx, line.strip()[:500]))
+                findings.append(_build_finding(rule, discovered.rel_path, idx, idx, lines[idx - 1].strip()[:500]))
 
     return findings
 

@@ -40,6 +40,10 @@ LANGUAGE_EXTENSIONS = {
     ".tfvars": "terraform",
     ".sql": "sql",
     ".html": "html",
+    ".htm": "html",
+    ".jinja": "html",
+    ".jinja2": "html",
+    ".j2": "html",
     ".env": "dotenv",
 }
 
