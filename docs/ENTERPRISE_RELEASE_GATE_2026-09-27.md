@@ -45,6 +45,27 @@ pinned release and read the saved per-repository result at
 The benchmark's later HEAD has a stale manifest after its ground truth
 changed; do **not** waive that integrity check to get a number.
 
+### Separate advisory-feed disagreement (not an accuracy-gate waiver)
+
+With the **same pinned PyPA advisory source** as the snapshot, the optional
+feed-derived dependency regression probe (`benchmarks/independent_recall.py`)
+returned **103/105 = 98.10%, exit 1** against four pinned repositories. It
+was not counted as a pass. Both unmatched PyPA labels concern
+`cryptography==37.0.4`: CVE-2026-69249 / PYSEC-2026-3553 and CVE-2026-69248 /
+PYSEC-2026-3554. Those advisories **are present** in the bundle, but their
+ranges exclude version 37. PyPA says `>=0, <49.0.0`, while the corresponding
+GitHub Reviewed advisories say [`>=42.0.0, <49.0.0`](https://github.com/advisories/GHSA-jwv3-5hgf-82ww)
+and [`>=45.0.0, <49.0.0`](https://github.com/advisories/GHSA-m2h6-j472-rp4c),
+respectively. Cryptography's own [X.509 verification documentation](https://cryptography.io/en/latest/x509/verification/)
+marks the verifier as **added in 42.0.0**. Thus the raw two-feed disagreement
+must not silently be called two confirmed scanner false negatives, nor
+silently dropped to make the probe green. The tool now distinguishes absent
+advisories from range disagreements while **preserving its failing score and
+threshold**. An operator should reconcile the upstream labels; freshness
+alone does not certify advisory correctness. This feed-derived probe is also
+partly circular because the bundled snapshot incorporates PyPA, and it does
+**not** change the separately failing independent RealVuln SAST measurement.
+
 ### Verification actually performed
 
 - API/dashboard and OIDC tests exercise hostile CSRF tokens, foreign tenants,
@@ -58,16 +79,30 @@ changed; do **not** waive that integrity check to get a number.
   revocation. PostgreSQL tests **must not** be silently skipped: set
   `IRONCLAD_TEST_POSTGRES_URL` to a disposable database whose name contains
   `test`, `verify`, `ci`, `scratch`, `tmp` or `temp`; these tests DROP its tables.
-- The previous upgrade's PostgreSQL-backed real HTTP smoke checked readiness,
-  auth, a scan, path traversal, oversized IDs, idempotency, dashboard token
-  CSRF, scopes and revocation. This is **not** a Compose or real-IdP result.
+- A **real HTTP socket** (`uvicorn` bound to 0.0.0.0 with a disposable
+  PostgreSQL database, not TestClient or Docker) was probed with valid and
+  hostile requests. Readiness, auth, tenant isolation, a scan, traversal and
+  oversized IDs, idempotency, cross-session dashboard CSRF, narrow-token
+  authorization, revocation, logout, and local user deactivation all behaved
+  as asserted. This is **not** a Compose or real-IdP result.
 - Complete suite with `.venv/bin` on `PATH` and a disposable live PostgreSQL
-  server kept alive throughout pytest: **1,525 passed, 440 warnings, 0
-  skipped**. A passing test suite demonstrates only the behaviors it tests,
-  not release completion. `.github/workflows/` was not modified; a fuller
-  example is at
+  server kept alive throughout pytest (after advisory conflict diagnostics):
+  **1,528 passed, 441 warnings, 0 skipped**. A passing test suite
+  demonstrates only the behaviors it tests, not release completion.
+  `.github/workflows/` was not modified; a fuller example is at
   `deploy/ci/verify.yml` and must be installed by an authorized maintainer
   if CI coverage is expanded.
+- The local `scripts/verify_all.sh --quick --keep-venv` completed **33 passed,
+  0 failed, 2 explicitly skipped**: the optional feed-derived PyPA recall
+  probe lacked a checkout, and Docker build/runtime could not run. The
+  script's own 0.95 threshold checks a *project-written* corpus, not the
+  failing independent RealVuln accuracy gate. The skipped optional PyPA
+  probe was subsequently run with the pinned feed; its **103/105 result
+  failed** and its two contradictory ranges are detailed above. The required
+  branch commit
+  `fed547a` also received **3/3 successful** GitHub Actions jobs
+  ([run](https://github.com/Daniyalofficial/IronClad-Sentinel-v2/actions/runs/36306630795));
+  those jobs do not certify running Compose or independent scanner accuracy.
 
 The online freshness check is `python scripts/check_advisory_freshness.py`
 (no `--offline`). Refresh with `bash scripts/build_advisory_db.sh` if the age

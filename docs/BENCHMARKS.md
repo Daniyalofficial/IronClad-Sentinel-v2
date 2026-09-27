@@ -102,6 +102,19 @@ than "no false positives on your monorepo". The script also reports
 `rules_never_fired`, so a detector that silently stops working cannot hide
 inside an average.
 
+### Feed-derived dependency regression (not independent accuracy)
+
+When run with the PyPA source pinned in the bundled snapshot, the optional
+`benchmarks/independent_recall.py` probe scored **103/105, exit 1**. Two
+unmatched PyPA labels assert that `cryptography==37.0.4` is vulnerable to
+2026 issues in its X.509 verifier; GitHub Reviewed ranges exclude that version
+and the verifier was added in cryptography 42.0.0. The raw probe **still
+fails**; its improved diagnostic reports this as a source-range disagreement,
+not as a nonexistent bundled advisory. See the [release-gate report](ENTERPRISE_RELEASE_GATE_2026-09-27.md)
+for third-party references. Because the snapshot merges PyPA, even a perfect
+feed-probe score would be partly circular and would not establish accuracy of
+the shipped dependency scanner on independent code.
+
 ## Server-side throughput
 
 By default, `POST /scan` queues a job and returns `202` without waiting

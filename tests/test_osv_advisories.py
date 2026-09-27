@@ -808,3 +808,27 @@ def test_advisory_import_records_build_time_for_release_freshness_gate(tmp_path)
     built = datetime.fromisoformat(metadata["generated_at"].replace("Z", "+00:00"))
     assert built.tzinfo is not None
     assert abs((datetime.now(timezone.utc) - built).total_seconds()) <= 30
+
+
+@pytest.mark.parametrize("cve,reviewed_lower_bound", [
+    ("CVE-2026-69249", ">=42.0.0"),
+    ("CVE-2026-69248", ">=45.0.0"),
+])
+def test_bundled_reviewed_cryptography_range_is_not_overwritten_by_broad_pypa_range(
+        cve, reviewed_lower_bound):
+    """The pinned feeds disagree: PyPA says introduced 0, GHSA is narrower.
+
+    cryptography.x509.verification first shipped in 42.0.0 (per the project's
+    own documentation). Flagging cryptography 37 for either verifier issue
+    would be a false positive. The build chooses GHSA before PyPA for a
+    duplicate CVE, and this protects that version boundary in the *shipped*
+    artifact, not only in a hand-written importer fixture.
+    """
+    matches = [row for row in BundledAdvisorySource().lookup("python", "cryptography")
+               if row.get("cve") == cve]
+    assert len(matches) == 1, matches
+    assert matches[0]["affected"].startswith(reviewed_lower_bound), matches[0]
+    assert not _matches("37.0.4", matches[0]["affected"]), (
+        "an affected range cannot predate the vulnerable verifier")
+    assert _matches("46.0.0", matches[0]["affected"])
+    assert not _matches("49.0.0", matches[0]["affected"])

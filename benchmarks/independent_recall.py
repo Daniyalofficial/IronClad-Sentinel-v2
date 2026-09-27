@@ -18,11 +18,14 @@ Honesty about what this can and cannot prove:
   and every miss was real: the database had *zero* advisories for `click`,
   and was missing `CVE-2025-49142` (jinja2) and `CVE-2022-29361` (werkzeug).
   That is the measurement that justified merging a second feed.
-* Ground truth is built here from the PyPA YAML directly, and pinned versions
-  are extracted with a trivial regex -- neither uses the production parsers,
-  so a bug in them shows up as a disagreement.
+* Label ranges come directly from PyPA YAML, and pinned versions are
+  extracted with a trivial regex, independently of the production parsers.
+  The benchmark **does** reuse IronClad's version-range comparator, so it is
+  not a fully independent proof of that comparator's correctness.
 * CVE is the join key, because the two feeds use different identifiers for
-  the same vulnerability.
+  the same vulnerability. A PyPA-vs-GHSA range disagreement is not
+  automatically a scanner false negative: review both sources and upstream
+  release history before treating either label as correct.
 
 Requires network access to github.com for the checkout; self-skips (exit 0)
 when the source directory is absent.
@@ -41,6 +44,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ironclad.core.config import IronCladConfig  # noqa: E402
 from ironclad.core.engine import run_scan  # noqa: E402
+from ironclad.scanners.advisories import BundledAdvisorySource  # noqa: E402
 from ironclad.scanners.dependency import _satisfies_affected_range  # noqa: E402
 
 TARGETS = [
@@ -143,6 +147,23 @@ def checkout(repo: str, ref: str, dest: str) -> bool:
         return False
 
 
+def explain_unmatched(source, name: str, version: str, cve: str, pypa_range: str) -> str:
+    """Diagnose a failed label without silently excluding it from the score.
+
+    An advisory present in both feeds with conflicting version ranges is not
+    the same as a missing advisory or a parser/matcher bug. This diagnostic
+    never changes the denominator, pass threshold or return code.
+    """
+    rows = [row for row in source.lookup("python", name) if row.get("cve") == cve]
+    if not rows:
+        return "advisory absent from bundled database"
+    bundled = sorted({str(row.get("affected", "")) for row in rows})
+    if any(_satisfies_affected_range(version, affected) for affected in bundled):
+        return f"matching advisory exists; investigate scanner pipeline (bundled: {bundled})"
+    return (f"range disagreement: PyPA {pypa_range} includes {version}, "
+            f"bundled {bundled} excludes it; adjudicate with upstream")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", default=os.environ.get("IRONCLAD_PYPA_VULNS", ""),
@@ -176,7 +197,7 @@ def main() -> int:
             for name, version in pins.items():
                 for cve, spec, pysec_id in truth.get(name, []):
                     if _satisfies_affected_range(version, spec):
-                        expected[(name, cve)] = (version, pysec_id)
+                        expected[(name, cve)] = (version, pysec_id, spec)
             result = run_scan(IronCladConfig(target=dest, enabled_engines={"dependency"}))
             found = {(f.extra.get("package"), f.extra.get("cve"))
                      for f in result.findings if f.category == "vulnerable-dependency"}
@@ -199,9 +220,11 @@ def main() -> int:
     recall = total_found / total_expected if total_expected else 1.0
     print(f"independent recall = {total_found}/{total_expected} = {recall:.4f}")
     if misses:
-        print("missed (the bundled database has no advisory for these):")
-        for repo, ref, name, cve, (version, pysec_id) in misses[:30]:
-            print(f"  {repo}@{ref}  {name}=={version}  {cve} ({pysec_id})")
+        print("unmatched PyPA labels (not all necessarily true scanner misses):")
+        source = BundledAdvisorySource()
+        for repo, ref, name, cve, (version, pysec_id, spec) in misses[:30]:
+            diagnosis = explain_unmatched(source, name, version, cve, spec)
+            print(f"  {repo}@{ref}  {name}=={version}  {cve} ({pysec_id}): {diagnosis}")
     print("note: the bundled database is built from GHSA *and* PyPA, so a "
           "perfect score is partly circular; this is a regression guard.")
     return 0 if recall >= 0.99 else 1

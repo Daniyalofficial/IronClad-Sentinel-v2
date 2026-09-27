@@ -321,9 +321,11 @@ python scripts/check_advisory_freshness.py  # <=24h and both current upstream he
 
 A snapshot can become stale again whenever either source advances. The
 checker fails closed on an unverified Git head; `--offline` checks only age
-and **does not qualify** a release. See the dated enterprise release-gate
-report for the last measurement. This is a build/release operation, not a
-product network call on every scan.
+and **does not qualify** a release. Freshness is not correctness: the two
+feeds can disagree about an affected version. See the dated enterprise
+release-gate report for the last age/head measurement and an unresolved
+PyPA-versus-GitHub range disagreement. This is a build/release operation,
+not a product network call on every scan.
 
 ### Backup and restore
 
