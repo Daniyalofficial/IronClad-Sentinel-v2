@@ -1,5 +1,8 @@
 # Enterprise release gate — 2026-09-27
 
+> **Historical review.** The latest evidence and release decision are in
+> [ENTERPRISE_RELEASE_GATE_2026-09-30.md](ENTERPRISE_RELEASE_GATE_2026-09-30.md).
+
 **Status: BLOCKED. This is not a 100% or competition-ready certification. No
 final enterprise ZIP is approved.** The older project-status report records
 historical estimates, not an overriding accuracy measurement.

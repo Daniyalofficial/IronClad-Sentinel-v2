@@ -73,6 +73,39 @@ def _checked_truth(root: Path) -> tuple[dict, str]:
     return manifest, computed
 
 
+def verify_target_checkout(target: Path, expected_sha: str,
+                           required_files: list[str]) -> None:
+    """Reject a pinned HEAD with missing sources (including sparse checkouts).
+
+    `git clone --no-checkout` still gives `rev-parse HEAD` the right commit,
+    but scanning its empty worktree produces an invalid, deceptively precise
+    measurement. Neither that nor a dirty target is a valid pinned corpus.
+    """
+    def git(*args: str) -> str:
+        try:
+            return subprocess.run(["git", "-C", str(target), *args], check=True,
+                                  capture_output=True, text=True, timeout=20).stdout.strip()
+        except (subprocess.SubprocessError, OSError) as exc:
+            raise ProbeError(f"cannot verify pinned target {target.name}") from exc
+
+    if git("rev-parse", "HEAD") != expected_sha:
+        raise ProbeError(f"target {target.name} is not at its ground-truth commit")
+    if git("status", "--porcelain=v1", "--untracked-files=all"):
+        raise ProbeError(f"pinned target {target.name} is not clean; check out all sources")
+    for name in required_files:
+        path = Path(name)
+        if path.is_absolute() or ".." in path.parts or not (target / path).is_file():
+            raise ProbeError(f"pinned target {target.name} missing labeled source: {name}")
+    try:
+        sparse = subprocess.run(["git", "-C", str(target), "config", "--bool",
+                                 "core.sparseCheckout"], capture_output=True, text=True,
+                                timeout=20)
+    except (subprocess.SubprocessError, OSError) as exc:
+        raise ProbeError(f"cannot verify pinned target {target.name}") from exc
+    if sparse.returncode == 0 and sparse.stdout.strip() == "true":
+        raise ProbeError(f"pinned target {target.name} uses a sparse checkout")
+
+
 def measure(root: Path, slugs=None) -> dict:
     root = root.resolve()
     manifest, truth_hash = _checked_truth(root)
@@ -102,13 +135,10 @@ def measure(root: Path, slugs=None) -> dict:
         target = root / "repos" / slug
         if not target.is_dir():
             raise ProbeError(f"missing pinned target {slug}; run {root / 'clone_repos.py'} --repo {slug}")
-        try:
-            actual = subprocess.run(["git", "-C", str(target), "rev-parse", "HEAD"],
-                                    check=True, capture_output=True, text=True, timeout=10).stdout.strip()
-        except (subprocess.SubprocessError, OSError) as exc:
-            raise ProbeError(f"cannot verify pinned target {slug}") from exc
-        if actual != gt.get("commit_sha"):
-            raise ProbeError(f"target {slug} is not at its ground-truth commit")
+        actual = gt.get("commit_sha")
+        labeled_sources = sorted({finding["file"] for finding in gt["findings"]
+                                  if finding.get("is_vulnerable") and finding.get("file")})
+        verify_target_checkout(target, actual, labeled_sources)
         # The evaluated source itself is untrusted: never honor its
         # .ironclad.yml (or a workstation user config) when choosing engines.
         config = IronCladConfig(target=str(target), enabled_engines=list(ENGINES),

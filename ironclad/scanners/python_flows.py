@@ -109,6 +109,14 @@ class SinkSpec:
     url_position: bool = False
 
 
+# Archive and compressed-file APIs accept filesystem paths just like open().
+# A user-controlled mode/encoding is not itself a file path.
+ARCHIVE_PATH_CALLS: Tuple[str, ...] = (
+    "tarfile.open", "tarfile.TarFile", "tarfile.TarFile.open",
+    "bz2.open", "bz2.BZ2File", "gzip.open", "gzip.GzipFile",
+    "zipfile.ZipFile", "lzma.open", "lzma.LZMAFile",
+)
+
 SINK_SPECS: Tuple[SinkSpec, ...] = (
     SinkSpec(
         rule_id="PY-AST-PATH-TRAVERSAL",
@@ -130,7 +138,7 @@ SINK_SPECS: Tuple[SinkSpec, ...] = (
         calls=("open", "io.open", "builtins.open", "Path.read_text", "Path.read_bytes",
                "Path.open", "Path.write_text", "Path.write_bytes", "os.remove", "os.unlink",
                "os.rmdir", "shutil.copy", "shutil.copyfile", "shutil.move", "send_file",
-               "send_from_directory", "os.path.abspath"),
+               "send_from_directory", "os.path.abspath") + ARCHIVE_PATH_CALLS,
         sanitizers=("secure_filename", "werkzeug.utils.secure_filename", "os.path.basename",
                     "basename", "Path.name", "os.path.realpath", "realpath"),
         references=("https://cwe.mitre.org/data/definitions/22.html",),
@@ -331,6 +339,93 @@ SECRET_NAME_HINTS = ("token", "secret", "password", "passwd", "session", "nonce"
 # Taint tracking
 # --------------------------------------------------------------------------- #
 _HTML_TAG = re.compile(r"<\s*/?\s*[a-z][a-z0-9]*(?=[\s/>])", re.IGNORECASE)
+_FLASK_ROUTE_PARAM = re.compile(r"<(?:[A-Za-z_][A-Za-z_0-9]*:)?([A-Za-z_][A-Za-z_0-9]*)>")
+_BRACED_ROUTE_PARAM = re.compile(r"\{([A-Za-z_][A-Za-z_0-9]*)(?::[^{}]+)?\}")
+
+
+_JINJA_ENV_CONSTRUCTORS = {"jinja2.Environment", "jinja2.environment.Environment"}
+_FASTAPI_CONSTRUCTORS = {"fastapi.FastAPI", "fastapi.applications.FastAPI",
+                         "fastapi.APIRouter", "fastapi.routing.APIRouter"}
+_FASTAPI_INJECTIONS = {"fastapi.Depends", "fastapi.params.Depends", "fastapi.Security",
+                       "fastapi.params.Security"}
+_FASTAPI_FRAMEWORK_ARGS = {"fastapi.Request", "starlette.requests.Request",
+                           "fastapi.Response", "starlette.responses.Response",
+                           "fastapi.BackgroundTasks", "fastapi.WebSocket",
+                           "starlette.websockets.WebSocket", "starlette.requests.HTTPConnection"}
+
+
+def _fastapi_routers(tree: ast.Module, aliases: Dict[str, str]) -> Set[str]:
+    """Find route owners proven to be local FastAPI/Router instances."""
+    routers: Set[str] = set()
+    for statement in tree.body:
+        if isinstance(statement, ast.Assign):
+            targets, value = statement.targets, statement.value
+        elif isinstance(statement, ast.AnnAssign):
+            targets, value = [statement.target], statement.value
+        else:
+            continue
+        if not isinstance(value, ast.Call):
+            continue
+        if resolve_name(_call_name(value) or "", aliases) not in _FASTAPI_CONSTRUCTORS:
+            continue
+        routers.update(target.id for target in targets if isinstance(target, ast.Name))
+    return routers
+
+
+def _injected_parameter(arg: ast.arg, default: Optional[ast.AST],
+                        aliases: Dict[str, str]) -> bool:
+    """Skip FastAPI's internally supplied request/dependency objects."""
+    annotation = arg.annotation
+    if annotation is not None:
+        name = resolve_name(_dotted_name(annotation) or "", aliases)
+        if name in _FASTAPI_FRAMEWORK_ARGS:
+            return True
+        # `Annotated[Database, Depends(...)]` also means dependency injection.
+        if any(isinstance(node, ast.Call)
+               and resolve_name(_call_name(node) or "", aliases) in _FASTAPI_INJECTIONS
+               for node in ast.walk(annotation)):
+            return True
+    return (isinstance(default, ast.Call)
+            and resolve_name(_call_name(default) or "", aliases) in _FASTAPI_INJECTIONS)
+
+
+def _route_input_parameters(scope: ast.AST, fastapi_routers: Set[str],
+                            aliases: Dict[str, str]) -> Dict[str, str]:
+    """Bind explicit route placeholders and non-injected FastAPI parameters.
+
+    Flask handlers receive only URL placeholders as arguments; FastAPI also
+    binds undecorated query/body arguments. Never taint framework-injected
+    database sessions or request objects solely because they are parameters.
+    """
+    parameters: Dict[str, str] = {}
+    fastapi_route = False
+    for decorator in getattr(scope, "decorator_list", []):
+        if not isinstance(decorator, ast.Call) or not isinstance(decorator.func, ast.Attribute):
+            continue
+        if decorator.func.attr not in {"route", "api_route", "get", "post", "put", "patch", "delete"}:
+            continue
+        candidate = decorator.args[0] if decorator.args else next(
+            (kw.value for kw in decorator.keywords if kw.arg in {"path", "rule"}), None)
+        if not isinstance(candidate, ast.Constant) or not isinstance(candidate.value, str):
+            continue
+        if not candidate.value.startswith("/"):
+            continue
+        for name in (*_FLASK_ROUTE_PARAM.findall(candidate.value),
+                     *_BRACED_ROUTE_PARAM.findall(candidate.value)):
+            parameters[name] = "HTTP route parameter"
+        receiver = decorator.func.value
+        if isinstance(receiver, ast.Name) and receiver.id in fastapi_routers:
+            fastapi_route = True
+    if fastapi_route:
+        args = getattr(scope, "args", None)
+        if args is not None:
+            positional = list(getattr(args, "posonlyargs", [])) + list(args.args)
+            defaults = [None] * (len(positional) - len(args.defaults)) + list(args.defaults)
+            pairs = list(zip(positional, defaults)) + list(zip(args.kwonlyargs, args.kw_defaults))
+            for arg, default in pairs:
+                if arg.arg not in {"self", "cls"} and not _injected_parameter(arg, default, aliases):
+                    parameters.setdefault(arg.arg, "HTTP endpoint parameter")
+    return parameters
 
 
 def _contains_html_markup(node: ast.AST) -> bool:
@@ -355,22 +450,29 @@ class FlowTracker:
     """Intra-procedural source -> sink tracker shared by every flow rule."""
 
     def __init__(self, filename: str, source_lines: List[str], findings: List[Finding],
-                 aliases: Optional[Dict[str, str]] = None):
+                 aliases: Optional[Dict[str, str]] = None,
+                 fastapi_routers: Optional[Set[str]] = None):
         self.filename = filename
         self.source_lines = source_lines
         self.findings = findings
         self.tainted: Dict[str, str] = {}
         self.aliases: Dict[str, str] = aliases or {}
+        self.fastapi_routers = fastapi_routers or set()
+        self.template_environments: Set[str] = set()
 
     # -- sources ----------------------------------------------------------
     def mark_tainted_params(self, func: ast.AST) -> None:
         args = getattr(func, "args", None)
         if args is None:
             return
-        for arg in list(args.args) + list(getattr(args, "kwonlyargs", []) or []):
+        route_inputs = _route_input_parameters(func, self.fastapi_routers, self.aliases)
+        for arg in (list(getattr(args, "posonlyargs", [])) + list(args.args)
+                    + list(getattr(args, "kwonlyargs", []))):
             name = arg.arg
             lowered = name.lower()
-            if name in TAINTED_PARAM_HINTS or any(hint in lowered for hint in ("user_input", "untrusted")):
+            if name in route_inputs:
+                self.tainted[name] = f"{route_inputs[name]} `{name}`"
+            elif name in TAINTED_PARAM_HINTS or any(hint in lowered for hint in ("user_input", "untrusted")):
                 self.tainted[name] = f"function parameter `{name}`"
 
     def source_of(self, node: ast.AST) -> Optional[str]:
@@ -450,6 +552,17 @@ class FlowTracker:
 
     # -- assignment propagation ------------------------------------------
     def visit_assign(self, node: ast.Assign) -> None:
+        is_jinja_env = (isinstance(node.value, ast.Call)
+                        and resolve_name(_call_name(node.value) or "", self.aliases)
+                        in _JINJA_ENV_CONSTRUCTORS)
+        if isinstance(node.value, ast.Name) and node.value.id in self.template_environments:
+            is_jinja_env = True
+        for target in node.targets:
+            if isinstance(target, ast.Name):
+                if is_jinja_env:
+                    self.template_environments.add(target.id)
+                else:
+                    self.template_environments.discard(target.id)
         source = self.source_of(node.value)
         if source:
             for target in node.targets:
@@ -461,17 +574,38 @@ class FlowTracker:
                     self.tainted.pop(target.id, None)
 
     # -- sinks ------------------------------------------------------------
+    def _is_jinja_from_string(self, node: ast.Call) -> bool:
+        """Require a Jinja Environment receiver, not an unrelated parser."""
+        if not isinstance(node.func, ast.Attribute) or node.func.attr != "from_string":
+            return False
+        receiver = node.func.value
+        if isinstance(receiver, ast.Name):
+            return receiver.id in self.template_environments
+        return (isinstance(receiver, ast.Call)
+                and resolve_name(_call_name(receiver) or "", self.aliases)
+                in _JINJA_ENV_CONSTRUCTORS)
+
     def check_call(self, node: ast.Call) -> None:
         name = resolve_name(_call_name(node) or "", self.aliases)
         leaf = name.rsplit(".", 1)[-1]
         for spec in SINK_SPECS:
-            matched = name in spec.calls or (leaf and leaf in {c.rsplit(".", 1)[-1] for c in spec.calls}
-                                             and _looks_like_spec_call(name, spec))
+            if (spec.rule_id == "PY-AST-TEMPLATE-INJECTION"
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "from_string"):
+                matched = self._is_jinja_from_string(node)
+            else:
+                matched = name in spec.calls or (leaf and leaf in {c.rsplit(".", 1)[-1] for c in spec.calls}
+                                                 and _looks_like_spec_call(name, spec))
             if not matched:
                 continue
             arguments = self._candidate_arguments(node, spec)
             for arg in arguments:
-                if self._contains_sanitizer(arg, spec.sanitizers):
+                # A single escaped field cannot sanitize an *entire* HTML
+                # concatenation: inspect each formatted/concatenated value
+                # instead of hiding an unsafe sibling in the same response.
+                composite_html = (spec.rule_id == "PY-AST-XSS"
+                                  and isinstance(arg, (ast.JoinedStr, ast.BinOp)))
+                if not composite_html and self._contains_sanitizer(arg, spec.sanitizers):
                     continue
                 source = self.source_of(arg)
                 if not source:
@@ -480,6 +614,12 @@ class FlowTracker:
                 break
 
     def _candidate_arguments(self, node: ast.Call, spec: SinkSpec) -> List[ast.AST]:
+        if (spec.rule_id == "PY-AST-PATH-TRAVERSAL"
+                and resolve_name(_call_name(node) or "", self.aliases) in ARCHIVE_PATH_CALLS):
+            # `tarfile.open(name=..., mode=...)` and `ZipFile(file=..., mode=...)`:
+            # the mode is user-settable but cannot choose a file on its own.
+            return list(node.args[:1]) + [kw.value for kw in node.keywords
+                                          if kw.arg in {"name", "file", "filename", "path"}]
         if spec.url_position:
             if node.args:
                 return [node.args[0]]
@@ -646,10 +786,11 @@ def scan_python_flows(path: str, rel_path: str) -> List[Finding]:
         return findings
 
     aliases = collect_import_aliases(tree)
+    fastapi_routers = _fastapi_routers(tree, aliases)
     _check_patterns(rel_path, source_lines, tree, findings, aliases)
 
     def run_scope(scope: ast.AST, mark_params: bool) -> None:
-        tracker = FlowTracker(rel_path, source_lines, findings, aliases)
+        tracker = FlowTracker(rel_path, source_lines, findings, aliases, fastapi_routers)
         if mark_params:
             tracker.mark_tainted_params(scope)
         html_route = mark_params and _is_html_route(scope)

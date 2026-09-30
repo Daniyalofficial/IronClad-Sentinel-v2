@@ -1,8 +1,8 @@
 {
  "_meta": {
-  "advisory_count": 46634,
+  "advisory_count": 46732,
   "description": "IronClad Sentinel offline advisory database, generated from OSV records by `ironclad advisories import-osv`.",
-  "duplicate_cves_merged": 27124,
+  "duplicate_cves_merged": 27194,
   "ecosystems": [
    "go",
    "java",
@@ -13,14 +13,14 @@
    "ruby",
    "rust"
   ],
-  "generated_at": "2026-09-27T09:46:47Z",
+  "generated_at": "2026-09-30T10:06:19Z",
   "generator_version": "1.1.0",
-  "osv_records_read": 43506,
-  "package_count": 13523,
+  "osv_records_read": 43599,
+  "package_count": 13527,
   "per_package_limit": null,
   "schema_version": 1,
   "sources": [
-   "github/advisory-database@47313c6163ca + pypa/advisory-database@bf401288956a"
+   "github/advisory-database@6669d604e3bd + pypa/advisory-database@4eab9bee0c16"
   ],
   "unreadable_files": 0
  },
@@ -10743,9 +10743,9 @@
   ],
   "github.com/crossplane/crossplane/v2": [
    {
-    "affected": ">=2.3.0-rc.0, <=2.3.2",
+    "affected": ">=2.3.0-rc.0, <2.3.3",
     "cve": null,
-    "fixed_in": "",
+    "fixed_in": "2.3.3",
     "id": "GHSA-wfqx-gjrf-g28r",
     "severity": "critical",
     "summary": "Crossplane: Signature verification TOCTOU allows installing unverified package content via mutable tag"
@@ -45629,6 +45629,24 @@
     "id": "GHSA-8wmf-6v46-5gfg",
     "severity": "low",
     "summary": "OpenTelemetry-Go: Exporter config logging may leak endpoint URLs in info logs"
+   },
+   {
+    "affected": ">=1.10.0, <1.33.0",
+    "cve": "CVE-2026-81869",
+    "fixed_in": "1.33.0",
+    "id": "GHSA-p9f8-wvj8-2fg8",
+    "severity": "high",
+    "summary": "OpenTelemetry-Go: UTF-8 replacement rune bypasses attribute length truncation"
+   }
+  ],
+  "go.opentelemetry.io/otel/sdk/log": [
+   {
+    "affected": "<0.21.0",
+    "cve": "CVE-2026-81872",
+    "fixed_in": "0.21.0",
+    "id": "GHSA-hjf4-fphr-2h65",
+    "severity": "high",
+    "summary": "OpenTelemetry-Go: BatchProcessor can busy-spin when export buffer is full"
    }
   ],
   "go.pinniped.dev": [
@@ -53323,6 +53341,38 @@
     "id": "GHSA-mhm7-754m-9p8w",
     "severity": "high",
     "summary": "jackson-databind: `@JsonView` bypass for creator properties with `@JsonTypeInfo(include=As.EXTERNAL_PROPERTY)`"
+   },
+   {
+    "affected": ">=2.11.0, <2.18.10",
+    "cve": "CVE-2026-83557",
+    "fixed_in": "2.18.10",
+    "id": "GHSA-gx83-3vf8-gh7j",
+    "severity": "high",
+    "summary": "jackson-databind: Comparable missing from DefaultBaseTypeLimitingValidator's unsafe base types (incomplete PolymorphicTypeValidator denylist)"
+   },
+   {
+    "affected": ">=2.14.0, <2.18.10",
+    "cve": "CVE-2026-68497",
+    "fixed_in": "2.18.10",
+    "id": "GHSA-q4xh-88c3-wmh7",
+    "severity": "high",
+    "summary": "jackson-databind: Duration XMLGregorianCalendar Unbounded Number Parse DoS"
+   },
+   {
+    "affected": ">=2.0.0, <2.18.9",
+    "cve": "CVE-2026-77310",
+    "fixed_in": "2.18.9",
+    "id": "GHSA-vvgp-rfg2-7rr6",
+    "severity": "high",
+    "summary": "jackson-databind: Incomplete fix for CVE-2026-54514: eager DNS resolution (SSRF) still present in InetAddress deserialization"
+   },
+   {
+    "affected": ">=2.8.0, <2.18.10",
+    "cve": "CVE-2026-19032",
+    "fixed_in": "2.18.10",
+    "id": "GHSA-wjgm-6hv5-3cvf",
+    "severity": "high",
+    "summary": "jackson-databind: Path Deserialization Missing Scheme Allowlist for FileSystemProvider Resolution"
    }
   ],
   "com.fasterxml.jackson.dataformat:jackson-dataformat-cbor": [
@@ -72951,7 +73001,7 @@
     "summary": "Missing Authentication for Critical Function in Apache Calcite"
    },
    {
-    "affected": "<1.32.0",
+    "affected": ">=1.22.0, <1.32.0",
     "cve": "CVE-2022-39135",
     "fixed_in": "1.32.0",
     "id": "GHSA-fj2m-w3wv-x9pr",
@@ -93141,6 +93191,16 @@
     "summary": "Generation of Error Message Containing Sensitive Information in Elasticsearch"
    }
   ],
+  "org.elasticsearch.plugin:reindex-client": [
+   {
+    "affected": ">=7.0.0, <8.18.8",
+    "cve": "CVE-2025-37727",
+    "fixed_in": "8.18.8",
+    "id": "GHSA-56r7-h6mw-rcfv",
+    "severity": "high",
+    "summary": "Elasticsearch: Insertion of Sensitive Information into Log File via reindex API"
+   }
+  ],
   "org.elasticsearch.plugin:x-pack": [
    {
     "affected": "<5.5.2",
@@ -93515,14 +93575,6 @@
     "id": "GHSA-mm3m-5497-xggg",
     "severity": "high",
     "summary": "Elasticsearch Uncontrolled Resource Consumption Vulnerability"
-   },
-   {
-    "affected": ">=7.0.0, <8.18.8",
-    "cve": "CVE-2025-37727",
-    "fixed_in": "8.18.8",
-    "id": "GHSA-56r7-h6mw-rcfv",
-    "severity": "high",
-    "summary": "Elasticsearch: Insertion of Sensitive Information into Log File via reindex API"
    }
   ],
   "org.elasticsearch:elasticsearch-grok": [
@@ -124995,6 +125047,38 @@
     "id": "GHSA-5gvw-p9qm-jgwh",
     "severity": "high",
     "summary": "jackson-databind: @JsonView bypassed for @JsonUnwrapped container properties on deserialization"
+   },
+   {
+    "affected": ">=3.0.0, <3.1.6",
+    "cve": "CVE-2026-83557",
+    "fixed_in": "3.1.6",
+    "id": "GHSA-gx83-3vf8-gh7j",
+    "severity": "high",
+    "summary": "jackson-databind: Comparable missing from DefaultBaseTypeLimitingValidator's unsafe base types (incomplete PolymorphicTypeValidator denylist)"
+   },
+   {
+    "affected": ">=3.2.0, <3.2.2",
+    "cve": "CVE-2026-68497",
+    "fixed_in": "3.2.2",
+    "id": "GHSA-q4xh-88c3-wmh7",
+    "severity": "high",
+    "summary": "jackson-databind: Duration XMLGregorianCalendar Unbounded Number Parse DoS"
+   },
+   {
+    "affected": ">=3.0.0, <3.1.5",
+    "cve": "CVE-2026-77310",
+    "fixed_in": "3.1.5",
+    "id": "GHSA-vvgp-rfg2-7rr6",
+    "severity": "high",
+    "summary": "jackson-databind: Incomplete fix for CVE-2026-54514: eager DNS resolution (SSRF) still present in InetAddress deserialization"
+   },
+   {
+    "affected": ">=3.0.0, <3.1.6",
+    "cve": "CVE-2026-19032",
+    "fixed_in": "3.1.6",
+    "id": "GHSA-wjgm-6hv5-3cvf",
+    "severity": "high",
+    "summary": "jackson-databind: Path Deserialization Missing Scheme Allowlist for FileSystemProvider Resolution"
    }
   ],
   "top.tangyh.basic:lamp-core": [
@@ -126209,12 +126293,28 @@
     "summary": "Angular SSR: Missing Fallback Raw-Content Serialization Escaping leads to Cross-Site Scripting (XSS)"
    },
    {
+    "affected": ">=22.0.0, <22.1.6",
+    "cve": "CVE-2026-101895",
+    "fixed_in": "22.1.6",
+    "id": "GHSA-f67j-2jqw-jpq7",
+    "severity": "high",
+    "summary": "Angular SSR: Denial of Service (DoS) via Infinite Loop on Malformed DOCTYPE"
+   },
+   {
     "affected": ">=22.0.0, <22.1.4",
     "cve": "CVE-2026-88056",
     "fixed_in": "22.1.4",
     "id": "GHSA-f6mr-pjwc-34m4",
     "severity": "high",
     "summary": "Angular: SSRF and Cross-Origin Credential Disclosure via URL Resolution Discrepancy in SSR"
+   },
+   {
+    "affected": ">=22.0.0, <22.1.4",
+    "cve": "CVE-2026-88058",
+    "fixed_in": "22.1.4",
+    "id": "GHSA-j3r3-mxqp-r2p4",
+    "severity": "high",
+    "summary": "Angular SSR: XSS via Unescaped Processing Instruction (<?...?>) Nodes in Fallback Raw-Content Elements"
    },
    {
     "affected": ">=22.0.0, <22.1.4",
@@ -131501,6 +131601,16 @@
     "summary": "@grpc/grpc-js: An incoming malformed compressed message can cause a client or server crash"
    }
   ],
+  "@grpc/grpc-js-xds": [
+   {
+    "affected": "<1.13.1",
+    "cve": "CVE-2026-101914",
+    "fixed_in": "1.13.1",
+    "id": "GHSA-88h9-xgvx-hvf2",
+    "severity": "high",
+    "summary": "@grpc/grpc-js: The exact path match matcher incorrectly only applies a prefix match for case-insensitive matches"
+   }
+  ],
   "@hapi/accept": [
    {
     "affected": ">=3.2.0, <3.2.4",
@@ -133511,6 +133621,14 @@
     "id": "GHSA-hpwf-8g29-85qm",
     "severity": "high",
     "summary": "Nest Affected by DoS via Recursive handleData in JsonSocket (TCP Transport)"
+   },
+   {
+    "affected": "<11.2.4",
+    "cve": "CVE-2026-102281",
+    "fixed_in": "11.2.4",
+    "id": "GHSA-m8vh-jmq9-5rjg",
+    "severity": "high",
+    "summary": "Nest: Remote process termination via a deeply nested microservice message pattern"
    }
   ],
   "@nestjs/platform-fastify": [
@@ -139849,6 +139967,14 @@
     "id": "GHSA-mp2f-45pm-3cg9",
     "severity": "critical",
     "summary": "Decompress: Archive extraction can create files and links outside of the target directory"
+   },
+   {
+    "affected": ">=11.0.0, <11.1.4",
+    "cve": "CVE-2026-101894",
+    "fixed_in": "11.1.4",
+    "id": "GHSA-hrh2-vp3x-79xf",
+    "severity": "critical",
+    "summary": "@xhmikosr/decompress: Path traversal via symlink chain"
    }
   ],
   "@xmldom/xmldom": [
@@ -140361,6 +140487,46 @@
     "id": "GHSA-7q85-xj36-vmfc",
     "severity": "high",
     "summary": "adm-zip: Uncontrolled memory allocation via the declared uncompressed size (DoS)"
+   },
+   {
+    "affected": "<0.6.1",
+    "cve": null,
+    "fixed_in": "0.6.1",
+    "id": "GHSA-8238-w5pm-2374",
+    "severity": "high",
+    "summary": "adm-zip: Unhandled error event in async DEFLATE decompression crashes Node.js process (DoS)"
+   },
+   {
+    "affected": "<0.6.1",
+    "cve": null,
+    "fixed_in": "0.6.1",
+    "id": "GHSA-c6fg-446q-cg94",
+    "severity": "high",
+    "summary": "adm-zip: getDataAsync() bypasses the maxOutputLength size guard enforced by the synchronous getData() path"
+   },
+   {
+    "affected": "<0.6.1",
+    "cve": "CVE-2026-102282",
+    "fixed_in": "0.6.1",
+    "id": "GHSA-j5f4-cc29-5x44",
+    "severity": "high",
+    "summary": "adm-zip extraction preserves SUID/SGID bits from untrusted ZIPs -> local privilege escalation"
+   },
+   {
+    "affected": "<0.6.1",
+    "cve": null,
+    "fixed_in": "0.6.1",
+    "id": "GHSA-p634-w6r4-rjp2",
+    "severity": "high",
+    "summary": "adm-zip: Duplicate ZIP entry names: getEntry() and extractAllTo() resolve to different content"
+   },
+   {
+    "affected": "<0.6.1",
+    "cve": null,
+    "fixed_in": "0.6.1",
+    "id": "GHSA-rcw4-f5rp-g42v",
+    "severity": "high",
+    "summary": "adm-zip: Decompression-bomb protection (fix for CVE-2026-39244) can be bypassed by declaring uncompressed size as 0"
    }
   ],
   "aedes": [
@@ -144351,6 +144517,30 @@
     "id": "GHSA-rgw5-rvv9-x895",
     "severity": "high",
     "summary": "brace-expansion: DoS via unbounded intermediate arrays, bypassing the CVE-2026-14257 mitigation"
+   },
+   {
+    "affected": ">=4.0.0, <5.0.10",
+    "cve": "CVE-2026-102276",
+    "fixed_in": "5.0.10",
+    "id": "GHSA-6j4f-fj2g-mc7p",
+    "severity": "high",
+    "summary": "brace-expansion: DoS via uncontrolled recursion in parseCommaParts causing stack exhaustion"
+   },
+   {
+    "affected": ">=4.0.0, <5.0.12",
+    "cve": "CVE-2026-102277",
+    "fixed_in": "5.0.12",
+    "id": "GHSA-q2hr-2g5m-vwhr",
+    "severity": "high",
+    "summary": "brace-expansion: Quadratic-time expansion of the `{a},b}` rewrite causes CPU denial of service"
+   },
+   {
+    "affected": ">=4.0.0, <5.0.11",
+    "cve": "CVE-2026-102278",
+    "fixed_in": "5.0.11",
+    "id": "GHSA-qhr7-859c-m2p7",
+    "severity": "high",
+    "summary": "brace-expansion: DoS via uncontrolled recursion on nested brace groups causing stack exhaustion"
    }
   ],
   "braces": [
@@ -146333,6 +146523,16 @@
     "summary": "Cocotais Bot has builtin .echo command injection"
    }
   ],
+  "code-ollama": [
+   {
+    "affected": "<0.36.1",
+    "cve": null,
+    "fixed_in": "0.36.1",
+    "id": "GHSA-456v-xq2p-r4cj",
+    "severity": "high",
+    "summary": "code-ollama: `grep_search` Command Injection via Unescaped `$()` Shell Substitution (CWE-78)"
+   }
+  ],
   "code-server": [
    {
     "affected": "<3.12.0",
@@ -148307,6 +148507,14 @@
     "id": "GHSA-mp2f-45pm-3cg9",
     "severity": "critical",
     "summary": "Decompress: Archive extraction can create files and links outside of the target directory"
+   },
+   {
+    "affected": "<=4.2.1",
+    "cve": "CVE-2026-101894",
+    "fixed_in": "",
+    "id": "GHSA-hrh2-vp3x-79xf",
+    "severity": "critical",
+    "summary": "@xhmikosr/decompress: Path traversal via symlink chain"
    }
   ],
   "decompress-zip": [
@@ -151257,6 +151465,54 @@
     "id": "GHSA-x8rc-wpg4-grpf",
     "severity": "low",
     "summary": "Electron: Cross-origin iframe can position native autofill popup"
+   },
+   {
+    "affected": "<41.10.6",
+    "cve": "CVE-2026-102676",
+    "fixed_in": "41.10.6",
+    "id": "GHSA-9qh4-3jw8-366w",
+    "severity": "high",
+    "summary": "Electron: <webview> can enable Node.js integration in Web Workers despite embedder restrictions"
+   },
+   {
+    "affected": "<41.10.6",
+    "cve": "CVE-2026-102674",
+    "fixed_in": "41.10.6",
+    "id": "GHSA-gr2m-v5gq-v685",
+    "severity": "high",
+    "summary": "Electron: Windows opened from a sandboxed top-level document do not inherit its sandbox restrictions"
+   },
+   {
+    "affected": "<41.10.4",
+    "cve": "CVE-2026-102673",
+    "fixed_in": "41.10.4",
+    "id": "GHSA-hq2x-r82h-9wj4",
+    "severity": "high",
+    "summary": "Electron drops inherited HTML sandbox restrictions for popups opened through OpenURLFromTab"
+   },
+   {
+    "affected": "<41.10.6",
+    "cve": "CVE-2026-102675",
+    "fixed_in": "41.10.6",
+    "id": "GHSA-j84w-jfhq-vhvj",
+    "severity": "high",
+    "summary": "Electron: File and HTTP protocol handlers allow cross-origin reads without corsEnabled"
+   },
+   {
+    "affected": ">=42.3.3, <42.10.0",
+    "cve": "CVE-2026-102677",
+    "fixed_in": "42.10.0",
+    "id": "GHSA-qmv3-fv6v-rmhq",
+    "severity": "high",
+    "summary": "Electron: Sandboxed preload code cache can be poisoned by a compromised renderer"
+   },
+   {
+    "affected": "<39.8.10",
+    "cve": "CVE-2026-102672",
+    "fixed_in": "39.8.10",
+    "id": "GHSA-vv43-5jgx-7qv8",
+    "severity": "high",
+    "summary": "Electron: Local race condition in Squirrel.Mac update installation on macOS"
    }
   ],
   "electron-markdownify": [
@@ -151577,6 +151833,14 @@
     "id": "GHSA-gr94-w7qr-f4j3",
     "severity": "high",
     "summary": "Socket.IO: Engine.IO WebTransport SID DoS"
+   },
+   {
+    "affected": ">=6.6.0, <6.6.10",
+    "cve": "CVE-2026-102599",
+    "fixed_in": "6.6.10",
+    "id": "GHSA-2gc4-cqfq-p2gv",
+    "severity": "high",
+    "summary": "Socket.IO: Engine.IO Protocol Revision Mismatch DoS"
    }
   ],
   "engine.io-client": [
@@ -152929,6 +153193,14 @@
     "summary": "fast-uri vulnerable to host confusion via backslash authority introducer"
    },
    {
+    "affected": ">=2.4.5, <2.4.6 || =2.4.5",
+    "cve": "CVE-2026-84394",
+    "fixed_in": "2.4.6",
+    "id": "GHSA-58mr-gqgx-xq4g",
+    "severity": "high",
+    "summary": "fast-uri vulnerable to host confusion via an unclosed bracket in the URI authority"
+   },
+   {
     "affected": ">=2.4.2, <2.4.5",
     "cve": "CVE-2026-75931",
     "fixed_in": "2.4.5",
@@ -152953,12 +153225,36 @@
     "summary": "fast-uri vulnerable to server-side request forgery via repeated hostname percent-decoding"
    },
    {
+    "affected": "<2.4.7",
+    "cve": "CVE-2026-86472",
+    "fixed_in": "2.4.7",
+    "id": "GHSA-hrr3-gc8f-f4qj",
+    "severity": "high",
+    "summary": "fast-uri vulnerable to inconsistent host case normalization via percent-encoded octets"
+   },
+   {
     "affected": ">=2.3.1, <2.4.5",
     "cve": "CVE-2026-76172",
     "fixed_in": "2.4.5",
     "id": "GHSA-jqff-g426-hqxp",
     "severity": "high",
     "summary": "fast-uri vulnerable to host confusion via percent-encoded scheme normalization"
+   },
+   {
+    "affected": ">=4.1.3, <4.1.5",
+    "cve": "CVE-2026-86818",
+    "fixed_in": "4.1.5",
+    "id": "GHSA-jvvf-x445-j334",
+    "severity": "high",
+    "summary": "fast-uri vulnerable to mailto header injection via percent-encoded field-name desynchronization"
+   },
+   {
+    "affected": "<2.4.6",
+    "cve": "CVE-2026-84292",
+    "fixed_in": "2.4.6",
+    "id": "GHSA-qw65-cvwx-89v3",
+    "severity": "high",
+    "summary": "fast-uri vulnerable to authority injection via an unvalidated port in serialize"
    }
   ],
   "fast-xml-builder": [
@@ -159743,6 +160039,38 @@
     "id": "GHSA-mwp4-54f8-5fhr",
     "severity": "high",
     "summary": "ip-address: Address4 decodes leading-zero octets as decimal while resolvers decode them as octal, allowing SSRF and trust-boundary bypass"
+   },
+   {
+    "affected": ">=10.2.0, <10.5.1",
+    "cve": "CVE-2026-101910",
+    "fixed_in": "10.5.1",
+    "id": "GHSA-2vr4-cq9g-pvrc",
+    "severity": "high",
+    "summary": "ip-address: no classifier recognizes the NAT64 local-use range 64:ff9b:1::/48, allowing SSRF and trust-boundary bypass"
+   },
+   {
+    "affected": "<10.7.1",
+    "cve": "CVE-2026-101911",
+    "fixed_in": "10.7.1",
+    "id": "GHSA-h3mg-xc3c-68pw",
+    "severity": "high",
+    "summary": "ip-address: Address6 builds a parse diagnostic proportional to the input with no length bound, allowing a single long string to stall or crash the process"
+   },
+   {
+    "affected": "<10.7.1",
+    "cve": "CVE-2026-101912",
+    "fixed_in": "10.7.1",
+    "id": "GHSA-j6r3-76f7-8jcv",
+    "severity": "high",
+    "summary": "ip-address: isInSubnet() and isHostInSubnet() compare addresses of different families as if they shared an address space, allowing an allowlist check to admit an address outside its range"
+   },
+   {
+    "affected": "<10.5.1",
+    "cve": "CVE-2026-101913",
+    "fixed_in": "10.5.1",
+    "id": "GHSA-rpw4-54j3-4h4q",
+    "severity": "high",
+    "summary": "ip-address: Address6.isLinkLocal() recognizes fe80::/64 rather than fe80::/10, allowing SSRF and trust-boundary bypass to on-link hosts"
    }
   ],
   "ipfs-bitswap": [
@@ -160209,6 +160537,14 @@
     "id": "GHSA-q7cg-457f-vx79",
     "severity": "high",
     "summary": "joi has an uncaught RangeError on deeply nested input through recursive `link()` schemas"
+   },
+   {
+    "affected": ">=17.2.0, <17.13.7",
+    "cve": null,
+    "fixed_in": "17.13.7",
+    "id": "GHSA-6h2x-m376-mqjq",
+    "severity": "high",
+    "summary": "joi: Quadratic regular-expression backtracking in `Joi.string().isoDate()`"
    },
    {
     "affected": ">=17.2.0, <17.13.6",
@@ -161255,6 +161591,14 @@
     "cve": "CVE-2026-84375",
     "fixed_in": "4.3.2",
     "id": "GHSA-2883-xcg3-v3hh",
+    "severity": "high",
+    "summary": "js-yaml: maxTotalMergeKeys does not limit CPU use for empty merge sources"
+   },
+   {
+    "affected": ">=5.0.0, <5.4.1",
+    "cve": null,
+    "fixed_in": "5.4.1",
+    "id": "GHSA-r3ph-w7gj-g6xm",
     "severity": "high",
     "summary": "js-yaml: maxTotalMergeKeys does not limit CPU use for empty merge sources"
    }
@@ -164855,6 +165199,14 @@
     "id": "GHSA-6v5v-wf23-fmfq",
     "severity": "high",
     "summary": "markdown-it: Quadratic complexity DoS in smartquotes rule via replaceAt string operations"
+   },
+   {
+    "affected": ">=15.0.0, <15.0.1 || =15.0.0",
+    "cve": null,
+    "fixed_in": "15.0.1",
+    "id": "GHSA-253c-mchw-3w2r",
+    "severity": "high",
+    "summary": "markdown-it linkify: true has two quadratic paths, so a few hundred KB of markdown blocks the event loop for tens of seconds"
    }
   ],
   "markdown-it-decorate": [
@@ -166987,6 +167339,14 @@
     "id": "GHSA-wc69-rhjr-hc9g",
     "severity": "high",
     "summary": "Moment.js vulnerable to Inefficient Regular Expression Complexity"
+   },
+   {
+    "affected": ">=2.29.2, <2.31.0",
+    "cve": "CVE-2026-17495",
+    "fixed_in": "2.31.0",
+    "id": "GHSA-4p3w-j4w9-5jqw",
+    "severity": "high",
+    "summary": "moment vulnerable to Path Traversal via crafted non-string locale name"
    }
   ],
   "moment-timezone": [
@@ -167269,6 +167629,14 @@
     "id": "GHSA-4vj7-5mj6-jm8m",
     "severity": "high",
     "summary": "morgan vulnerable to Log Forging via unneutralized control characters in :remote-user"
+   },
+   {
+    "affected": "<1.12.1",
+    "cve": "CVE-2026-87859",
+    "fixed_in": "1.12.1",
+    "id": "GHSA-9f6g-j8ch-79g4",
+    "severity": "high",
+    "summary": "morgan vulnerable to Log Injection via unescaped double quote in quoted log fields"
    },
    {
     "affected": "<1.12.0",
@@ -167693,6 +168061,14 @@
     "id": "GHSA-72gw-mp4g-v24j",
     "severity": "high",
     "summary": "Multer vulnerable to Denial of Service via deeply nested field names"
+   },
+   {
+    "affected": ">=2.2.0, <2.4.0",
+    "cve": "CVE-2026-88932",
+    "fixed_in": "2.4.0",
+    "id": "GHSA-3pph-fpjx-jg34",
+    "severity": "high",
+    "summary": "multer vulnerable to Denial of Service via orphaned disk writes on aborted uploads"
    },
    {
     "affected": "<2.3.0",
@@ -172543,6 +172919,14 @@
     "summary": "Nodemailer: Quadratic (O(n\u00b2)) time complexity in addressparser allows remote denial of service via a crafted address list"
    },
    {
+    "affected": ">=5.0.0, <10.0.2",
+    "cve": null,
+    "fixed_in": "10.0.2",
+    "id": "GHSA-6vj9-mwq6-2f5v",
+    "severity": "high",
+    "summary": "Nodemailer: Process-global DNS cache reuses TLS `servername` across transports, enabling cross-tenant SMTP credential disclosure"
+   },
+   {
     "affected": "<9.1.1",
     "cve": null,
     "fixed_in": "9.1.1",
@@ -172551,12 +172935,36 @@
     "summary": "Nodemailer: resolveContent() on a MailMessage bypasses disableFileAccess/disableUrlAccess when called with the legacy signature"
    },
    {
+    "affected": "<10.0.2",
+    "cve": null,
+    "fixed_in": "10.0.2",
+    "id": "GHSA-8vvx-rff5-p5rq",
+    "severity": "high",
+    "summary": "Nodemailer: Nested structured recipient arrays bypass the parser depth limit and cause stack exhaustion DoS"
+   },
+   {
     "affected": ">=6.9.16, <9.1.0",
     "cve": null,
     "fixed_in": "9.1.0",
     "id": "GHSA-cc9r-2j5m-2m83",
     "severity": "high",
     "summary": "Nodemailer: Recipient-domain validation bypass via RFC 5322 comment mis-parsing leads to email delivery to an attacker-controlled domain"
+   },
+   {
+    "affected": ">=9.1.0, <10.0.9",
+    "cve": null,
+    "fixed_in": "10.0.9",
+    "id": "GHSA-g57g-f23g-4646",
+    "severity": "high",
+    "summary": "Nodemailer: Quoted local-part can produce malformed envelope recipient through RFC 5322 comment parsing"
+   },
+   {
+    "affected": "<10.0.6",
+    "cve": null,
+    "fixed_in": "10.0.6",
+    "id": "GHSA-v53p-9fqp-m79j",
+    "severity": "high",
+    "summary": "Nodemailer: Quadratic backtracking in the addressparser free-text fallback allows remote denial of service"
    },
    {
     "affected": "<9.1.0",
@@ -186613,6 +187021,14 @@
     "id": "GHSA-9m6g-wc8r-q59c",
     "severity": "critical",
     "summary": "scimPatch vulnerable to prototype pollution via unfiltered keys in patch"
+   },
+   {
+    "affected": "<0.9.2",
+    "cve": "CVE-2026-61834",
+    "fixed_in": "0.9.2",
+    "id": "GHSA-2mhw-wcx5-v3xj",
+    "severity": "high",
+    "summary": "scim-patch: Mutation of Inherited Built-in Method Objects"
    }
   ],
   "scott-blanch-weather-app": [
@@ -193343,6 +193759,94 @@
     "id": "GHSA-v3r7-h72x-cjcm",
     "severity": "high",
     "summary": "undici vulnerable to cookie attribute injection via unsanitized domain and unparsed setCookie fields"
+   },
+   {
+    "affected": ">=7.1.0, <7.29.1",
+    "cve": "CVE-2026-84947",
+    "fixed_in": "7.29.1",
+    "id": "GHSA-2gqq-gqf2-x968",
+    "severity": "low",
+    "summary": "undici vulnerable to response truncation via oversized chunked responses in the dump interceptor"
+   },
+   {
+    "affected": ">=7.0.0, <7.29.1",
+    "cve": "CVE-2026-84933",
+    "fixed_in": "7.29.1",
+    "id": "GHSA-2jfj-6hjv-fm6j",
+    "severity": "high",
+    "summary": "undici vulnerable to cross-user cookie disclosure via Set-Cookie caching in shared caches"
+   },
+   {
+    "affected": ">=6.25.0, <6.28.1",
+    "cve": "CVE-2026-85024",
+    "fixed_in": "6.28.1",
+    "id": "GHSA-3wwx-pv8p-q78v",
+    "severity": "high",
+    "summary": "undici vulnerable to Denial of Service via unhandled error in WebSocket permessage-deflate decompression"
+   },
+   {
+    "affected": ">=7.15.0, <7.29.1",
+    "cve": "CVE-2026-84890",
+    "fixed_in": "7.29.1",
+    "id": "GHSA-3xpg-4rpp-hhhm",
+    "severity": "high",
+    "summary": "undici vulnerable to Denial of Service via unbounded decompression of compressed responses"
+   },
+   {
+    "affected": ">=7.0.0, <7.29.1",
+    "cve": "CVE-2026-85008",
+    "fixed_in": "7.29.1",
+    "id": "GHSA-8436-99hf-9mmv",
+    "severity": "low",
+    "summary": "undici vulnerable to caching and replay of unsafe HTTP method responses"
+   },
+   {
+    "affected": ">=7.11.0, <7.29.1",
+    "cve": "CVE-2026-18149",
+    "fixed_in": "7.29.1",
+    "id": "GHSA-pmjh-fq2x-6v4x",
+    "severity": "high",
+    "summary": "undici vulnerable to Denial of Service via orphaned RetryHandler response body"
+   },
+   {
+    "affected": "<6.28.1",
+    "cve": "CVE-2026-18540",
+    "fixed_in": "6.28.1",
+    "id": "GHSA-r53p-7pc4-xj5r",
+    "severity": "low",
+    "summary": "undici vulnerable to downstream response splitting via retry interceptor"
+   },
+   {
+    "affected": ">=6.7.0, <6.28.1",
+    "cve": "CVE-2026-19534",
+    "fixed_in": "6.28.1",
+    "id": "GHSA-rfgv-xxqx-mfg5",
+    "severity": "high",
+    "summary": "undici vulnerable to Denial of Service via unrequested WebSocket subprotocol"
+   },
+   {
+    "affected": ">=7.0.0, <7.29.1",
+    "cve": "CVE-2026-85014",
+    "fixed_in": "7.29.1",
+    "id": "GHSA-rx4f-c7p8-82vq",
+    "severity": "high",
+    "summary": "undici vulnerable to Denial of Service via WebSocketStream unclean close"
+   },
+   {
+    "affected": ">=8.10.0, <8.10.2",
+    "cve": "CVE-2026-85152",
+    "fixed_in": "8.10.2",
+    "id": "GHSA-vp8m-p9jh-q5pm",
+    "severity": "high",
+    "summary": "undici vulnerable to cross-origin cache poisoning via missing origin isolation in interceptors"
+   },
+   {
+    "affected": ">=7.24.1, <7.29.1",
+    "cve": "CVE-2026-84961",
+    "fixed_in": "7.29.1",
+    "id": "GHSA-w293-vg96-wgc3",
+    "severity": "high",
+    "summary": "undici vulnerable to TLS certificate validation bypass via dropped connect options in BalancedPool"
    }
   ],
   "unflatten": [
@@ -195601,6 +196105,22 @@
     "id": "GHSA-wr3j-pwj9-hqq6",
     "severity": "high",
     "summary": "Path traversal in webpack-dev-middleware"
+   },
+   {
+    "affected": ">=0",
+    "cve": null,
+    "fixed_in": "",
+    "id": "GHSA-p3f5-w63m-mxph",
+    "severity": "high",
+    "summary": "Duplicate Advisory: webpack-dev-middleware vulnerable to Path Traversal via non-slash-terminated publicPath"
+   },
+   {
+    "affected": ">=8.0.0, <8.3.0",
+    "cve": "CVE-2026-76844",
+    "fixed_in": "8.3.0",
+    "id": "GHSA-g84c-rxfj-3j2c",
+    "severity": "high",
+    "summary": "webpack-dev-middleware vulnerable to Path Traversal via non-slash-terminated publicPath"
    }
   ],
   "webpack-dev-server": [
@@ -259851,6 +260371,14 @@
     "id": "GHSA-crmm-hgp2-wgrp",
     "severity": "high",
     "summary": "Laravel Framework: Temporary Signed URL Path Confusion"
+   },
+   {
+    "affected": "<12.69.0",
+    "cve": "CVE-2026-102279",
+    "fixed_in": "12.69.0",
+    "id": "GHSA-jh5r-qr3c-85q8",
+    "severity": "low",
+    "summary": "Laravel: XSS in Debug Page Information"
    }
   ],
   "laravel/laravel": [
@@ -260225,6 +260753,14 @@
     "id": "GHSA-9f46-5r25-5wfm",
     "severity": "critical",
     "summary": "Time-of-check Time-of-use (TOCTOU) Race Condition in league/flysystem"
+   },
+   {
+    "affected": "<3.35.3",
+    "cve": "CVE-2026-102601",
+    "fixed_in": "3.35.3",
+    "id": "GHSA-cxf4-7mrp-vvpr",
+    "severity": "low",
+    "summary": "Flysystem: WhitespacePathNormalizer's control-character (CorruptedPathDetected) check is bypassed by malformed UTF-8 in the path, affecting every adapter"
    }
   ],
   "league/oauth2-server": [
@@ -275463,6 +275999,16 @@
     "summary": "phpBB has Password Reset Link Poisoning via Host Header injection"
    }
   ],
+  "phpcsstandards/phpcsutils": [
+   {
+    "affected": ">=1.0.0-alpha1, <1.2.3",
+    "cve": "CVE-2026-65954",
+    "fixed_in": "1.2.3",
+    "id": "GHSA-r6hr-vr92-vv28",
+    "severity": "high",
+    "summary": "PHPCSUtils: Remote code execution via eval() in AbstractArrayDeclarationSniff::getActualArrayKey()"
+   }
+  ],
   "phpems/phpems": [
    {
     "affected": ">=6.0.0, <=6.1.3",
@@ -277453,16 +277999,6 @@
     "summary": "phpPgAdmin contains a remote command execution vulnerability"
    }
   ],
-  "phpseclib": [
-   {
-    "affected": "<3.0.57",
-    "cve": "CVE-2026-84308",
-    "fixed_in": "3.0.57",
-    "id": "GHSA-q97c-8qh3-fpc6",
-    "severity": "high",
-    "summary": "phpseclib \u2014 non-constant-time X25519 scalar multiplication permits full private-key recovery"
-   }
-  ],
   "phpseclib/phpseclib": [
    {
     "affected": ">=3.0.0, <3.0.7",
@@ -277567,6 +278103,14 @@
     "id": "GHSA-m557-wrgg-6rp4",
     "severity": "high",
     "summary": "phpseclib: X.509 certificate validation sends attacker-controlled outbound requests (server-side request forgery) via Authority Information Access"
+   },
+   {
+    "affected": "<3.0.57",
+    "cve": "CVE-2026-84308",
+    "fixed_in": "3.0.57",
+    "id": "GHSA-q97c-8qh3-fpc6",
+    "severity": "high",
+    "summary": "phpseclib \u2014 non-constant-time X25519 scalar multiplication permits full private-key recovery"
    }
   ],
   "phpservermon/phpservermon": [
@@ -303393,6 +303937,38 @@
     "id": "PYSEC-2026-3990",
     "severity": "medium",
     "summary": "Apache Airflow: the Core API logout endpoint revokes only a session token presented as the _token cookie. When a client logs out presenting its credential as an Authorization bearer header instead, the endpoint returns its normal logout response but revokes nothing, so the token remains valid until "
+   },
+   {
+    "affected": ">=3.3.0, <3.3.1 || =3.3.0 || =3.3.1rc1 || =3.3.1rc2",
+    "cve": "CVE-2026-58076",
+    "fixed_in": "3.3.1",
+    "id": "PYSEC-2026-3991",
+    "severity": "medium",
+    "summary": "Apache Airflow's serialization layer reconstructed exception nodes by calling `import_string()` on a class name taken from the serialized blob and instantiating it with arguments from the same blob, with no restriction on what could be imported. An operator's `executor_config` reaches that branch, s"
+   },
+   {
+    "affected": "<3.3.1 || =1.10.0 || =1.10.1 || =1.10.10 || =1.10.10rc1 || =1.10.10rc2 || =1.10.10rc3 || =1.10.10rc4 || =1.10.10rc5 || =1.10.11 || =1.10.11rc1 || =1.10.11rc2 || =1.10.12 || =1.10.12rc1 || =1.10.12rc2 || =1.10.12rc3 || =1.10.12rc4 || =1.10.13 || =1.10.13rc1 || =1.10.14 || =1.10.14rc1 || =1.10.14rc2 || =1.10.14rc3 || =1.10.14rc4 || =1.10.15 || =1.10.15rc1 || =1.10.1b1 || =1.10.1rc2 || =1.10.2 || =1.10.2b2 || =1.10.2rc1 || =1.10.2rc2 || =1.10.2rc3 || =1.10.3 || =1.10.3b1 || =1.10.3b2 || =1.10.3rc1 || =1.10.3rc2 || =1.10.4 || =1.10.4b2 || =1.10.4rc1 || =1.10.4rc2 || =1.10.4rc3 || =1.10.4rc4 || =1.10.4rc5 || =1.10.5 || =1.10.5rc1 || =1.10.6 || =1.10.6rc1 || =1.10.6rc2 || =1.10.7 || =1.10.7rc1 || =1.10.7rc2 || =1.10.7rc3 || =1.10.8 || =1.10.8rc1 || =1.10.9 || =1.10.9rc1 || =1.8.1 || =1.8.2 || =1.8.2rc1 || =1.9.0 || =2.0.0 || =2.0.0b1 || =2.0.0b2 || =2.0.0b3 || =2.0.0rc1 || =2.0.0rc2 || =2.0.0rc3 || =2.0.1 || =2.0.1rc1 || =2.0.1rc2 || =2.0.2 || =2.0.2rc1 || =2.1.0 || =2.1.0rc1 || =2.1.0rc2 || =2.1.1 || =2.1.1rc1 || =2.1.2 || =2.1.2rc1 || =2.1.3 || =2.1.3rc1 || =2.1.4 || =2.1.4rc1 || =2.1.4rc2 || =2.10.0 || =2.10.0b1 || =2.10.0b2 || =2.10.0rc1 || =2.10.1 || =2.10.1rc1 || =2.10.2 || =2.10.2rc1 || =2.10.3 || =2.10.3rc1 || =2.10.3rc2 || =2.10.4 || =2.10.4rc1 || =2.10.5 || =2.10.5rc1 || =2.11.0 || =2.11.0rc1 || =2.11.1 || =2.11.1rc1 || =2.11.1rc2 || =2.11.2 || =2.11.2rc1 || =2.2.0 || =2.2.0b1 || =2.2.0b2 || =2.2.0rc1 || =2.2.1 || =2.2.1rc1 || =2.2.1rc2 || =2.2.2 || =2.2.2rc1 || =2.2.2rc2 || =2.2.3 || =2.2.3rc1 || =2.2.3rc2 || =2.2.4 || =2.2.4rc1 || =2.2.5 || =2.2.5rc1 || =2.2.5rc2 || =2.2.5rc3 || =2.3.0 || =2.3.0b1 || =2.3.0rc1 || =2.3.0rc2 || =2.3.1 || =2.3.1rc1 || =2.3.2 || =2.3.2rc1 || =2.3.2rc2 || =2.3.3 || =2.3.3rc1 || =2.3.3rc2 || =2.3.3rc3 || =2.3.4 || =2.3.4rc1 || =2.4.0 || =2.4.0b1 || =2.4.0rc1 || =2.4.1 || =2.4.1rc1 || =2.4.2 || =2.4.2rc1 || =2.4.3 || =2.4.3rc1 || =2.5.0 || =2.5.0rc1 || =2.5.0rc2 || =2.5.0rc3 || =2.5.1 || =2.5.1rc1 || =2.5.1rc2 || =2.5.2 || =2.5.2rc1 || =2.5.2rc2 || =2.5.3 || =2.5.3rc1 || =2.5.3rc2 || =2.6.0 || =2.6.0b1 || =2.6.0rc1 || =2.6.0rc2 || =2.6.0rc3 || =2.6.0rc4 || =2.6.0rc5 || =2.6.1 || =2.6.1rc1 || =2.6.1rc2 || =2.6.1rc3 || =2.6.2 || =2.6.2rc1 || =2.6.2rc2 || =2.6.3 || =2.6.3rc1 || =2.7.0 || =2.7.0b1 || =2.7.0rc1 || =2.7.0rc2 || =2.7.1 || =2.7.1rc1 || =2.7.1rc2 || =2.7.2 || =2.7.2rc1 || =2.7.3 || =2.7.3rc1 || =2.8.0 || =2.8.0b1 || =2.8.0rc1 || =2.8.0rc2 || =2.8.0rc3 || =2.8.0rc4 || =2.8.1 || =2.8.1rc1 || =2.8.2 || =2.8.2rc1 || =2.8.2rc2 || =2.8.2rc3 || =2.8.3 || =2.8.3rc1 || =2.8.4 || =2.8.4rc1 || =2.9.0 || =2.9.0b1 || =2.9.0b2 || =2.9.0rc1 || =2.9.0rc2 || =2.9.0rc3 || =2.9.1 || =2.9.1rc1 || =2.9.1rc2 || =2.9.2 || =2.9.2rc1 || =2.9.3 || =2.9.3rc1 || =3.0.0 || =3.0.0b4 || =3.0.0rc1 || =3.0.0rc1.post1 || =3.0.0rc1.post2 || =3.0.0rc1.post3 || =3.0.0rc1.post4 || =3.0.0rc2 || =3.0.0rc3 || =3.0.0rc4 || =3.0.1 || =3.0.1rc1 || =3.0.2 || =3.0.2rc1 || =3.0.2rc2 || =3.0.3 || =3.0.3rc1 || =3.0.3rc2 || =3.0.3rc3 || =3.0.3rc4 || =3.0.3rc5 || =3.0.3rc6 || =3.0.4 || =3.0.4rc1 || =3.0.4rc2 || =3.0.5 || =3.0.5rc1 || =3.0.5rc2 || =3.0.5rc3 || =3.0.6 || =3.0.6rc1 || =3.0.6rc2 || =3.1.0 || =3.1.0b1 || =3.1.0b2 || =3.1.0rc1 || =3.1.0rc2 || =3.1.1 || =3.1.1rc1 || =3.1.1rc2 || =3.1.2 || =3.1.2rc1 || =3.1.2rc2 || =3.1.3 || =3.1.3rc1 || =3.1.4 || =3.1.4rc1 || =3.1.4rc2 || =3.1.5 || =3.1.5rc1 || =3.1.6 || =3.1.6rc1 || =3.1.7 || =3.1.7rc1 || =3.1.7rc2 || =3.1.8 || =3.1.8rc1 || =3.1.8rc2 || =3.2.0 || =3.2.0b1 || =3.2.0b2 || =3.2.0rc1 || =3.2.0rc2 || =3.2.1 || =3.2.1rc1 || =3.2.1rc2 || =3.2.1rc3 || =3.2.2 || =3.2.2rc1 || =3.2.2rc2 || =3.2.2rc3 || =3.3.0 || =3.3.0b1 || =3.3.0b2 || =3.3.0rc1 || =3.3.0rc2 || =3.3.1rc1 || =3.3.1rc2",
+    "cve": "CVE-2026-59242",
+    "fixed_in": "3.3.1",
+    "id": "PYSEC-2026-3992",
+    "severity": "medium",
+    "summary": "Apache Airflow's XCom `GET /api/v2/{...}/xcomEntries/{key}?deserialize=true` endpoint passed a string-literal payload through `BaseXCom.deserialize_value` without the `_check_forbidden_xcom_keys` guard, allowing an authenticated API user with XCom write-and-read access to instantiate arbitrary `airf"
+   },
+   {
+    "affected": ">=3.3.0, <3.3.1 || =3.3.0 || =3.3.1rc1 || =3.3.1rc2",
+    "cve": "CVE-2026-65017",
+    "fixed_in": "3.3.1",
+    "id": "PYSEC-2026-3993",
+    "severity": "medium",
+    "summary": "Apache Airflow's Config API did not mask team-scoped sensitive configuration values in multi-team deployments. When an administrator has enabled multi-team mode and exposed the Config API, an authenticated Viewer holding only configuration-read access \u2014 with no prior access to the secret \u2014 could rea"
+   },
+   {
+    "affected": "<3.3.1 || =1.10.0 || =1.10.1 || =1.10.10 || =1.10.10rc1 || =1.10.10rc2 || =1.10.10rc3 || =1.10.10rc4 || =1.10.10rc5 || =1.10.11 || =1.10.11rc1 || =1.10.11rc2 || =1.10.12 || =1.10.12rc1 || =1.10.12rc2 || =1.10.12rc3 || =1.10.12rc4 || =1.10.13 || =1.10.13rc1 || =1.10.14 || =1.10.14rc1 || =1.10.14rc2 || =1.10.14rc3 || =1.10.14rc4 || =1.10.15 || =1.10.15rc1 || =1.10.1b1 || =1.10.1rc2 || =1.10.2 || =1.10.2b2 || =1.10.2rc1 || =1.10.2rc2 || =1.10.2rc3 || =1.10.3 || =1.10.3b1 || =1.10.3b2 || =1.10.3rc1 || =1.10.3rc2 || =1.10.4 || =1.10.4b2 || =1.10.4rc1 || =1.10.4rc2 || =1.10.4rc3 || =1.10.4rc4 || =1.10.4rc5 || =1.10.5 || =1.10.5rc1 || =1.10.6 || =1.10.6rc1 || =1.10.6rc2 || =1.10.7 || =1.10.7rc1 || =1.10.7rc2 || =1.10.7rc3 || =1.10.8 || =1.10.8rc1 || =1.10.9 || =1.10.9rc1 || =1.8.1 || =1.8.2 || =1.8.2rc1 || =1.9.0 || =2.0.0 || =2.0.0b1 || =2.0.0b2 || =2.0.0b3 || =2.0.0rc1 || =2.0.0rc2 || =2.0.0rc3 || =2.0.1 || =2.0.1rc1 || =2.0.1rc2 || =2.0.2 || =2.0.2rc1 || =2.1.0 || =2.1.0rc1 || =2.1.0rc2 || =2.1.1 || =2.1.1rc1 || =2.1.2 || =2.1.2rc1 || =2.1.3 || =2.1.3rc1 || =2.1.4 || =2.1.4rc1 || =2.1.4rc2 || =2.10.0 || =2.10.0b1 || =2.10.0b2 || =2.10.0rc1 || =2.10.1 || =2.10.1rc1 || =2.10.2 || =2.10.2rc1 || =2.10.3 || =2.10.3rc1 || =2.10.3rc2 || =2.10.4 || =2.10.4rc1 || =2.10.5 || =2.10.5rc1 || =2.11.0 || =2.11.0rc1 || =2.11.1 || =2.11.1rc1 || =2.11.1rc2 || =2.11.2 || =2.11.2rc1 || =2.2.0 || =2.2.0b1 || =2.2.0b2 || =2.2.0rc1 || =2.2.1 || =2.2.1rc1 || =2.2.1rc2 || =2.2.2 || =2.2.2rc1 || =2.2.2rc2 || =2.2.3 || =2.2.3rc1 || =2.2.3rc2 || =2.2.4 || =2.2.4rc1 || =2.2.5 || =2.2.5rc1 || =2.2.5rc2 || =2.2.5rc3 || =2.3.0 || =2.3.0b1 || =2.3.0rc1 || =2.3.0rc2 || =2.3.1 || =2.3.1rc1 || =2.3.2 || =2.3.2rc1 || =2.3.2rc2 || =2.3.3 || =2.3.3rc1 || =2.3.3rc2 || =2.3.3rc3 || =2.3.4 || =2.3.4rc1 || =2.4.0 || =2.4.0b1 || =2.4.0rc1 || =2.4.1 || =2.4.1rc1 || =2.4.2 || =2.4.2rc1 || =2.4.3 || =2.4.3rc1 || =2.5.0 || =2.5.0rc1 || =2.5.0rc2 || =2.5.0rc3 || =2.5.1 || =2.5.1rc1 || =2.5.1rc2 || =2.5.2 || =2.5.2rc1 || =2.5.2rc2 || =2.5.3 || =2.5.3rc1 || =2.5.3rc2 || =2.6.0 || =2.6.0b1 || =2.6.0rc1 || =2.6.0rc2 || =2.6.0rc3 || =2.6.0rc4 || =2.6.0rc5 || =2.6.1 || =2.6.1rc1 || =2.6.1rc2 || =2.6.1rc3 || =2.6.2 || =2.6.2rc1 || =2.6.2rc2 || =2.6.3 || =2.6.3rc1 || =2.7.0 || =2.7.0b1 || =2.7.0rc1 || =2.7.0rc2 || =2.7.1 || =2.7.1rc1 || =2.7.1rc2 || =2.7.2 || =2.7.2rc1 || =2.7.3 || =2.7.3rc1 || =2.8.0 || =2.8.0b1 || =2.8.0rc1 || =2.8.0rc2 || =2.8.0rc3 || =2.8.0rc4 || =2.8.1 || =2.8.1rc1 || =2.8.2 || =2.8.2rc1 || =2.8.2rc2 || =2.8.2rc3 || =2.8.3 || =2.8.3rc1 || =2.8.4 || =2.8.4rc1 || =2.9.0 || =2.9.0b1 || =2.9.0b2 || =2.9.0rc1 || =2.9.0rc2 || =2.9.0rc3 || =2.9.1 || =2.9.1rc1 || =2.9.1rc2 || =2.9.2 || =2.9.2rc1 || =2.9.3 || =2.9.3rc1 || =3.0.0 || =3.0.0b4 || =3.0.0rc1 || =3.0.0rc1.post1 || =3.0.0rc1.post2 || =3.0.0rc1.post3 || =3.0.0rc1.post4 || =3.0.0rc2 || =3.0.0rc3 || =3.0.0rc4 || =3.0.1 || =3.0.1rc1 || =3.0.2 || =3.0.2rc1 || =3.0.2rc2 || =3.0.3 || =3.0.3rc1 || =3.0.3rc2 || =3.0.3rc3 || =3.0.3rc4 || =3.0.3rc5 || =3.0.3rc6 || =3.0.4 || =3.0.4rc1 || =3.0.4rc2 || =3.0.5 || =3.0.5rc1 || =3.0.5rc2 || =3.0.5rc3 || =3.0.6 || =3.0.6rc1 || =3.0.6rc2 || =3.1.0 || =3.1.0b1 || =3.1.0b2 || =3.1.0rc1 || =3.1.0rc2 || =3.1.1 || =3.1.1rc1 || =3.1.1rc2 || =3.1.2 || =3.1.2rc1 || =3.1.2rc2 || =3.1.3 || =3.1.3rc1 || =3.1.4 || =3.1.4rc1 || =3.1.4rc2 || =3.1.5 || =3.1.5rc1 || =3.1.6 || =3.1.6rc1 || =3.1.7 || =3.1.7rc1 || =3.1.7rc2 || =3.1.8 || =3.1.8rc1 || =3.1.8rc2 || =3.2.0 || =3.2.0b1 || =3.2.0b2 || =3.2.0rc1 || =3.2.0rc2 || =3.2.1 || =3.2.1rc1 || =3.2.1rc2 || =3.2.1rc3 || =3.2.2 || =3.2.2rc1 || =3.2.2rc2 || =3.2.2rc3 || =3.3.0 || =3.3.0b1 || =3.3.0b2 || =3.3.0rc1 || =3.3.0rc2 || =3.3.1rc1 || =3.3.1rc2",
+    "cve": "CVE-2026-68971",
+    "fixed_in": "3.3.1",
+    "id": "PYSEC-2026-3994",
+    "severity": "medium",
+    "summary": "Apache Airflow's asset materialization endpoint (`POST /api/v2/assets/{asset_id}/materialize`) and the XCom result check on `wait_dag_run_until_finished` authorized the target Dag without its team, unlike every other authorization site. A team-aware auth manager distinguishes a team-scoped Dag from "
    }
   ],
   "apache-airflow-core": [
@@ -318209,6 +318785,14 @@
     "id": "PYSEC-2026-3984",
     "severity": "medium",
     "summary": "GitPython before 3.1.60 contains a regular expression denial of service vulnerability in Actor.name_email_regex that processes commit author and committer fields. Attackers can craft a commit object with a malformed author field containing an unterminated angle bracket to cause quadratic backtrackin"
+   },
+   {
+    "affected": "<3.1.54 || =0.1.7 || =0.2.0-beta1 || =0.3.0-beta1 || =0.3.0-beta2 || =0.3.1-beta2 || =0.3.2 || =0.3.2.1 || =0.3.2.RC1 || =0.3.3 || =0.3.4 || =0.3.5 || =0.3.6 || =0.3.7 || =1.0.0 || =1.0.1 || =1.0.2 || =2.0.0 || =2.0.1 || =2.0.2 || =2.0.3 || =2.0.4 || =2.0.5 || =2.0.6 || =2.0.7 || =2.0.8 || =2.0.9 || =2.0.9.dev0 || =2.0.9.dev1 || =2.1.0 || =2.1.1 || =2.1.10 || =2.1.11 || =2.1.12 || =2.1.13 || =2.1.14 || =2.1.15 || =2.1.2 || =2.1.3 || =2.1.4 || =2.1.5 || =2.1.6 || =2.1.7 || =2.1.8 || =2.1.9 || =3.0.0 || =3.0.1 || =3.0.2 || =3.0.3 || =3.0.4 || =3.0.5 || =3.0.6 || =3.0.7 || =3.0.8 || =3.0.9 || =3.1.0 || =3.1.1 || =3.1.10 || =3.1.11 || =3.1.12 || =3.1.13 || =3.1.14 || =3.1.15 || =3.1.16 || =3.1.17 || =3.1.18 || =3.1.19 || =3.1.2 || =3.1.20 || =3.1.22 || =3.1.23 || =3.1.24 || =3.1.25 || =3.1.26 || =3.1.27 || =3.1.28 || =3.1.29 || =3.1.3 || =3.1.30 || =3.1.31 || =3.1.32 || =3.1.33 || =3.1.34 || =3.1.35 || =3.1.36 || =3.1.37 || =3.1.38 || =3.1.4 || =3.1.40 || =3.1.41 || =3.1.42 || =3.1.43 || =3.1.44 || =3.1.45 || =3.1.46 || =3.1.47 || =3.1.48 || =3.1.49 || =3.1.5 || =3.1.50 || =3.1.51 || =3.1.52 || =3.1.53 || =3.1.6 || =3.1.7 || =3.1.8 || =3.1.9",
+    "cve": "CVE-2026-73624",
+    "fixed_in": "3.1.54",
+    "id": "PYSEC-2026-3995",
+    "severity": "medium",
+    "summary": "GitPython versions before 3.1.54 contain an arbitrary file overwrite vulnerability in the Diffable.diff method that fails to validate git options passed through kwargs. Attackers can supply the --output argument via the other parameter or output kwarg to write patch content to attacker-chosen file p"
    }
   ],
   "glance": [
@@ -331745,6 +332329,22 @@
     "id": "PYSEC-2026-3747",
     "severity": "medium",
     "summary": "Reflected XSS in Netron versions <=9.1.2 on desktop application through unsanitized node names allows an attacker to hide certain nodes, perform port scanning or abuse a Chrome n-day to achieve Remote Code Execution."
+   },
+   {
+    "affected": "<9.1.3 || =7.8.6 || =7.8.9 || =7.9.0 || =7.9.1 || =7.9.2 || =7.9.3 || =7.9.4 || =7.9.5 || =7.9.6 || =7.9.7 || =7.9.8 || =7.9.9 || =8.0.0 || =8.0.1 || =8.0.2 || =8.0.3 || =8.0.4 || =8.0.5 || =8.0.6 || =8.0.7 || =8.0.8 || =8.0.9 || =8.1.0 || =8.1.1 || =8.1.2 || =8.1.3 || =8.1.4 || =8.1.5 || =8.1.6 || =8.1.7 || =8.1.8 || =8.1.9 || =8.2.0 || =8.2.1 || =8.2.2 || =8.2.3 || =8.2.4 || =8.2.5 || =8.2.6 || =8.2.7 || =8.2.8 || =8.2.9 || =8.3.0 || =8.3.1 || =8.3.2 || =8.3.3 || =8.3.4 || =8.3.5 || =8.3.6 || =8.3.7 || =8.3.8 || =8.3.9 || =8.4.0 || =8.4.1 || =8.4.2 || =8.4.3 || =8.4.4 || =8.4.5 || =8.4.6 || =8.4.7 || =8.4.8 || =8.4.9 || =8.5.0 || =8.5.1 || =8.5.2 || =8.5.3 || =8.5.4 || =8.5.5 || =8.5.6 || =8.5.7 || =8.5.8 || =8.5.9 || =8.6.0 || =8.6.1 || =8.6.2 || =8.6.3 || =8.6.4 || =8.6.5 || =8.6.6 || =8.6.7 || =8.6.8 || =8.6.9 || =8.7.0 || =8.7.1 || =8.7.2 || =8.7.3 || =8.7.4 || =8.7.5 || =8.7.6 || =8.7.7 || =8.7.8 || =8.7.9 || =8.8.0 || =8.8.1 || =8.8.2 || =8.8.3 || =8.8.4 || =8.8.5 || =8.8.6 || =8.8.8 || =8.8.9 || =8.9.0 || =8.9.1 || =8.9.2 || =8.9.3 || =8.9.4 || =8.9.5 || =8.9.6 || =8.9.7 || =8.9.8 || =8.9.9 || =9.0.0 || =9.0.1 || =9.0.2 || =9.0.3 || =9.0.4 || =9.0.5 || =9.0.6 || =9.0.7 || =9.0.8 || =9.0.9 || =9.1.0 || =9.1.1 || =9.1.2",
+    "cve": "CVE-2026-79718",
+    "fixed_in": "9.1.3",
+    "id": "PYSEC-2026-4001",
+    "severity": "medium",
+    "summary": "Reflected XSS in Netron versions <=9.1.2 on desktop application through unsanitized node names allows an attacker to hide certain nodes, perform port scanning or abuse a Chrome n-day to achieve Remote Code Execution."
+   },
+   {
+    "affected": "<9.1.3 || =7.8.6 || =7.8.9 || =7.9.0 || =7.9.1 || =7.9.2 || =7.9.3 || =7.9.4 || =7.9.5 || =7.9.6 || =7.9.7 || =7.9.8 || =7.9.9 || =8.0.0 || =8.0.1 || =8.0.2 || =8.0.3 || =8.0.4 || =8.0.5 || =8.0.6 || =8.0.7 || =8.0.8 || =8.0.9 || =8.1.0 || =8.1.1 || =8.1.2 || =8.1.3 || =8.1.4 || =8.1.5 || =8.1.6 || =8.1.7 || =8.1.8 || =8.1.9 || =8.2.0 || =8.2.1 || =8.2.2 || =8.2.3 || =8.2.4 || =8.2.5 || =8.2.6 || =8.2.7 || =8.2.8 || =8.2.9 || =8.3.0 || =8.3.1 || =8.3.2 || =8.3.3 || =8.3.4 || =8.3.5 || =8.3.6 || =8.3.7 || =8.3.8 || =8.3.9 || =8.4.0 || =8.4.1 || =8.4.2 || =8.4.3 || =8.4.4 || =8.4.5 || =8.4.6 || =8.4.7 || =8.4.8 || =8.4.9 || =8.5.0 || =8.5.1 || =8.5.2 || =8.5.3 || =8.5.4 || =8.5.5 || =8.5.6 || =8.5.7 || =8.5.8 || =8.5.9 || =8.6.0 || =8.6.1 || =8.6.2 || =8.6.3 || =8.6.4 || =8.6.5 || =8.6.6 || =8.6.7 || =8.6.8 || =8.6.9 || =8.7.0 || =8.7.1 || =8.7.2 || =8.7.3 || =8.7.4 || =8.7.5 || =8.7.6 || =8.7.7 || =8.7.8 || =8.7.9 || =8.8.0 || =8.8.1 || =8.8.2 || =8.8.3 || =8.8.4 || =8.8.5 || =8.8.6 || =8.8.8 || =8.8.9 || =8.9.0 || =8.9.1 || =8.9.2 || =8.9.3 || =8.9.4 || =8.9.5 || =8.9.6 || =8.9.7 || =8.9.8 || =8.9.9 || =9.0.0 || =9.0.1 || =9.0.2 || =9.0.3 || =9.0.4 || =9.0.5 || =9.0.6 || =9.0.7 || =9.0.8 || =9.0.9 || =9.1.0 || =9.1.1 || =9.1.2",
+    "cve": "CVE-2026-79719",
+    "fixed_in": "9.1.3",
+    "id": "PYSEC-2026-4002",
+    "severity": "medium",
+    "summary": "Reflected XSS in Netron versions <=9.1.2 on desktop application through unsanitized node names allows an attacker to hide certain nodes, perform port scanning or abuse a Chrome n-day to achieve Remote Code Execution."
    }
   ],
   "neuro-cortex-memory": [
@@ -333699,6 +334299,22 @@
     "id": "GHSA-3pgj-pg6c-r5p7",
     "severity": "high",
     "summary": "OAuthLib vulnerable to DoS when attacker provides malicious IPV6 URI"
+   },
+   {
+    "affected": ">=0.6.1, <4.0.0",
+    "cve": "CVE-2026-49264",
+    "fixed_in": "4.0.0",
+    "id": "GHSA-hj66-6f7g-4r5v",
+    "severity": "high",
+    "summary": "Oauthlib : Unsafe JSONP callback injection in RevocationEndpoint allows arbitrary JavaScript response generation"
+   },
+   {
+    "affected": ">=3.0.0, <4.0.0",
+    "cve": "CVE-2026-49265",
+    "fixed_in": "4.0.0",
+    "id": "GHSA-xpv3-w29h-x7cv",
+    "severity": "high",
+    "summary": "Oauthlib: Timing Attack Vulnerability in PKCE code_verifier Comparison (CWE-208)"
    }
   ],
   "ocrodjvu": [
@@ -345775,6 +346391,86 @@
     "id": "GHSA-xgmm-8j9v-c9wx",
     "severity": "high",
     "summary": "PyJWT: Public-key JWK accepted as HMAC secret enables forged HS256 tokens when mixed families are allowed"
+   },
+   {
+    "affected": "<2.14.0",
+    "cve": "CVE-2026-101917",
+    "fixed_in": "2.14.0",
+    "id": "GHSA-2gx3-rcp4-g85q",
+    "severity": "high",
+    "summary": "PyJWT: PyJWKClient still amplifies unauthenticated JWKS fetches on unknown kid values (incomplete fix of CVE-2026-48524)"
+   },
+   {
+    "affected": ">=2.13.0, <2.14.0",
+    "cve": "CVE-2026-102265",
+    "fixed_in": "2.14.0",
+    "id": "GHSA-8wjv-2p76-3863",
+    "severity": "high",
+    "summary": "PyJWT: Uncaught RecursionError in jwt.decode() on deeply nested token header"
+   },
+   {
+    "affected": ">=2.13.0, <2.14.0",
+    "cve": "CVE-2026-102266",
+    "fixed_in": "2.14.0",
+    "id": "GHSA-9j54-fg26-wv3r",
+    "severity": "high",
+    "summary": "PyJWT: PyJWK accepts empty HMAC keys, bypassing PyJWT's empty-key validation"
+   },
+   {
+    "affected": "<2.14.0",
+    "cve": "CVE-2026-102267",
+    "fixed_in": "2.14.0",
+    "id": "GHSA-9v7f-9g4p-ffgj",
+    "severity": "high",
+    "summary": "PyJWT: PyJWKClient follows redirects when fetching JWKS"
+   },
+   {
+    "affected": "<2.14.0",
+    "cve": "CVE-2026-102268",
+    "fixed_in": "2.14.0",
+    "id": "GHSA-ffc3-869f-jxw9",
+    "severity": "critical",
+    "summary": "PyJWT: Asymmetric-PEM detection bypass: whitespace/line-ending-mutated public keys skip the HS/asymmetric confusion guard"
+   },
+   {
+    "affected": "<2.14.0",
+    "cve": "CVE-2026-102269",
+    "fixed_in": "2.14.0",
+    "id": "GHSA-hxm8-2xgr-2p9m",
+    "severity": "high",
+    "summary": "PyJWT: Non-canonical signature segments enable raw-token revocation bypass"
+   },
+   {
+    "affected": ">=2.4.0, <2.14.0",
+    "cve": "CVE-2026-102271",
+    "fixed_in": "2.14.0",
+    "id": "GHSA-p4g4-x82p-q773",
+    "severity": "high",
+    "summary": "PyJWT: Public keys in DER form are accepted as HMAC secrets, bypassing the CVE-2022-29217 guard"
+   },
+   {
+    "affected": ">=2.13.0, <2.14.0 || =2.13.0",
+    "cve": "CVE-2026-102272",
+    "fixed_in": "2.14.0",
+    "id": "GHSA-r6x4-923q-g947",
+    "severity": "high",
+    "summary": "PyJWT BOM Bypass"
+   },
+   {
+    "affected": ">=2.13.0, <2.14.0 || =2.13.0",
+    "cve": "CVE-2026-102273",
+    "fixed_in": "2.14.0",
+    "id": "GHSA-w2cx-738m-mc7w",
+    "severity": "high",
+    "summary": "PyJWT accepts public JWK containers as HMAC secrets"
+   },
+   {
+    "affected": ">=2.9.0, <2.14.0",
+    "cve": "CVE-2026-102274",
+    "fixed_in": "2.14.0",
+    "id": "GHSA-w6j9-cwv2-h6wq",
+    "severity": "high",
+    "summary": "PyJWT: Malformed RSA JWK aborts parsing of an entire JWK Set"
    },
    {
     "affected": "<=2.10.1 || =0.1.1 || =0.1.2 || =0.1.3 || =0.1.4 || =0.1.5 || =0.1.6 || =0.1.7 || =0.1.8 || =0.1.9 || =0.2.0 || =0.2.1 || =0.2.3 || =0.3.0 || =0.3.1 || =0.3.2 || =0.4.0 || =0.4.1 || =0.4.2 || =0.4.3 || =1.0.0 || =1.0.1 || =1.1.0 || =1.3.0 || =1.4.0 || =1.4.1 || =1.4.2 || =1.5.0 || =1.5.1 || =1.5.2 || =1.5.3 || =1.6.0 || =1.6.1 || =1.6.3 || =1.6.4 || =1.7.0 || =1.7.1 || =2.0.0 || =2.0.0a1 || =2.0.0a2 || =2.0.1 || =2.1.0 || =2.10.0 || =2.10.1 || =2.2.0 || =2.3.0 || =2.4.0 || =2.5.0 || =2.6.0 || =2.7.0 || =2.8.0 || =2.9.0",
@@ -367063,6 +367759,94 @@
     "id": "PYSEC-2026-3985",
     "severity": "medium",
     "summary": "vLLM before 0.28.0 contains a remote code execution vulnerability in the LlavaOnevision2 processor loader that ignores the trust_remote_code parameter when loading remote processor classes. Attackers can craft a malicious model with arbitrary code in processing_llava_onevision2.py that executes with"
+   },
+   {
+    "affected": "<0.30.0 || =0.0.1 || =0.1.0 || =0.1.1 || =0.1.2 || =0.1.3 || =0.1.4 || =0.1.5 || =0.1.6 || =0.1.7 || =0.10.0 || =0.10.1 || =0.10.1.1 || =0.10.2 || =0.11.0 || =0.11.1 || =0.11.2 || =0.12.0 || =0.13.0 || =0.14.0 || =0.14.1 || =0.15.0 || =0.15.1 || =0.16.0 || =0.17.0 || =0.17.1 || =0.18.0 || =0.18.1 || =0.19.0 || =0.19.1 || =0.2.0 || =0.2.1 || =0.2.1.post1 || =0.2.2 || =0.2.3 || =0.2.4 || =0.2.5 || =0.2.6 || =0.2.7 || =0.20.0 || =0.20.1 || =0.20.2 || =0.21.0 || =0.22.0 || =0.22.1 || =0.23.0 || =0.24.0 || =0.25.0 || =0.25.1 || =0.26.0 || =0.27.0 || =0.27.1 || =0.28.0 || =0.29.0 || =0.3.0 || =0.3.1 || =0.3.2 || =0.3.3 || =0.4.0 || =0.4.0.post1 || =0.4.1 || =0.4.2 || =0.4.3 || =0.5.0 || =0.5.0.post1 || =0.5.1 || =0.5.2 || =0.5.3 || =0.5.3.post1 || =0.5.4 || =0.5.5 || =0.6.0 || =0.6.1 || =0.6.1.post1 || =0.6.1.post2 || =0.6.2 || =0.6.3 || =0.6.3.post1 || =0.6.4 || =0.6.4.post1 || =0.6.5 || =0.6.6 || =0.6.6.post1 || =0.7.0 || =0.7.1 || =0.7.2 || =0.7.3 || =0.8.0 || =0.8.1 || =0.8.2 || =0.8.3 || =0.8.4 || =0.8.5 || =0.8.5.post1 || =0.9.0 || =0.9.0.1 || =0.9.1 || =0.9.2",
+    "cve": "CVE-2026-93436",
+    "fixed_in": "0.30.0",
+    "id": "PYSEC-2026-3996",
+    "severity": "medium",
+    "summary": "vLLM through 0.29.0 fails to properly clean up decode-side metadata for rejected inference requests in prefill/decode disaggregated deployments. Remote attackers can submit requests with max_tokens=0 to exhaust decode-worker memory without bound until the worker restarts."
+   },
+   {
+    "affected": "<0.28.0 || =0.0.1 || =0.1.0 || =0.1.1 || =0.1.2 || =0.1.3 || =0.1.4 || =0.1.5 || =0.1.6 || =0.1.7 || =0.10.0 || =0.10.1 || =0.10.1.1 || =0.10.2 || =0.11.0 || =0.11.1 || =0.11.2 || =0.12.0 || =0.13.0 || =0.14.0 || =0.14.1 || =0.15.0 || =0.15.1 || =0.16.0 || =0.17.0 || =0.17.1 || =0.18.0 || =0.18.1 || =0.19.0 || =0.19.1 || =0.2.0 || =0.2.1 || =0.2.1.post1 || =0.2.2 || =0.2.3 || =0.2.4 || =0.2.5 || =0.2.6 || =0.2.7 || =0.20.0 || =0.20.1 || =0.20.2 || =0.21.0 || =0.22.0 || =0.22.1 || =0.23.0 || =0.24.0 || =0.25.0 || =0.25.1 || =0.26.0 || =0.27.0 || =0.27.1 || =0.3.0 || =0.3.1 || =0.3.2 || =0.3.3 || =0.4.0 || =0.4.0.post1 || =0.4.1 || =0.4.2 || =0.4.3 || =0.5.0 || =0.5.0.post1 || =0.5.1 || =0.5.2 || =0.5.3 || =0.5.3.post1 || =0.5.4 || =0.5.5 || =0.6.0 || =0.6.1 || =0.6.1.post1 || =0.6.1.post2 || =0.6.2 || =0.6.3 || =0.6.3.post1 || =0.6.4 || =0.6.4.post1 || =0.6.5 || =0.6.6 || =0.6.6.post1 || =0.7.0 || =0.7.1 || =0.7.2 || =0.7.3 || =0.8.0 || =0.8.1 || =0.8.2 || =0.8.3 || =0.8.4 || =0.8.5 || =0.8.5.post1 || =0.9.0 || =0.9.0.1 || =0.9.1 || =0.9.2",
+    "cve": "CVE-2026-93592",
+    "fixed_in": "0.28.0",
+    "id": "PYSEC-2026-3997",
+    "severity": "medium",
+    "summary": "vLLM versions before 0.28.0 fail to validate the lower bound of token IDs in the /v1/embeddings and /pooling endpoints, allowing unauthenticated attackers to crash the engine by submitting negative token IDs. A single request with a negative token ID triggers a CUDA device-side assertion that poison"
+   },
+   {
+    "affected": "<0.29.0 || =0.0.1 || =0.1.0 || =0.1.1 || =0.1.2 || =0.1.3 || =0.1.4 || =0.1.5 || =0.1.6 || =0.1.7 || =0.10.0 || =0.10.1 || =0.10.1.1 || =0.10.2 || =0.11.0 || =0.11.1 || =0.11.2 || =0.12.0 || =0.13.0 || =0.14.0 || =0.14.1 || =0.15.0 || =0.15.1 || =0.16.0 || =0.17.0 || =0.17.1 || =0.18.0 || =0.18.1 || =0.19.0 || =0.19.1 || =0.2.0 || =0.2.1 || =0.2.1.post1 || =0.2.2 || =0.2.3 || =0.2.4 || =0.2.5 || =0.2.6 || =0.2.7 || =0.20.0 || =0.20.1 || =0.20.2 || =0.21.0 || =0.22.0 || =0.22.1 || =0.23.0 || =0.24.0 || =0.25.0 || =0.25.1 || =0.26.0 || =0.27.0 || =0.27.1 || =0.28.0 || =0.3.0 || =0.3.1 || =0.3.2 || =0.3.3 || =0.4.0 || =0.4.0.post1 || =0.4.1 || =0.4.2 || =0.4.3 || =0.5.0 || =0.5.0.post1 || =0.5.1 || =0.5.2 || =0.5.3 || =0.5.3.post1 || =0.5.4 || =0.5.5 || =0.6.0 || =0.6.1 || =0.6.1.post1 || =0.6.1.post2 || =0.6.2 || =0.6.3 || =0.6.3.post1 || =0.6.4 || =0.6.4.post1 || =0.6.5 || =0.6.6 || =0.6.6.post1 || =0.7.0 || =0.7.1 || =0.7.2 || =0.7.3 || =0.8.0 || =0.8.1 || =0.8.2 || =0.8.3 || =0.8.4 || =0.8.5 || =0.8.5.post1 || =0.9.0 || =0.9.0.1 || =0.9.1 || =0.9.2",
+    "cve": "CVE-2026-93840",
+    "fixed_in": "0.29.0",
+    "id": "PYSEC-2026-3998",
+    "severity": "medium",
+    "summary": "vLLM before 0.29.0 validates allowed_token_ids against tokenizer length instead of model output logits width in SamplingParams._validate_allowed_token_ids(). Attackers can supply token IDs above the output vocabulary that pass validation, causing LogitBiasState to corrupt GPU logits state and allow "
+   },
+   {
+    "affected": "<0.30.0 || =0.0.1 || =0.1.0 || =0.1.1 || =0.1.2 || =0.1.3 || =0.1.4 || =0.1.5 || =0.1.6 || =0.1.7 || =0.10.0 || =0.10.1 || =0.10.1.1 || =0.10.2 || =0.11.0 || =0.11.1 || =0.11.2 || =0.12.0 || =0.13.0 || =0.14.0 || =0.14.1 || =0.15.0 || =0.15.1 || =0.16.0 || =0.17.0 || =0.17.1 || =0.18.0 || =0.18.1 || =0.19.0 || =0.19.1 || =0.2.0 || =0.2.1 || =0.2.1.post1 || =0.2.2 || =0.2.3 || =0.2.4 || =0.2.5 || =0.2.6 || =0.2.7 || =0.20.0 || =0.20.1 || =0.20.2 || =0.21.0 || =0.22.0 || =0.22.1 || =0.23.0 || =0.24.0 || =0.25.0 || =0.25.1 || =0.26.0 || =0.27.0 || =0.27.1 || =0.28.0 || =0.29.0 || =0.3.0 || =0.3.1 || =0.3.2 || =0.3.3 || =0.4.0 || =0.4.0.post1 || =0.4.1 || =0.4.2 || =0.4.3 || =0.5.0 || =0.5.0.post1 || =0.5.1 || =0.5.2 || =0.5.3 || =0.5.3.post1 || =0.5.4 || =0.5.5 || =0.6.0 || =0.6.1 || =0.6.1.post1 || =0.6.1.post2 || =0.6.2 || =0.6.3 || =0.6.3.post1 || =0.6.4 || =0.6.4.post1 || =0.6.5 || =0.6.6 || =0.6.6.post1 || =0.7.0 || =0.7.1 || =0.7.2 || =0.7.3 || =0.8.0 || =0.8.1 || =0.8.2 || =0.8.3 || =0.8.4 || =0.8.5 || =0.8.5.post1 || =0.9.0 || =0.9.0.1 || =0.9.1 || =0.9.2",
+    "cve": "CVE-2026-93841",
+    "fixed_in": "0.30.0",
+    "id": "PYSEC-2026-3999",
+    "severity": "medium",
+    "summary": "vLLM through 0.29.0 contains a memory corruption vulnerability in the Triton _bincount_kernel where prompt token IDs index the penalty prompt-presence bitset without bounds checking against vocabulary size. Attackers can submit multimodal audio requests with tokens equal to vocabulary size, causing "
+   },
+   {
+    "affected": "<0.30.0 || =0.0.1 || =0.1.0 || =0.1.1 || =0.1.2 || =0.1.3 || =0.1.4 || =0.1.5 || =0.1.6 || =0.1.7 || =0.10.0 || =0.10.1 || =0.10.1.1 || =0.10.2 || =0.11.0 || =0.11.1 || =0.11.2 || =0.12.0 || =0.13.0 || =0.14.0 || =0.14.1 || =0.15.0 || =0.15.1 || =0.16.0 || =0.17.0 || =0.17.1 || =0.18.0 || =0.18.1 || =0.19.0 || =0.19.1 || =0.2.0 || =0.2.1 || =0.2.1.post1 || =0.2.2 || =0.2.3 || =0.2.4 || =0.2.5 || =0.2.6 || =0.2.7 || =0.20.0 || =0.20.1 || =0.20.2 || =0.21.0 || =0.22.0 || =0.22.1 || =0.23.0 || =0.24.0 || =0.25.0 || =0.25.1 || =0.26.0 || =0.27.0 || =0.27.1 || =0.28.0 || =0.29.0 || =0.3.0 || =0.3.1 || =0.3.2 || =0.3.3 || =0.4.0 || =0.4.0.post1 || =0.4.1 || =0.4.2 || =0.4.3 || =0.5.0 || =0.5.0.post1 || =0.5.1 || =0.5.2 || =0.5.3 || =0.5.3.post1 || =0.5.4 || =0.5.5 || =0.6.0 || =0.6.1 || =0.6.1.post1 || =0.6.1.post2 || =0.6.2 || =0.6.3 || =0.6.3.post1 || =0.6.4 || =0.6.4.post1 || =0.6.5 || =0.6.6 || =0.6.6.post1 || =0.7.0 || =0.7.1 || =0.7.2 || =0.7.3 || =0.8.0 || =0.8.1 || =0.8.2 || =0.8.3 || =0.8.4 || =0.8.5 || =0.8.5.post1 || =0.9.0 || =0.9.0.1 || =0.9.1 || =0.9.2",
+    "cve": "CVE-2026-93989",
+    "fixed_in": "0.30.0",
+    "id": "PYSEC-2026-4000",
+    "severity": "medium",
+    "summary": "vLLM through 0.29.0 fails to properly validate bad_words token indices against the model's generation output width in SamplingParams.update_from_tokenizer(). Attackers can supply out-of-bounds token indices that corrupt logits memory of concurrent requests, causing different in-flight HTTP requests "
+   },
+   {
+    "affected": "<0.27.0 || =0.0.1 || =0.1.0 || =0.1.1 || =0.1.2 || =0.1.3 || =0.1.4 || =0.1.5 || =0.1.6 || =0.1.7 || =0.10.0 || =0.10.1 || =0.10.1.1 || =0.10.2 || =0.11.0 || =0.11.1 || =0.11.2 || =0.12.0 || =0.13.0 || =0.14.0 || =0.14.1 || =0.15.0 || =0.15.1 || =0.16.0 || =0.17.0 || =0.17.1 || =0.18.0 || =0.18.1 || =0.19.0 || =0.19.1 || =0.2.0 || =0.2.1 || =0.2.1.post1 || =0.2.2 || =0.2.3 || =0.2.4 || =0.2.5 || =0.2.6 || =0.2.7 || =0.20.0 || =0.20.1 || =0.20.2 || =0.21.0 || =0.22.0 || =0.22.1 || =0.23.0 || =0.24.0 || =0.25.0 || =0.25.1 || =0.26.0 || =0.3.0 || =0.3.1 || =0.3.2 || =0.3.3 || =0.4.0 || =0.4.0.post1 || =0.4.1 || =0.4.2 || =0.4.3 || =0.5.0 || =0.5.0.post1 || =0.5.1 || =0.5.2 || =0.5.3 || =0.5.3.post1 || =0.5.4 || =0.5.5 || =0.6.0 || =0.6.1 || =0.6.1.post1 || =0.6.1.post2 || =0.6.2 || =0.6.3 || =0.6.3.post1 || =0.6.4 || =0.6.4.post1 || =0.6.5 || =0.6.6 || =0.6.6.post1 || =0.7.0 || =0.7.1 || =0.7.2 || =0.7.3 || =0.8.0 || =0.8.1 || =0.8.2 || =0.8.3 || =0.8.4 || =0.8.5 || =0.8.5.post1 || =0.9.0 || =0.9.0.1 || =0.9.1 || =0.9.2",
+    "cve": "CVE-2026-78684",
+    "fixed_in": "0.27.0",
+    "id": "PYSEC-2026-4003",
+    "severity": "medium",
+    "summary": "vLLM before 0.27.0 fails to properly classify DeepStream as a GPU backend and omits pixel-limit enforcement in its decode path. Unauthenticated attackers can activate DeepStream at request time to initialize the process-wide GPU decode pool and submit video that bypasses resource controls, causing p"
+   },
+   {
+    "affected": "<0.30.0 || =0.0.1 || =0.1.0 || =0.1.1 || =0.1.2 || =0.1.3 || =0.1.4 || =0.1.5 || =0.1.6 || =0.1.7 || =0.10.0 || =0.10.1 || =0.10.1.1 || =0.10.2 || =0.11.0 || =0.11.1 || =0.11.2 || =0.12.0 || =0.13.0 || =0.14.0 || =0.14.1 || =0.15.0 || =0.15.1 || =0.16.0 || =0.17.0 || =0.17.1 || =0.18.0 || =0.18.1 || =0.19.0 || =0.19.1 || =0.2.0 || =0.2.1 || =0.2.1.post1 || =0.2.2 || =0.2.3 || =0.2.4 || =0.2.5 || =0.2.6 || =0.2.7 || =0.20.0 || =0.20.1 || =0.20.2 || =0.21.0 || =0.22.0 || =0.22.1 || =0.23.0 || =0.24.0 || =0.25.0 || =0.25.1 || =0.26.0 || =0.27.0 || =0.27.1 || =0.28.0 || =0.29.0 || =0.3.0 || =0.3.1 || =0.3.2 || =0.3.3 || =0.4.0 || =0.4.0.post1 || =0.4.1 || =0.4.2 || =0.4.3 || =0.5.0 || =0.5.0.post1 || =0.5.1 || =0.5.2 || =0.5.3 || =0.5.3.post1 || =0.5.4 || =0.5.5 || =0.6.0 || =0.6.1 || =0.6.1.post1 || =0.6.1.post2 || =0.6.2 || =0.6.3 || =0.6.3.post1 || =0.6.4 || =0.6.4.post1 || =0.6.5 || =0.6.6 || =0.6.6.post1 || =0.7.0 || =0.7.1 || =0.7.2 || =0.7.3 || =0.8.0 || =0.8.1 || =0.8.2 || =0.8.3 || =0.8.4 || =0.8.5 || =0.8.5.post1 || =0.9.0 || =0.9.0.1 || =0.9.1 || =0.9.2",
+    "cve": "CVE-2026-94622",
+    "fixed_in": "0.30.0",
+    "id": "PYSEC-2026-4004",
+    "severity": "medium",
+    "summary": "vLLM versions through 0.29.0 contain a denial of service vulnerability in the NIXL connector's metadata handling for prefill/decode disaggregated deployments. Attackers can send requests with incomplete kv_transfer_params dictionary entries to trigger an uncaught KeyError in EngineCore scheduling, c"
+   },
+   {
+    "affected": "<0.30.0 || =0.0.1 || =0.1.0 || =0.1.1 || =0.1.2 || =0.1.3 || =0.1.4 || =0.1.5 || =0.1.6 || =0.1.7 || =0.10.0 || =0.10.1 || =0.10.1.1 || =0.10.2 || =0.11.0 || =0.11.1 || =0.11.2 || =0.12.0 || =0.13.0 || =0.14.0 || =0.14.1 || =0.15.0 || =0.15.1 || =0.16.0 || =0.17.0 || =0.17.1 || =0.18.0 || =0.18.1 || =0.19.0 || =0.19.1 || =0.2.0 || =0.2.1 || =0.2.1.post1 || =0.2.2 || =0.2.3 || =0.2.4 || =0.2.5 || =0.2.6 || =0.2.7 || =0.20.0 || =0.20.1 || =0.20.2 || =0.21.0 || =0.22.0 || =0.22.1 || =0.23.0 || =0.24.0 || =0.25.0 || =0.25.1 || =0.26.0 || =0.27.0 || =0.27.1 || =0.28.0 || =0.29.0 || =0.3.0 || =0.3.1 || =0.3.2 || =0.3.3 || =0.4.0 || =0.4.0.post1 || =0.4.1 || =0.4.2 || =0.4.3 || =0.5.0 || =0.5.0.post1 || =0.5.1 || =0.5.2 || =0.5.3 || =0.5.3.post1 || =0.5.4 || =0.5.5 || =0.6.0 || =0.6.1 || =0.6.1.post1 || =0.6.1.post2 || =0.6.2 || =0.6.3 || =0.6.3.post1 || =0.6.4 || =0.6.4.post1 || =0.6.5 || =0.6.6 || =0.6.6.post1 || =0.7.0 || =0.7.1 || =0.7.2 || =0.7.3 || =0.8.0 || =0.8.1 || =0.8.2 || =0.8.3 || =0.8.4 || =0.8.5 || =0.8.5.post1 || =0.9.0 || =0.9.0.1 || =0.9.1 || =0.9.2",
+    "cve": "CVE-2026-94623",
+    "fixed_in": "0.30.0",
+    "id": "PYSEC-2026-4005",
+    "severity": "medium",
+    "summary": "vLLM through 0.29.0 contains a denial of service vulnerability in the NIXL connector's prefix caching implementation that fails to properly validate block counts across multi-prompt completion requests in prefill/decode disaggregated deployments. Attackers can trigger an assertion failure in NixlBas"
+   },
+   {
+    "affected": "<0.30.0 || =0.0.1 || =0.1.0 || =0.1.1 || =0.1.2 || =0.1.3 || =0.1.4 || =0.1.5 || =0.1.6 || =0.1.7 || =0.10.0 || =0.10.1 || =0.10.1.1 || =0.10.2 || =0.11.0 || =0.11.1 || =0.11.2 || =0.12.0 || =0.13.0 || =0.14.0 || =0.14.1 || =0.15.0 || =0.15.1 || =0.16.0 || =0.17.0 || =0.17.1 || =0.18.0 || =0.18.1 || =0.19.0 || =0.19.1 || =0.2.0 || =0.2.1 || =0.2.1.post1 || =0.2.2 || =0.2.3 || =0.2.4 || =0.2.5 || =0.2.6 || =0.2.7 || =0.20.0 || =0.20.1 || =0.20.2 || =0.21.0 || =0.22.0 || =0.22.1 || =0.23.0 || =0.24.0 || =0.25.0 || =0.25.1 || =0.26.0 || =0.27.0 || =0.27.1 || =0.28.0 || =0.29.0 || =0.3.0 || =0.3.1 || =0.3.2 || =0.3.3 || =0.4.0 || =0.4.0.post1 || =0.4.1 || =0.4.2 || =0.4.3 || =0.5.0 || =0.5.0.post1 || =0.5.1 || =0.5.2 || =0.5.3 || =0.5.3.post1 || =0.5.4 || =0.5.5 || =0.6.0 || =0.6.1 || =0.6.1.post1 || =0.6.1.post2 || =0.6.2 || =0.6.3 || =0.6.3.post1 || =0.6.4 || =0.6.4.post1 || =0.6.5 || =0.6.6 || =0.6.6.post1 || =0.7.0 || =0.7.1 || =0.7.2 || =0.7.3 || =0.8.0 || =0.8.1 || =0.8.2 || =0.8.3 || =0.8.4 || =0.8.5 || =0.8.5.post1 || =0.9.0 || =0.9.0.1 || =0.9.1 || =0.9.2",
+    "cve": "CVE-2026-94624",
+    "fixed_in": "0.30.0",
+    "id": "PYSEC-2026-4006",
+    "severity": "medium",
+    "summary": "vLLM through 0.29.0 contains a denial of service vulnerability in P2P KV offloading when OffloadingConnector is configured with TieringOffloadingSpec and a peer-to-peer secondary tier. Attackers can supply arbitrary remote host and port values in kv_transfer_params to create unreachable peer session"
+   },
+   {
+    "affected": "<0.30.0 || =0.0.1 || =0.1.0 || =0.1.1 || =0.1.2 || =0.1.3 || =0.1.4 || =0.1.5 || =0.1.6 || =0.1.7 || =0.10.0 || =0.10.1 || =0.10.1.1 || =0.10.2 || =0.11.0 || =0.11.1 || =0.11.2 || =0.12.0 || =0.13.0 || =0.14.0 || =0.14.1 || =0.15.0 || =0.15.1 || =0.16.0 || =0.17.0 || =0.17.1 || =0.18.0 || =0.18.1 || =0.19.0 || =0.19.1 || =0.2.0 || =0.2.1 || =0.2.1.post1 || =0.2.2 || =0.2.3 || =0.2.4 || =0.2.5 || =0.2.6 || =0.2.7 || =0.20.0 || =0.20.1 || =0.20.2 || =0.21.0 || =0.22.0 || =0.22.1 || =0.23.0 || =0.24.0 || =0.25.0 || =0.25.1 || =0.26.0 || =0.27.0 || =0.27.1 || =0.28.0 || =0.29.0 || =0.3.0 || =0.3.1 || =0.3.2 || =0.3.3 || =0.4.0 || =0.4.0.post1 || =0.4.1 || =0.4.2 || =0.4.3 || =0.5.0 || =0.5.0.post1 || =0.5.1 || =0.5.2 || =0.5.3 || =0.5.3.post1 || =0.5.4 || =0.5.5 || =0.6.0 || =0.6.1 || =0.6.1.post1 || =0.6.1.post2 || =0.6.2 || =0.6.3 || =0.6.3.post1 || =0.6.4 || =0.6.4.post1 || =0.6.5 || =0.6.6 || =0.6.6.post1 || =0.7.0 || =0.7.1 || =0.7.2 || =0.7.3 || =0.8.0 || =0.8.1 || =0.8.2 || =0.8.3 || =0.8.4 || =0.8.5 || =0.8.5.post1 || =0.9.0 || =0.9.0.1 || =0.9.1 || =0.9.2",
+    "cve": "CVE-2026-94625",
+    "fixed_in": "0.30.0",
+    "id": "PYSEC-2026-4007",
+    "severity": "medium",
+    "summary": "vLLM through 0.29.0 contains a resource exhaustion vulnerability in MooncakeConnector where rejected prefill requests create ownerless transfer placeholders that are never reclaimed. Attackers can send rejected requests to exhaust sender task pools, causing valid requests to be delayed by up to 480 "
+   },
+   {
+    "affected": "<0.30.0 || =0.0.1 || =0.1.0 || =0.1.1 || =0.1.2 || =0.1.3 || =0.1.4 || =0.1.5 || =0.1.6 || =0.1.7 || =0.10.0 || =0.10.1 || =0.10.1.1 || =0.10.2 || =0.11.0 || =0.11.1 || =0.11.2 || =0.12.0 || =0.13.0 || =0.14.0 || =0.14.1 || =0.15.0 || =0.15.1 || =0.16.0 || =0.17.0 || =0.17.1 || =0.18.0 || =0.18.1 || =0.19.0 || =0.19.1 || =0.2.0 || =0.2.1 || =0.2.1.post1 || =0.2.2 || =0.2.3 || =0.2.4 || =0.2.5 || =0.2.6 || =0.2.7 || =0.20.0 || =0.20.1 || =0.20.2 || =0.21.0 || =0.22.0 || =0.22.1 || =0.23.0 || =0.24.0 || =0.25.0 || =0.25.1 || =0.26.0 || =0.27.0 || =0.27.1 || =0.28.0 || =0.29.0 || =0.3.0 || =0.3.1 || =0.3.2 || =0.3.3 || =0.4.0 || =0.4.0.post1 || =0.4.1 || =0.4.2 || =0.4.3 || =0.5.0 || =0.5.0.post1 || =0.5.1 || =0.5.2 || =0.5.3 || =0.5.3.post1 || =0.5.4 || =0.5.5 || =0.6.0 || =0.6.1 || =0.6.1.post1 || =0.6.1.post2 || =0.6.2 || =0.6.3 || =0.6.3.post1 || =0.6.4 || =0.6.4.post1 || =0.6.5 || =0.6.6 || =0.6.6.post1 || =0.7.0 || =0.7.1 || =0.7.2 || =0.7.3 || =0.8.0 || =0.8.1 || =0.8.2 || =0.8.3 || =0.8.4 || =0.8.5 || =0.8.5.post1 || =0.9.0 || =0.9.0.1 || =0.9.1 || =0.9.2",
+    "cve": "CVE-2026-94626",
+    "fixed_in": "0.30.0",
+    "id": "PYSEC-2026-4008",
+    "severity": "medium",
+    "summary": "vLLM through 0.29.0 fails to validate the tp_size parameter in kv_transfer_params on OpenAI-compatible completion endpoints, allowing attackers to allocate unbounded memory. Attackers can supply arbitrary tp_size values in prefill/decode disaggregated deployments to exhaust memory and trigger kernel"
    }
   ],
   "vncauthproxy": [
@@ -380865,6 +381649,14 @@
     "id": "GHSA-mm7x-qfjj-5g2c",
     "severity": "low",
     "summary": "Ammonia incorrectly handles embedded SVG and MathML leading to mutation XSS after removal"
+   },
+   {
+    "affected": "<3.3.3",
+    "cve": "CVE-2026-102342",
+    "fixed_in": "3.3.3",
+    "id": "GHSA-m6mh-2hw2-555x",
+    "severity": "high",
+    "summary": "Ammonia: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')"
    }
   ],
   "anchor-lang": [

@@ -2,8 +2,9 @@
 
 > **Historical measurements:** The numbers below were recorded on an earlier
 > revision/hardware. See [UPGRADE_VALIDATION_2026-09-25.md](UPGRADE_VALIDATION_2026-09-25.md)
-> for a measured run on the current upgrade; do not compare different machines
-> as a release performance guarantee.
+> for an earlier upgraded performance run and the [current enterprise gate](ENTERPRISE_RELEASE_GATE_2026-09-30.md)
+> for independent accuracy. Do not compare different machines as a release
+> performance guarantee.
 
 All numbers below were measured by running the scripts in `benchmarks/`
 on this repository's own CI hardware, not estimated. Re-run them yourself:
@@ -59,26 +60,29 @@ CI hardware teaches people to ignore it.
 
 The full **26/26** pinned, human-authored Python subset of the independent
 RealVuln Benchmark v3.1.0 was scored using its published file/CWE/±10-line
-matching. With the shipped `ast-python` and `rule-engine` engines: **91 TP,
-112 FP, 612 FN, 119 TN; 44.83% precision and 12.94% recall**, versus the
-agreed ≥95% precision and ≥90% recall enterprise gates. An earlier revision
-had 83 TP, 112 FP and 620 FN. Modelling Flask JSON and GraphQL resolver
-inputs, distinguishing SQLAlchemy `text()` from unrelated calls, excluding
-bound SQL values, and locating built queries at their interpolation site
-matched eight additional third-party labels **without reducing the raw FP
-count**. This is a bounded improvement, not a passing result. Even a
-deliberately generous declared-CWE sensitivity analysis (91 TP, 112 FP,
-324 FN) reaches only 44.83% precision and 21.93% recall. These are
-benchmark labels and matcher results, not a human adjudication of every
-alert. Other shipped scanners have not yet been independently measured; the
-internal corpus below does **not** supersede the failing independent
-measurement.
+matching. The current `ast-python` + `rule-engine` result is **124 TP, 119 FP,
+579 FN, 119 TN; 51.03% precision and 17.64% recall**, versus the agreed
+≥95% precision and ≥90% recall enterprise gates. The earlier Sep 27
+measurement was 117 TP / 118 FP / 586 FN (49.79% / 16.64%). The current
+update recognizes user-controlled archive paths, explicit HTTP route
+placeholders and FastAPI query inputs, and a bound Jinja Environment's
+`from_string` sink; it also closes a mixed-escaping XSS false negative.
+This remains a **failed release gate**. Even a generous declared-CWE-only
+sensitivity analysis (124 TP / 119 FP / 291 FN) reaches just 51.03%
+precision and 29.88% recall. The benchmark counts unmatched findings as
+false positives under its published protocol; this is not a human ruling
+on each alert. Other shipped scanners have not yet been independently
+measured, and an internal corpus cannot override these results.
 
-See the pinned manifest, target revisions, methodology, per-repository
-results and caveats in
-[INDEPENDENT_SAST_RESULTS_2026-09-27.json](INDEPENDENT_SAST_RESULTS_2026-09-27.json),
+The probe now **rejects unclean or sparse pinned target checkouts**: a clone
+with the correct `HEAD` but no source files previously produced a misleading
+77.19% precision / 6.26% recall. That run was invalid and was not counted;
+all reported figures use the intact 26-repository worktree with verified
+commit and ground-truth hash. See the pinned manifest, target revisions,
+methodology, per-repository results and caveats in
+[INDEPENDENT_SAST_RESULTS_2026-09-30.json](INDEPENDENT_SAST_RESULTS_2026-09-30.json),
 reproduce with [realvuln_probe.py](../benchmarks/realvuln_probe.py), and
-read the [enterprise release gate](ENTERPRISE_RELEASE_GATE_2026-09-27.md).
+read the [enterprise release gate](ENTERPRISE_RELEASE_GATE_2026-09-30.md).
 
 ### Small internal fixtures (historical regression measure)
 
@@ -116,7 +120,7 @@ unmatched PyPA labels assert that `cryptography==37.0.4` is vulnerable to
 2026 issues in its X.509 verifier; GitHub Reviewed ranges exclude that version
 and the verifier was added in cryptography 42.0.0. The raw probe **still
 fails**; its improved diagnostic reports this as a source-range disagreement,
-not as a nonexistent bundled advisory. See the [release-gate report](ENTERPRISE_RELEASE_GATE_2026-09-27.md)
+not as a nonexistent bundled advisory. See the [release-gate report](ENTERPRISE_RELEASE_GATE_2026-09-30.md)
 for third-party references. Because the snapshot merges PyPA, even a perfect
 feed-probe score would be partly circular and would not establish accuracy of
 the shipped dependency scanner on independent code.

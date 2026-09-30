@@ -67,7 +67,7 @@ developing.
 | Engine | What it does |
 |---|---|
 | **Python AST + taint** | Real source → sanitizer → sink analysis: SQL injection, command injection, `eval`/`exec`, path traversal, SSRF, XSS, open redirect, template injection, XXE, unsafe deserialization, weak TLS, insecure randomness, debug flags, assert-based auth |
-| **Multi-language rules** | 9 YAML packs, **66 rules** across Python, JS/TS, Java, Go, Ruby, PHP, C#, SQL, shell, Terraform, Kubernetes, Dockerfiles. Extend without touching code |
+| **Multi-language rules** | 10 YAML packs, **67 rules** across Python, JS/TS, Java, Go, Ruby, PHP, C#, SQL, shell, Terraform, Kubernetes, Dockerfiles. Extend without touching code |
 | **Secrets** | Provider patterns (AWS, GitHub, Stripe, Slack, Google, DB URIs, PEM keys), Shannon-entropy detection, and a name-based credential rule that catches weak literals an entropy detector misses. **Secret values are never emitted** |
 | **Dependencies** | **8 ecosystems, 23 manifest parsers**: Python (incl. `Pipfile`, `setup.py`, `constraints.txt` and pip-compile `requirements/*.txt`), npm, Go, Rust, Java (Maven + Gradle), PHP, Ruby, NuGet. A version *range* is never reported as an installed version; malformed manifests reported, not silently skipped |
 | **IaC** | Dockerfiles, Kubernetes and Terraform: privileged containers, host networking, root users, world-open ingress, disabled encryption, exposed ports, secrets in ENV/ARG, floating tags |
@@ -178,8 +178,8 @@ python benchmarks/corpus_metrics.py           # labelled-corpus accuracy
 ironclad scan ironclad --fail-on high         # high-severity self-scan gate
 ```
 
-The latest PostgreSQL-backed test result and self-scan gate are recorded in
-[`docs/UPGRADE_VALIDATION_2026-09-26.md`](docs/UPGRADE_VALIDATION_2026-09-26.md).
+The latest PostgreSQL-backed test result and independent SAST gate are recorded in
+[`docs/ENTERPRISE_RELEASE_GATE_2026-09-30.md`](docs/ENTERPRISE_RELEASE_GATE_2026-09-30.md).
 Older self-scan counts in the historical documentation are not current release
 measurements.
 
@@ -197,7 +197,7 @@ measurements.
 | [CONTRIBUTING.md](docs/CONTRIBUTING.md) | The rules for changing this codebase |
 | [PROGRESS.md](docs/PROGRESS.md) | Historical completion estimates — not a current percentage |
 | [PROJECT_STATUS_REPORT_2026-09-27.md](docs/PROJECT_STATUS_REPORT_2026-09-27.md) | All 35 historical area ratings, earlier evidence and remaining work |
-| [ENTERPRISE_RELEASE_GATE_2026-09-27.md](docs/ENTERPRISE_RELEASE_GATE_2026-09-27.md) | Current enterprise acceptance gates, independently measured scanner accuracy and blockers |
+| [ENTERPRISE_RELEASE_GATE_2026-09-30.md](docs/ENTERPRISE_RELEASE_GATE_2026-09-30.md) | Current enterprise acceptance gates, independently measured scanner accuracy and blockers |
 | [CHANGELOG.md](docs/CHANGELOG.md) | What changed, and the 15 bugs found and fixed |
 | [PRICING_AND_GTM.md](docs/PRICING_AND_GTM.md) | Positioning, tiering, pilot guide |
 
@@ -217,8 +217,8 @@ than one that under-delivers — the full list is in
 * Taint analysis is **intra-procedural**; flows crossing a function
   boundary are missed.
 * Deep analysis is **Python-only**. Other languages are regex rules.
-* The bundled advisory database is a **snapshot** (13,523 packages / 46,634
-  advisories when generated on 2026-09-27), not a live feed. Refresh it from
+* The bundled advisory database is a **snapshot** (13,527 packages / 46,732
+  advisories when generated on 2026-09-30), not a live feed. Refresh it from
   both upstreams and run the online freshness checker **at release time**;
   alternatively supply an advisory overlay.
 * Optional single-provider **OIDC login** is available for preprovisioned

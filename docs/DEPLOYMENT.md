@@ -115,7 +115,7 @@ immediate. **IdP logout and external deprovisioning are not pushed to
 IronClad**: locally revoke sessions/tokens and deactivate a user when needed;
 existing OIDC sessions otherwise expire at their local TTL. There is no JIT
 provisioning, multi-provider org routing, SCIM or enterprise IdP live-tenant
-certification here. See [enterprise release gate](ENTERPRISE_RELEASE_GATE_2026-09-27.md)
+certification here. See [enterprise release gate](ENTERPRISE_RELEASE_GATE_2026-09-30.md)
 for what was actually verified.
 
 ---

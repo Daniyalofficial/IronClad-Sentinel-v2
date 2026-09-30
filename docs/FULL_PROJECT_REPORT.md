@@ -3,7 +3,7 @@
 > **Archived historical report (2026-08-31).** Branch/CI status, percentage
 > estimates and statements about OIDC below describe that older checkout;
 > they are **not** current release evidence. See the
-> [2026-09-27 enterprise release gate](ENTERPRISE_RELEASE_GATE_2026-09-27.md):
+> [2026-09-30 enterprise release gate](ENTERPRISE_RELEASE_GATE_2026-09-30.md):
 > independent scanner accuracy fails the agreed thresholds, and no final
 > enterprise release is certified.
 

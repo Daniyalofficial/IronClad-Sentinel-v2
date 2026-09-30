@@ -24,6 +24,27 @@ def test_flask_route_returns_unescaped_html_from_request(tmp_path):
     assert _xss_lines(findings) == [6]
 
 
+def test_escaping_one_html_value_does_not_hide_a_second_unsafe_value(tmp_path):
+    findings = _scan(tmp_path,
+        "from fastapi.responses import HTMLResponse\n"
+        "from flask import request\n"
+        "import html\n"
+        "def page():\n"
+        "    return HTMLResponse(f'<p>{html.escape(request.args.get(\"safe\"))} "
+        "{request.args.get(\"unsafe\")}</p>')\n")
+    assert _xss_lines(findings) == [5]
+
+
+def test_entirely_escaped_html_output_remains_clean(tmp_path):
+    findings = _scan(tmp_path,
+        "from fastapi.responses import HTMLResponse\n"
+        "from flask import request\n"
+        "import html\n"
+        "def page():\n"
+        "    return HTMLResponse(f'<p>{html.escape(request.args.get(\"safe\"))}</p>')\n")
+    assert _xss_lines(findings) == []
+
+
 def test_flask_route_html_escape_is_not_reported(tmp_path):
     findings = _scan(tmp_path,
         "from flask import Flask, request\n"
